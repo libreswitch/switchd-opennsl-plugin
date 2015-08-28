@@ -66,12 +66,15 @@ struct ofbundle {
     bool use_priority_tags;     /* Use 802.1p tag for frames in VLAN 0? */
 
     /* Status. */
-    bool floodable;          /* True if no port has OFPUTIL_PC_NO_FLOOD set. */
+    bool floodable;             /* True if no port has OFPUTIL_PC_NO_FLOOD set. */
 
-    int bond_hw_handle;      /* Allocated bond id in hardware. */
-    opennsl_l3_intf_t *l3_intf; /* L3 interface pointer. NULL if not L3 */
-    int hw_unit, hw_port;   /* HW identification of L3 interfaces, might change
-                             * when L3 on top of LAGs would be introduced */
+    int bond_hw_handle;         /* Allocated bond id in hardware. */
+    int hw_unit, hw_port;       /* HW identification of L3 interfaces, might change
+                                 * when L3 on top of LAGs would be introduced */
+
+    /* L3 Routing */
+    opennsl_l3_intf_t *l3_intf;  /* L3 interface pointer. NULL if not L3 */
+    int vlan_knet_filter_ids[3]; /* Filter ID for vlan interface */
 };
 
 struct bcmsdk_provider_ofport_node {

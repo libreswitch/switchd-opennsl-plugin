@@ -167,7 +167,7 @@ netdev_bcmsdk_construct(struct netdev *netdev_)
     ovs_mutex_init(&netdev->mutex);
     ovs_mutex_lock(&netdev->mutex);
 
-    /* HALON_TODO: We should use MAC address defined in the
+    /* OPENSWITCH_TODO: We should use MAC address defined in the
      * INTERFACE table instead of a randomly generated one. */
     netdev->hwaddr[0] = 0xaa;
     netdev->hwaddr[1] = 0x55;
@@ -208,7 +208,10 @@ netdev_bcmsdk_destruct(struct netdev *netdev_)
              netdev->up.name, netdev->hw_unit, netdev->hw_id);
     ovs_mutex_lock(&bcmsdk_list_mutex);
 
-    rc = bcmsdk_knet_if_delete(netdev->up.name, netdev->hw_unit, netdev->hw_id);
+    if(netdev->knet_if_id) {
+        rc = bcmsdk_knet_if_delete(netdev->up.name, netdev->hw_unit, netdev->knet_if_id);
+    }
+
     if (rc) {
         VLOG_ERR("Failed to delete kernel KNET interface %s", netdev->up.name);
     }
@@ -333,7 +336,6 @@ netdev_bcmsdk_set_hw_intf_info(struct netdev *netdev_, const struct smap *args)
             netdev->intf_initialized = true;
         }
     }
-
     ovs_mutex_unlock(&netdev->mutex);
     return 0;
 
@@ -434,8 +436,8 @@ handle_bcmsdk_knet_filters(struct netdev_bcmsdk *netdev, int enable)
 {
     if ((enable == true) && (netdev->knet_filter_id == 0)) {
 
-        bcmsdk_knet_filter_create(netdev->up.name, netdev->hw_unit, netdev->hw_id,
-                                  netdev->knet_if_id, &(netdev->knet_filter_id));
+        bcmsdk_knet_port_filter_create(netdev->up.name, netdev->hw_unit, netdev->hw_id,
+                                       netdev->knet_if_id, &(netdev->knet_filter_id));
 
     } else if ((enable == false) && (netdev->knet_filter_id != 0)) {
 
@@ -871,8 +873,164 @@ static const struct netdev_class bcmsdk_class = {
     NULL,                       /* rxq_drain */
 };
 
+static int
+netdev_internal_bcmsdk_set_hw_intf_info(struct netdev *netdev_, const struct smap *args)
+{
+    struct netdev_bcmsdk *netdev = netdev_bcmsdk_cast(netdev_);
+    int rc = 0;
+    struct ether_addr *ether_mac = NULL;
+    const char *interface_type = smap_get(args, INTERFACE_HW_INTF_INFO_MAP_TYPE);
+
+    VLOG_DBG("netdev set_hw_intf_info for interace %s", netdev->up.name);
+
+    ovs_mutex_lock(&netdev->mutex);
+
+    if (netdev->intf_initialized == false) {
+        netdev->hw_unit = 0;
+        netdev->hw_id = -1;
+        if(interface_type && !strcmp(interface_type, INTERFACE_HW_INTF_INFO_MAP_TYPE_BRIDGE)) {
+            ether_mac = (struct ether_addr *) netdev->hwaddr;
+            rc = bcmsdk_knet_if_create(netdev->up.name, netdev->hw_unit, netdev->hw_id, ether_mac,
+                    &(netdev->knet_if_id));
+            if (rc) {
+                VLOG_ERR("Failed to initialize interface %s", netdev->up.name);
+                goto error;
+            } else {
+                netdev->intf_initialized = true;
+            }
+        } else {
+            netdev->intf_initialized = true;
+        }
+    }
+
+    ovs_mutex_unlock(&netdev->mutex);
+    return 0;
+
+error:
+    ovs_mutex_unlock(&netdev->mutex);
+    rc = -EINVAL;
+    return rc;
+}
+
+static int
+netdev_internal_bcmsdk_get_carrier(const struct netdev *netdev_, bool *carrier)
+{
+    /* OPENSWITCH_TODO: What needs to be done for internal interfaces */
+    return 0;
+}
+
+static int
+netdev_internal_bcmsdk_get_mtu(const struct netdev *netdev_, int *mtup)
+{
+    int rc = 1;
+    /* OPENSWITCH_TODO: What needs to be done for internal interfaces */
+    return rc;
+}
+
+static int
+netdev_internal_bcmsdk_get_stats(const struct netdev *netdev_, struct netdev_stats *stats)
+{
+    /* OPENSWITCH_TODO: What needs to be done for internal interfaces */
+    memset(stats, 0, sizeof(struct netdev_stats));
+    return 0;
+}
+
+static int
+netdev_internal_bcmsdk_get_features(const struct netdev *netdev_,
+                                    enum netdev_features *current,
+                                    enum netdev_features *advertised,
+                                    enum netdev_features *supported,
+                                    enum netdev_features *peer)
+{
+    int rc = 1;
+    /* OPENSWITCH_TODO: What needs to be done for internal interfaces */
+    return rc;
+}
+
+static int
+netdev_internal_bcmsdk_update_flags(struct netdev *netdev_,
+                                    enum netdev_flags off,
+                                    enum netdev_flags on,
+                                    enum netdev_flags *old_flagsp)
+{
+    int rc = 0;
+    /* OPENSWITCH_TODO: What needs to be done for internal interfaces */
+    return rc;
+}
+
+static const struct netdev_class bcmsdk_internal_class = {
+    "internal",
+    NULL,                       /* init */
+    NULL,                       /* run */
+    NULL,                       /* wait */
+
+    netdev_bcmsdk_alloc,
+    netdev_bcmsdk_construct,
+    netdev_bcmsdk_destruct,
+    netdev_bcmsdk_dealloc,
+    NULL,                       /* get_config */
+    NULL,                       /* set_config */
+    netdev_internal_bcmsdk_set_hw_intf_info,
+    NULL,
+    NULL,                       /* get_tunnel_config */
+    NULL,                       /* build header */
+    NULL,                       /* push header */
+    NULL,                       /* pop header */
+    NULL,                       /* get_numa_id */
+    NULL,                       /* set_multiq */
+
+    NULL,                       /* send */
+    NULL,                       /* send_wait */
+
+    netdev_bcmsdk_set_etheraddr,
+    netdev_bcmsdk_get_etheraddr,
+    netdev_internal_bcmsdk_get_mtu,
+    NULL,                       /* set_mtu */
+    NULL,                       /* get_ifindex */
+    netdev_internal_bcmsdk_get_carrier,
+    netdev_bcmsdk_get_carrier_resets,
+    NULL,                       /* get_miimon */
+    netdev_internal_bcmsdk_get_stats,
+
+    netdev_internal_bcmsdk_get_features,
+    NULL,                       /* set_advertisements */
+
+    NULL,                       /* set_policing */
+    NULL,                       /* get_qos_types */
+    NULL,                       /* get_qos_capabilities */
+    NULL,                       /* get_qos */
+    NULL,                       /* set_qos */
+    NULL,                       /* get_queue */
+    NULL,                       /* set_queue */
+    NULL,                       /* delete_queue */
+    NULL,                       /* get_queue_stats */
+    NULL,                       /* queue_dump_start */
+    NULL,                       /* queue_dump_next */
+    NULL,                       /* queue_dump_done */
+    NULL,                       /* dump_queue_stats */
+
+    NULL,                       /* get_in4 */
+    NULL,                       /* set_in4 */
+    NULL,                       /* get_in6 */
+    NULL,                       /* add_router */
+    NULL,                       /* get_next_hop */
+    NULL,                       /* get_status */
+    NULL,                       /* arp_lookup */
+
+    netdev_internal_bcmsdk_update_flags,
+
+    NULL,                       /* rxq_alloc */
+    NULL,                       /* rxq_construct */
+    NULL,                       /* rxq_destruct */
+    NULL,                       /* rxq_dealloc */
+    NULL,                       /* rxq_recv */
+    NULL,                       /* rxq_wait */
+    NULL,                       /* rxq_drain */
+};
+
 void
 netdev_bcmsdk_register(void)
 {
     netdev_register_provider(&bcmsdk_class);
+    netdev_register_provider(&bcmsdk_internal_class);
 }
