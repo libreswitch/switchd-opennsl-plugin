@@ -7,6 +7,7 @@
 #ifndef __HC_KNET_H__
 #define __HC_KNET_H__ 1
 
+#include <ovs/dynamic-string.h>
 #include <netinet/ether.h>
 #include <opennsl/types.h>
 
@@ -23,6 +24,17 @@ enum knet_filter_prio_e
     KNET_FILTER_PRIO_LOWEST = 255
 };
 
+typedef enum knet_debug_type_ {
+    KNET_DEBUG_NETIF,
+    KNET_DEBUG_FILTER,
+    KNET_DEBUG_MAX
+} knet_debug_type_t;
+
+struct knet_user_data {
+    struct ds *ds;
+    int count;
+};
+
 extern int hc_knet_init(int unit);
 extern int bcmsdk_knet_if_create(char *name, int unit, opennsl_port_t port,
                                  struct ether_addr *mac, int *knet_if_id);
@@ -35,5 +47,7 @@ extern void bcmsdk_knet_port_filter_create(char *name, int hw_unit, opennsl_port
                                            int knet_if_id, int *knet_filter_id);
 extern void bcmsdk_knet_vlan_interface_filter_create(char *name,  opennsl_vlan_t vid,
                                                      int *knet_filter_id);
+
+extern void hc_knet_dump(struct ds *ds, knet_debug_type_t debug_type);
 
 #endif /* __HC_KNET_H__ */

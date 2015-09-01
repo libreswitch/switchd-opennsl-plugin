@@ -74,7 +74,7 @@ bcmsdk_knet_if_create(char *name, int hw_unit, opennsl_port_t hw_port,
     *knet_if_id = knet_if.id;
 
     /* Bring the virtual Ethernet interface UP. */
-    /* OPENSWITCH_TODO: Change the 'system' function to something better. */
+    /* OPS_TODO: Change the 'system' function to something better. */
     snprintf(cmd, sizeof(cmd), "/sbin/ifconfig %s up", knet_if.name);
     rc = system(cmd);
     if (rc != 0) {
@@ -208,7 +208,7 @@ static int bcmsdk_knet_vlan_ipv4_filter_create(int knet_dst_id, opennsl_vlan_t v
     knet_filter->type = OPENNSL_KNET_FILTER_T_RX_PKT;
     knet_filter->match_flags = OPENNSL_KNET_FILTER_M_RAW | OPENNSL_KNET_FILTER_M_VLAN;
     snprintf(knet_filter->desc, OPENNSL_KNET_FILTER_DESC_MAX,
-             "knet_filter_arp_vlan%d", vid);
+             "knet_filter_ipv4_vlan%d", vid);
 
     knet_filter->priority = KNET_FILTER_PRIO_VLAN;
     knet_filter->dest_type = OPENNSL_KNET_DEST_T_NETIF;
@@ -239,7 +239,7 @@ static int bcmsdk_knet_vlan_ipv6_filter_create(int knet_dst_id, opennsl_vlan_t v
     knet_filter->type = OPENNSL_KNET_FILTER_T_RX_PKT;
     knet_filter->match_flags = OPENNSL_KNET_FILTER_M_RAW | OPENNSL_KNET_FILTER_M_VLAN;
     snprintf(knet_filter->desc, OPENNSL_KNET_FILTER_DESC_MAX,
-             "knet_filter_arp_vlan%d", vid);
+             "knet_filter_ipv6_vlan%d", vid);
 
     knet_filter->priority = KNET_FILTER_PRIO_VLAN;
     knet_filter->dest_type = OPENNSL_KNET_DEST_T_NETIF;
@@ -317,6 +317,205 @@ bcmsdk_knet_filter_delete(char *name, int hw_unit, int knet_filter_id)
     }
 } /* bcmsdk_knet_filter_delete */
 
+///////////////////////////////// DEBUG/DUMP /////////////////////////////////
+
+/* Note:  See knet.h, OPENNSL_KNET_NETIF_T_xxx */
+static char *netif_type[] = {
+    "unknown", "Vlan", "Port", "Meta", NULL
+};
+
+/* Note:  See knet.h, OPENNSL_KNET_DEST_T_xxx */
+static char *filter_dest_type[] = {
+    "Null", "NetIF", "RxAPI", "CallBack", NULL
+};
+
+static void
+knet_show_netif (int unit, opennsl_knet_netif_t *netif, struct ds *ds)
+{
+    char *type_str = "?";
+    char *port_str = "n/a";
+
+    switch (netif->type) {
+    case OPENNSL_KNET_NETIF_T_TX_CPU_INGRESS:
+        type_str = netif_type[netif->type];
+        break;
+    case OPENNSL_KNET_NETIF_T_TX_LOCAL_PORT:
+        type_str = netif_type[netif->type];
+#if 0
+        /* OPS_TODO: OpenNSL unavailable */
+        port_str = OPENNSL_PORT_NAME(unit, netif->port);
+#endif
+        break;
+    default:
+        break;
+    }
+
+    ds_put_format(ds, "Interface ID %d: name=%s type=%s vlan=%d port=%s",
+                  netif->id, netif->name, type_str, netif->vlan, port_str);
+
+    if (netif->flags & OPENNSL_KNET_NETIF_F_ADD_TAG) {
+        ds_put_format(ds, " addtag");
+    }
+    ds_put_format(ds, "\n");
+}
+
+static int
+knet_netif_traverse_cb (int unit, opennsl_knet_netif_t *netif, void *user_data)
+{
+    struct knet_user_data *params = (struct knet_user_data *)user_data;
+    struct ds *ds = params->ds;
+
+    knet_show_netif(unit, netif, ds);
+
+    params->count++;
+
+    return OPENNSL_E_NONE;
+}
+
+static void
+hc_knet_netif_show (struct ds *ds)
+{
+    struct knet_user_data user_data;
+    int unit = 0;
+    int ret;
+
+    user_data.ds = ds;
+    user_data.count = 0;
+
+    ret = opennsl_knet_netif_traverse(unit, knet_netif_traverse_cb,
+                                      &user_data);
+    if (ret != OPENNSL_E_NONE) {
+        VLOG_ERR("KNET netif traversal failure");
+    }
+    if (user_data.count == 0) {
+        ds_put_format(ds, "No network interfaces\n");
+    }
+}
+
+static void
+knet_show_filter(int unit, opennsl_knet_filter_t *filter, struct ds *ds)
+{
+    char *dest_str = "?";
+    char proto_str[16];
+    int idx, edx;
+
+    switch (filter->dest_type) {
+    case OPENNSL_KNET_DEST_T_NETIF:
+        dest_str = filter_dest_type[filter->dest_type];
+        break;
+    default:
+        break;
+    }
+
+    proto_str[0] = 0;
+    if (filter->dest_proto) {
+        sprintf(proto_str, "[0x%04x]", filter->dest_proto);
+    }
+    ds_put_format(ds, "Filter ID %d: prio=%d dest=%s(%d)%s desc='%s'",
+                filter->id, filter->priority, dest_str,
+                filter->dest_id, proto_str, filter->desc);
+    if (filter->mirror_type ==  OPENNSL_KNET_DEST_T_NETIF) {
+        proto_str[0] = 0;
+        if (filter->mirror_proto) {
+            sprintf(proto_str, "[0x%04x]", filter->mirror_proto);
+        }
+        ds_put_format(ds, " mirror=netif(%d)%s", filter->mirror_id, proto_str);
+    }
+    if (filter->flags & OPENNSL_KNET_FILTER_F_STRIP_TAG) {
+        ds_put_format(ds, " striptag");
+    }
+    if (filter->match_flags & OPENNSL_KNET_FILTER_M_VLAN) {
+        ds_put_format(ds, " vlan=%d", filter->m_vlan);
+    }
+
+    /* OPS_TODO: Call OPENNSL_PORT_NAME after it becomes available */
+    if (filter->match_flags & OPENNSL_KNET_FILTER_M_INGPORT) {
+        ds_put_format(ds, " ingport=%d", filter->m_ingport);
+    }
+
+    if (filter->match_flags & OPENNSL_KNET_FILTER_M_RAW) {
+        ds_put_format(ds, " rawdata");
+        for (idx = 0; idx < filter->raw_size; idx++) {
+            if (filter->m_raw_mask[idx]) {
+                break;
+            }
+        }
+        for (edx = filter->raw_size - 1; edx > idx; edx--) {
+            if (filter->m_raw_mask[edx]) {
+                break;
+            }
+        }
+        if (edx < idx) {
+            /* Entire mask is empty - should not happen */
+            ds_put_format(ds, "?");
+        } else {
+            /* Show offset of first valid byte */
+            ds_put_format(ds, "[%d]", idx);
+            /* Dump data */
+            for (; idx <= edx; idx++) {
+                if (filter->m_raw_mask[idx]) {
+                    ds_put_format(ds, ":0x%02x", filter->m_raw_data[idx]);
+                    if (filter->m_raw_mask[idx] != 0xff) {
+                        ds_put_format(ds, "/0x%02x", filter->m_raw_mask[idx]);
+                    }
+                } else {
+                    ds_put_format(ds, ":-");
+                }
+            }
+        }
+    }
+    ds_put_format(ds, "\n");
+}
+
+static int
+knet_filter_traverse_cb (int unit, opennsl_knet_filter_t *filter,
+                         void *user_data)
+{
+    struct knet_user_data *params = (struct knet_user_data *)user_data;
+    struct ds *ds = params->ds;
+
+    knet_show_filter(unit, filter, ds);
+
+    params->count++;
+
+    return OPENNSL_E_NONE;
+}
+
+static void
+hc_knet_filter_show (struct ds *ds)
+{
+    struct knet_user_data user_data;
+    int unit = 0;
+    int ret;
+
+    user_data.ds = ds;
+    user_data.count = 0;
+
+    ret = opennsl_knet_filter_traverse(unit, knet_filter_traverse_cb,
+                                       &user_data);
+    if (ret != OPENNSL_E_NONE) {
+        VLOG_ERR("KNET filter traversal failure");
+    }
+    if (user_data.count == 0) {
+        ds_put_format(ds, "No knet filters\n");
+    }
+}
+
+void
+hc_knet_dump (struct ds *ds, knet_debug_type_t debug_type)
+{
+    switch (debug_type) {
+    case KNET_DEBUG_NETIF:
+        hc_knet_netif_show(ds);
+        break;
+    case KNET_DEBUG_FILTER:
+        hc_knet_filter_show(ds);
+        break;
+    default:
+        VLOG_ERR("show knet unknown option ");
+        break;
+    }
+}
 
 ///////////////////////////////// INIT /////////////////////////////////
 
@@ -332,7 +531,7 @@ hc_knet_init(int hw_unit)
         return 1;
     }
 
-    /* OPENSWITCH_TODO: Delete all the existing KNET interfaces and filters.
+    /* OPS_TODO: Delete all the existing KNET interfaces and filters.
      * When SDK restarts, existing interfaces and filters are not deleted
      * from the kernel.
      */

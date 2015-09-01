@@ -761,14 +761,25 @@ bundle_set(struct ofproto *ofproto_, void *aux,
         int hw_unit, hw_port;
         opennsl_vlan_t vlan_id;
         uint8_t mac[ETH_ADDR_LEN];
+        const char *type = NULL;
 
         port = get_ofp_port(bundle->ofproto, s->slaves[0]);
         if (!port) {
             VLOG_ERR("slave is not in the ports");
         }
+
+        type = netdev_get_type(port->up.netdev);
         netdev_bcmsdk_get_hw_info(port->up.netdev, &hw_unit, &hw_port, mac);
 
-        vlan_id = smap_get_int(s->port_options[PORT_HW_CONFIG], "internal_vlan_id", 0);
+        /* For internal vlan interfaces, we get vlanid from tag column
+         * For regular l3 interfaces we will get from internal vlan id from
+         * hw_config column
+         */
+        if(strcmp(type, INTERFACE_TYPE_INTERNAL) == 0) {
+            vlan_id = s->vlan;
+        } else {
+            vlan_id = smap_get_int(s->port_options[PORT_HW_CONFIG], "internal_vlan_id", 0);
+        }
 
         if (bundle->l3_intf) {
             /* if reserved vlan changed or removed */
@@ -776,13 +787,11 @@ bundle_set(struct ofproto *ofproto_, void *aux,
                 hc_routing_disable_l3_interface(hw_unit, hw_port, bundle->l3_intf);
                 bundle->l3_intf = NULL;
                 bundle->hw_unit = 0;
-                bundle->hw_port = 0;
+                bundle->hw_port = -1;
             }
         }
 
         if (vlan_id && !bundle->l3_intf) {
-
-            const char *type = netdev_get_type(port->up.netdev);
 
             /* If interface type is not internal create l3 interface, else
              * create an l3 vlan interface on every hw_unit. */
@@ -796,7 +805,6 @@ bundle_set(struct ofproto *ofproto_, void *aux,
                 }
             } else {
                 int unit = 0;
-                vlan_id = s->vlan;
                 for (unit = 0; unit <= MAX_SWITCH_UNIT_ID; unit++) {
                     bundle->l3_intf = hc_routing_enable_l3_vlan_interface(
                             unit, ofproto->vrf_id, vlan_id,
