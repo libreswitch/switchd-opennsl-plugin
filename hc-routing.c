@@ -582,7 +582,7 @@ int hc_host_print(
     port = info->l3a_port_tgid;
 
     if (info->l3a_flags & OPENNSL_L3_IP6) {
-        char ip_str[64];
+        char ip_str[IPV6_PREFIX_LEN];
         sprintf(ip_str, "%04x:%04x:%04x:%04x:%04x:%04x:%04x:%04x",
             (((uint16)info->l3a_ip6_addr[0] << 8) | info->l3a_ip6_addr[1]),
             (((uint16)info->l3a_ip6_addr[2] << 8) | info->l3a_ip6_addr[3]),
@@ -597,7 +597,7 @@ int hc_host_print(
                 info->l3a_vrf, ip_str, info->l3a_intf,
                 port, trunk, hit);
     } else {
-        char ip_str[32];
+        char ip_str[IPV4_PREFIX_LEN];
         sprintf(ip_str, "%d.%d.%d.%d",
             (info->l3a_ip_addr >> 24) & 0xff, (info->l3a_ip_addr >> 16) & 0xff,
             (info->l3a_ip_addr >> 8) & 0xff, info->l3a_ip_addr & 0xff);
@@ -615,7 +615,6 @@ hc_l3host_dump(struct ds *ds, int ipv6_enabled)
 {
     int               unit = 0;
     int               rv;
-    int               free_l3host;
     int               last_entry;
     int               first_entry;
     opennsl_l3_info_t l3_hw_status;
@@ -626,10 +625,8 @@ hc_l3host_dump(struct ds *ds, int ipv6_enabled)
         return;
     }
 
-    free_l3host = l3_hw_status.l3info_max_host;
     last_entry = l3_hw_status.l3info_max_host;
     first_entry = 0;
-    ds_put_format(ds,"Unit %d, free L3 table entries: %d\n", unit, free_l3host);
 
     if (ipv6_enabled == TRUE) {
         ds_put_format(ds ,"Entry VRF                 IP address                 "
@@ -646,3 +643,93 @@ hc_l3host_dump(struct ds *ds, int ipv6_enabled)
     }
 
 } /* hc_l3host_dump */
+
+int hc_route_print(
+    int unit,
+    int index,
+    opennsl_l3_route_t *info,
+    void *user_data)
+{
+    char *hit;
+    struct ds *pds = (struct ds *)user_data;
+
+    hit = (info->l3a_flags & OPENNSL_L3_HIT) ? "Y" : "N";
+
+    if (info->l3a_flags & OPENNSL_L3_IP6) {
+        char subnet_str[IPV6_PREFIX_LEN];
+        char subnet_mask[IPV6_PREFIX_LEN];
+        sprintf(subnet_str, "%04x:%04x:%04x:%04x:%04x:%04x:%04x:%04x",
+            (((uint16)info->l3a_ip6_net[0] << 8) | info->l3a_ip6_net[1]),
+            (((uint16)info->l3a_ip6_net[2] << 8) | info->l3a_ip6_net[3]),
+            (((uint16)info->l3a_ip6_net[4] << 8) | info->l3a_ip6_net[5]),
+            (((uint16)info->l3a_ip6_net[6] << 8) | info->l3a_ip6_net[7]),
+            (((uint16)info->l3a_ip6_net[8] << 8) | info->l3a_ip6_net[9]),
+            (((uint16)info->l3a_ip6_net[10] << 8) | info->l3a_ip6_net[11]),
+            (((uint16)info->l3a_ip6_net[12] << 8) | info->l3a_ip6_net[13]),
+            (((uint16)info->l3a_ip6_net[14] << 8) | info->l3a_ip6_net[15]));
+        sprintf(subnet_mask, "%04x:%04x:%04x:%04x:%04x:%04x:%04x:%04x",
+            (((uint16)info->l3a_ip6_mask[0] << 8) | info->l3a_ip6_mask[1]),
+            (((uint16)info->l3a_ip6_mask[2] << 8) | info->l3a_ip6_mask[3]),
+            (((uint16)info->l3a_ip6_mask[4] << 8) | info->l3a_ip6_mask[5]),
+            (((uint16)info->l3a_ip6_mask[6] << 8) | info->l3a_ip6_mask[7]),
+            (((uint16)info->l3a_ip6_mask[8] << 8) | info->l3a_ip6_mask[9]),
+            (((uint16)info->l3a_ip6_mask[10] << 8) | info->l3a_ip6_mask[11]),
+            (((uint16)info->l3a_ip6_mask[12] << 8) | info->l3a_ip6_mask[13]),
+            (((uint16)info->l3a_ip6_mask[14] << 8) | info->l3a_ip6_mask[15]));
+
+        ds_put_format(pds, "%-6d %-4d %-42s %-42s %2d %4s\n", index,
+                info->l3a_vrf, subnet_str, subnet_mask, info->l3a_intf, hit);
+    } else {
+        char subnet_str[IPV4_PREFIX_LEN];
+        char subnet_mask[IPV4_PREFIX_LEN];
+        sprintf(subnet_str, "%d.%d.%d.%d",
+            (info->l3a_subnet >> 24) & 0xff, (info->l3a_subnet >> 16) & 0xff,
+            (info->l3a_subnet >> 8) & 0xff, info->l3a_subnet & 0xff);
+        sprintf(subnet_mask, "%d.%d.%d.%d",
+            (info->l3a_ip_mask >> 24) & 0xff, (info->l3a_ip_mask >> 16) & 0xff,
+            (info->l3a_ip_mask >> 8) & 0xff, info->l3a_ip_mask & 0xff);
+
+        ds_put_format(pds,"%-6d %-4d %-16s %-16s %2d %5s\n", index,
+                      info->l3a_vrf, subnet_str, subnet_mask, info->l3a_intf, hit);
+    }
+    return OPENNSL_E_NONE;
+} /*hc_route_print*/
+
+void
+hc_l3route_dump(struct ds *ds, int ipv6_enabled)
+{
+    int               unit = 0;
+    int               rv;
+    int               last_entry;
+    int               first_entry;
+    opennsl_l3_info_t l3_hw_status;
+
+    rv = opennsl_l3_info(unit, &l3_hw_status);
+    if (OPENNSL_FAILURE(rv)){
+        VLOG_ERR("Error in L3 info access: %s\n",opennsl_errmsg(rv));
+        return;
+    }
+
+    last_entry = l3_hw_status.l3info_max_route;
+    first_entry = 0;
+    /*
+     * HALON_TODO: We need the l3info_used_route to display the number of
+     * entries used
+     */
+
+    if (ipv6_enabled == TRUE) {
+        ds_put_format(ds ,"Entry VRF                Subnet                      "
+                      "                 Mask                         I/F     HIT \n");
+        ds_put_format(ds ,"-----------------------------------------------------"
+                      "----------------------------------------------------------\n");
+        opennsl_l3_route_traverse(unit, OPENNSL_L3_IP6, first_entry, last_entry,
+                                 &hc_route_print, ds);
+    } else {
+        ds_put_format(ds, "Entry VRF    Subnet             Mask            I/F     HIT \n");
+        ds_put_format(ds ,"------------------------------------------------------------\n");
+
+        opennsl_l3_route_traverse(unit, 0, first_entry, last_entry,
+                                 &hc_route_print, ds);
+    }
+
+} /* hc_l3route_dump */

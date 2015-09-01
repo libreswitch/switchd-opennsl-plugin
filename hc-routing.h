@@ -21,6 +21,9 @@
 #include <opennsl/types.h>
 #include <opennsl/l3.h>
 
+#define IPV4_PREFIX_LEN     32
+#define IPV6_PREFIX_LEN     64
+
 extern int hc_l3_init(int);
 
 extern opennsl_l3_intf_t *hc_routing_enable_l3_interface(int hw_unit,
@@ -46,5 +49,6 @@ extern int hc_routing_get_host_hit(int hw_unit, opennsl_vrf_t vrf_id,
 
 extern void hc_l3intf_dump(struct ds *ds, int intfid);
 extern void hc_l3host_dump(struct ds *ds, int ipv6_enabled);
+extern void hc_l3route_dump(struct ds *ds, int ipv6_enabled);
 
 #endif /* __HC_ROUTING_H__ */

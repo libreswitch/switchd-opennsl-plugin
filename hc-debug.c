@@ -59,6 +59,8 @@ char cmd_hp_usage[] =
 "   l3intf [<interface id>] - display Halon interface info.\n"
 "   l3host - display Halon l3 host info.\n"
 "   l3v6host - display Halon l3 IPv6 host info.\n"
+"   l3route - display Halon l3 Routes.\n"
+"   l3v6route - display Halon l3 IPv6 Routes.\n"
 "   lag [<lagid>] - displays Halon LAG info.\n"
 "   help - displays this help text.\n"
 ;
@@ -228,6 +230,14 @@ bcm_plugin_debug(struct unixctl_conn *conn, int argc,
 
         } else if (!strcmp(ch, "l3v6host")) {
             hc_l3host_dump(&ds, TRUE);
+            goto done;
+
+        } else if (!strcmp(ch, "l3route")) {
+            hc_l3route_dump(&ds, FALSE);
+            goto done;
+
+        } else if (!strcmp(ch, "l3v6route")) {
+            hc_l3route_dump(&ds, TRUE);
             goto done;
 
         } else if (!strcmp(ch, "lag")) {
