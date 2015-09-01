@@ -20,6 +20,8 @@
 #include <ovs/dynamic-string.h>
 #include <opennsl/types.h>
 #include <opennsl/l3.h>
+#include <netinet/in.h>
+#include <ofproto/ofproto.h>
 
 extern int hc_l3_init(int);
 
@@ -42,7 +44,12 @@ extern int hc_routing_delete_host_entry(int hw_unit, opennsl_port_t hw_port,
                                         bool is_ipv6_addr, char *ip_addr,
                                         opennsl_if_t *l3_egress_id);
 extern int hc_routing_get_host_hit(int hw_unit, opennsl_vrf_t vrf_id,
-                        bool is_ipv6_addr, char *ip_addr, bool *hit_bit);
+                                   bool is_ipv6_addr, char *ip_addr, bool *hit_bit);
+
+extern int hc_routing_route_entry_action(int hw_unit,
+                                         opennsl_vrf_t vrf_id,
+                                         enum ofproto_route_action action,
+                                         struct ofproto_route *routep);
 
 extern void hc_l3intf_dump(struct ds *ds, int intfid);
 extern void hc_l3host_dump(struct ds *ds, int ipv6_enabled);
