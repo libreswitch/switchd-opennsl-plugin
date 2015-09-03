@@ -16,12 +16,6 @@
 project (ovs_bcm_plugin)
 cmake_minimum_required (VERSION 2.8)
 
-# Define OpenNSL compile flags
-set (OPENNSL_C_FLAGS -DINCLUDE_L3)
-
-# Define compile flags
-set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OPENNSL_C_FLAGS} -std=gnu99 -Wall -Werror")
-
 # Define sources
 set (SOURCES bcm.c
              bcm-plugins.c
@@ -44,6 +38,9 @@ set (SOURCES bcm.c
 include(FindPkgConfig)
 pkg_check_modules(OVSCOMMON REQUIRED libovscommon)
 pkg_check_modules(OPENNSL REQUIRED opennsl)
+
+# Define compile flags
+set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OPENNSL_CFLAGS} -DINCLUDE_L3 -std=gnu99 -Wall -Werror")
 
 include_directories(${CMAKE_SOURCE_DIR} ${OVSCOMMON_INCLUDE_DIRS}
 	            ${OPENNSL_INCLUDE_DIRS})

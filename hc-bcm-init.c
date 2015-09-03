@@ -126,8 +126,10 @@ halon_main(int argc, char *argv[])
     /* Let OVS know that BCM initialization is complete. */
     ovs_bcm_init_done();
 
-    /* HALON_TODO: need permission from Broadcom to expose BCM shell. */
+#ifndef CDP_EXCLUDE
     opennsl_driver_shell();
+    VLOG_INFO("OpenNSL BCM shell initialized");
+#endif
 
     return 0;
 }
