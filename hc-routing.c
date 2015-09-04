@@ -19,7 +19,9 @@
  */
 
 #include <string.h>
+#include <errno.h>
 #include <netinet/ether.h>
+#include <arpa/inet.h>
 #include <linux/if_ether.h>
 #include <openvswitch/vlog.h>
 #include <opennsl/error.h>
@@ -32,12 +34,20 @@
 #include "hc-vlan.h"
 #include "platform-defines.h"
 #include <util.h>
+#include <ofproto/ofproto.h>
+
 
 VLOG_DEFINE_THIS_MODULE(hc_routing);
 
+opennsl_if_t local_nhid;
+/* fake MAC to create a local_nhid */
+opennsl_mac_t LOCAL_MAC =  {0x0,0x0,0x01,0x02,0x03,0x04};
+
 int
-hc_l3_init(int unit) {
+hc_l3_init(int unit)
+{
     opennsl_error_t rc = OPENNSL_E_NONE;
+    opennsl_l3_egress_t egress_object;
 
     rc = opennsl_switch_control_set(unit, opennslSwitchL3IngressMode, 1);
     if (OPENNSL_FAILURE(rc)) {
@@ -51,6 +61,21 @@ hc_l3_init(int unit) {
         VLOG_ERR("Failed to set opennslSwitchL3EgressMode: unit=%d rc=%s",
                  unit, opennsl_errmsg(rc));
         return 1;
+    }
+
+    /* Create a system wide egress object for unresolved NH */
+    opennsl_l3_egress_t_init(&egress_object);
+
+    egress_object.intf = -1;
+    egress_object.port = 0; /* CPU port */
+    egress_object.flags = OPENNSL_L3_COPY_TO_CPU;
+    memcpy(egress_object.mac_addr, LOCAL_MAC, ETH_ALEN);
+    rc = opennsl_l3_egress_create(unit, OPENNSL_L3_COPY_TO_CPU,
+                                  &egress_object, &local_nhid);
+
+    if (rc != OPENNSL_E_NONE) {
+        VLOG_ERR("Error, create a local egress object, rc=%d", rc);
+        return rc;
     }
 
     return 0;
@@ -476,6 +501,190 @@ hc_routing_get_host_hit(int hw_unit, opennsl_vrf_t vrf_id,
 
     return rc;
 } /* hc_routing_get_host_hit */
+
+
+/* TODO: remove it once opennsl api becomes available */
+uint32
+opennsl_ip_mask_create(int len)
+{
+    return ((len) ? (~((0x1 << (32 - (len))) - 1)) : 0);
+}
+
+
+#define IPV4_PREFIX_MAX_LEN 32
+#define IPV6_PREFIX_MAX_LEN 128
+
+static int
+string_to_prefix(int family, char *ip_address, void *prefix,
+                  unsigned char *prefixlen)
+{
+    char *p;
+    char *tmp_ip_addr;
+    int maxlen = (family == AF_INET) ? IPV4_PREFIX_MAX_LEN :
+                                       IPV6_PREFIX_MAX_LEN;
+    *prefixlen = maxlen;
+    tmp_ip_addr = strdup(ip_address);
+
+    if ((p = strchr(tmp_ip_addr, '/'))) {
+        *p++ = '\0';
+        *prefixlen = atoi(p);
+    }
+
+    if (*prefixlen > maxlen) {
+        VLOG_DBG("Bad prefixlen %d > %d", *prefixlen, maxlen);
+        free(tmp_ip_addr);
+        return EINVAL;
+    }
+
+    if (family == AF_INET) {
+        /* ipv4 address in host order */
+        in_addr_t *addr = (in_addr_t*)prefix;
+        *addr = inet_network(tmp_ip_addr);
+        if (*addr == -1) {
+            VLOG_ERR("Invalid ip address %s", ip_address);
+            free(tmp_ip_addr);
+            return EINVAL;
+        }
+    } else {
+        /* ipv6 address */
+        if (inet_pton(family, tmp_ip_addr, prefix) == 0) {
+            VLOG_DBG("%d inet_pton failed with %s", family, strerror(errno));
+            free(tmp_ip_addr);
+            return EINVAL;
+        }
+    }
+
+    free(tmp_ip_addr);
+    return 0;
+}
+
+
+
+int
+hc_routing_route_entry_action(int hw_unit,
+                              opennsl_vrf_t vrf_id,
+                              enum ofproto_route_action action,
+                              struct ofproto_route *routep)
+{
+    int rc = 0;
+    opennsl_l3_route_t route;
+    bool add_route = false;
+    struct ofproto_route_nexthop *nh;
+    in_addr_t ipv4_addr;
+    struct in6_addr ipv6_addr;
+    uint8_t prefix_len;
+
+    VLOG_DBG("%s: vrfid: %d, action: %d", __FUNCTION__, vrf_id, action);
+
+    if (!routep && !routep->n_nexthops) {
+        VLOG_ERR("route/nexthop entry null");
+        return EINVAL; /* Return error */
+    }
+
+    nh = &routep->nexthops[0];
+
+    opennsl_l3_route_t_init(&route);
+
+    switch (routep->family) {
+    case OFPROTO_ROUTE_IPV4:
+        string_to_prefix(AF_INET, routep->prefix, &ipv4_addr, &prefix_len);
+        route.l3a_subnet = ipv4_addr;
+        route.l3a_ip_mask = opennsl_ip_mask_create(prefix_len);
+        break;
+    case OFPROTO_ROUTE_IPV6:
+        string_to_prefix(AF_INET6, routep->prefix, &ipv6_addr, &prefix_len);
+        route.l3a_flags |= OPENNSL_L3_IP6;
+        memcpy(route.l3a_ip6_net, &ipv6_addr, sizeof(struct in6_addr));
+        opennsl_ip6_mask_create(route.l3a_ip6_mask, prefix_len);
+        break;
+     default:
+        VLOG_ERR ("Unknown protocol %d", routep->family);
+        return EINVAL;
+
+    }
+    route.l3a_vrf = vrf_id;
+
+    /* look for prefix in LPM table */
+    rc = opennsl_l3_route_get(hw_unit, &route);
+
+    VLOG_DBG("%s: l3 route get %d", __FUNCTION__, rc);
+
+    switch (action) {
+    case OFPROTO_ROUTE_ADD:
+        /* entry not found */
+        if (rc == OPENNSL_E_NOT_FOUND) {
+            /* add the entry in LPM table */
+            if (nh->state == OFPROTO_NH_RESOLVED) {
+                route.l3a_intf = nh->l3_egress_id;
+           } else {
+                /* punt pkt to cpu for unresolved routes */
+                route.l3a_flags |= OPENNSL_L3_COPY_TO_CPU;
+                route.l3a_intf = local_nhid;
+            }
+            add_route = true;
+        } else { /* entry found */
+            if (route.l3a_intf == nh->l3_egress_id) {
+                /* nothing to update */
+                return rc;
+            } else {
+                if (nh->state == OFPROTO_NH_UNRESOLVED) {
+                    route.l3a_flags |= OPENNSL_L3_COPY_TO_CPU ;
+                    route.l3a_flags |= OPENNSL_L3_REPLACE;
+                    route.l3a_intf = local_nhid;
+                } else {
+                    route.l3a_flags &= ~OPENNSL_L3_COPY_TO_CPU;
+                    route.l3a_flags |= OPENNSL_L3_REPLACE;
+                    route.l3a_intf = nh->l3_egress_id;
+                }
+            }
+        }
+
+        rc = opennsl_l3_route_add(hw_unit, &route);
+        if (rc != OPENNSL_E_NONE) {
+            VLOG_ERR ("Fail to %s route %s in LPM table: %d",
+                      add_route ? "add" : "update", routep->prefix, rc);
+        } else {
+            VLOG_DBG ("Success to %s route %s in LPM table : %d",
+                      add_route ? "add" : "update", routep->prefix, rc);
+        }
+        break;
+    case OFPROTO_ROUTE_DELETE:
+        if (rc == OPENNSL_E_NOT_FOUND) {
+            return rc;
+        } else {
+            rc = opennsl_l3_route_delete(hw_unit, &route);
+            if (rc != OPENNSL_E_NONE) {
+                VLOG_ERR("Fail to delete route %s: %d", routep->prefix, rc);
+            } else {
+                VLOG_DBG("Success to delete route %s: %d", routep->prefix, rc);
+            }
+        }
+        break;
+    case OFPROTO_ROUTE_DELETE_NH:
+        if (rc == OPENNSL_E_NOT_FOUND) {
+            return rc;
+        } else {
+            route.l3a_flags |= OPENNSL_L3_COPY_TO_CPU;
+            route.l3a_flags |= OPENNSL_L3_REPLACE;
+            route.l3a_intf = local_nhid;
+        }
+
+        rc = opennsl_l3_route_add(hw_unit, &route);
+        if (rc != OPENNSL_E_NONE) {
+            VLOG_ERR ("Fail to update the nexthop entry: %d", rc);
+        } else {
+            VLOG_DBG("Success to delete nexthop entry: %d", rc);
+        }
+        break;
+    default:
+        VLOG_ERR("Unknown route action %d", action);
+        rc = EINVAL;
+        break;
+    }
+
+    return rc;
+} /* hc_routing_route_entry_action */
+
 
 static void
 l3_intf_print(struct ds *ds, int unit, int print_hdr,

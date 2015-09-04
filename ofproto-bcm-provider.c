@@ -1479,6 +1479,16 @@ get_l3_host_hit_bit(const struct ofproto *ofproto_, void *aux,
     return rc;
 } /* netdev_bcmsdk_get_host_hit */
 
+/* Function to add, update, delete l3 route */
+static int
+l3_route_action(const struct ofproto *ofprotop,
+                enum ofproto_route_action action,
+                struct ofproto_route *routep)
+{
+    struct bcmsdk_provider_node *ofproto = bcmsdk_provider_node_cast(ofprotop);
+
+    return hc_routing_route_entry_action(0, ofproto->vrf_id, action, routep);
+}
 
 const struct ofproto_class ofproto_bcm_provider_class = {
     init,
@@ -1575,4 +1585,5 @@ const struct ofproto_class ofproto_bcm_provider_class = {
     add_l3_host_entry,          /* Add l3 host entry */
     delete_l3_host_entry,       /* Delete l3 host entry */
     get_l3_host_hit_bit,        /* Get l3 host entry hit bits */
+    l3_route_action,            /* l3 route action - install, update, delete */
 };
