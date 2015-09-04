@@ -28,6 +28,7 @@
 #include "hc-vlan.h"
 #include "hc-debug.h"
 #include "hc-routing.h"
+#include "hc-knet.h"
 #include "ofproto-bcm-provider.h"
 #include "hc-port.h"
 
@@ -36,7 +37,7 @@ VLOG_DEFINE_THIS_MODULE(hc_debug);
 
 uint32 slog_level = 0x0;
 
-// HALON_TODO: for BPDU TX/RX debugging.
+// OPS_TODO: for BPDU TX/RX debugging.
 int pkt_debug = 0;
 
 hc_debug_t hc_debug_list[] = {
@@ -56,6 +57,7 @@ char cmd_hp_usage[] =
 "\n"
 "   debug [[+/-]<option> ...] [all/none] - enable/disable debugging.\n"
 "   vlan <vid> - displays Halon VLAN info.\n"
+"   knet [netif | filter] - displays knet information\n"
 "   l3intf [<interface id>] - display Halon interface info.\n"
 "   l3host - display Halon l3 host info.\n"
 "   l3v6host - display Halon l3 IPv6 host info.\n"
@@ -74,7 +76,7 @@ bcmsdk_datapath_version(void)
     static char *rel_version = NULL;
 
     if (NULL == rel_version) {
-        // HALON_TODO: need to automate this.
+        // OPS_TODO: need to automate this.
         //rel_version = strdup(_build_release);
         rel_version = strdup("6.4.5.5");
     }
@@ -214,6 +216,22 @@ bcm_plugin_debug(struct unixctl_conn *conn, int argc,
                 vid = atoi(ch);
             }
             hc_vlan_dump(&ds, vid);
+            goto done;
+
+        } else if (!strcmp(ch, "knet")) {
+            if (NULL != (ch = NEXT_ARG())) {
+                if (!strcmp(ch, "netif")) {
+                    /* KNET netif information */
+                    hc_knet_dump(&ds, KNET_DEBUG_NETIF);
+                } else if (!strcmp(ch, "filter")) {
+                    /* KNET filter information */
+                    hc_knet_dump(&ds, KNET_DEBUG_FILTER);
+                } else {
+                    ds_put_format(&ds, "Unsupported knet command - %s.\n", ch);
+                }
+            } else {
+                ds_put_format(&ds, "Knet command requires a valid subcommand.\n");
+            }
             goto done;
 
         } else if (!strcmp(ch, "l3intf")) {

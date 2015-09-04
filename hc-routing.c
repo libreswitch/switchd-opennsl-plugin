@@ -29,9 +29,11 @@
 #include <opennsl/switch.h>
 #include <opennsl/vlan.h>
 #include <opennsl/l3.h>
+#include <opennsl/l2.h>
 #include "hc-routing.h"
 #include "hc-debug.h"
 #include "hc-vlan.h"
+#include "hc-knet.h"
 #include "platform-defines.h"
 #include <util.h>
 #include <ofproto/ofproto.h>
@@ -76,6 +78,44 @@ hc_l3_init(int unit)
     if (rc != OPENNSL_E_NONE) {
         VLOG_ERR("Error, create a local egress object, rc=%d", rc);
         return rc;
+    }
+
+    /* Send ARP to CPU */
+    rc = opennsl_switch_control_set(unit, opennslSwitchArpRequestToCpu, 1);
+    if (OPENNSL_FAILURE(rc)) {
+        VLOG_ERR("Failed to set opennslSwitchArpRequestToCpu: unit=%d rc=%s",
+                 unit, opennsl_errmsg(rc));
+        return 1;
+    }
+
+    rc = opennsl_switch_control_set(unit, opennslSwitchArpReplyToCpu, 1);
+    if (OPENNSL_FAILURE(rc)) {
+        VLOG_ERR("Failed to set opennslSwitchArpReplyToCpu: unit=%d rc=%s",
+                 unit, opennsl_errmsg(rc));
+        return 1;
+    }
+
+    /* IPv6 ND packets */
+    rc = opennsl_switch_control_set(unit, opennslSwitchNdPktToCpu, 1);
+    if (OPENNSL_FAILURE(rc)) {
+        VLOG_ERR("Failed to set opennslSwitchNdPktToCpu: unit=%d  rc=%s",
+                 unit, opennsl_errmsg(rc));
+        return 1;
+    }
+
+    /* Send IPv4 and IPv6 to CPU */
+    rc = opennsl_switch_control_set(unit,opennslSwitchUnknownL3DestToCpu, 1);
+    if (OPENNSL_FAILURE(rc)) {
+        VLOG_ERR("Failed to set opennslSwitchUnknownL3DestToCpu: unit=%d rc=%s",
+                 unit, opennsl_errmsg(rc));
+        return 1;
+    }
+
+    rc = opennsl_switch_control_set(unit, opennslSwitchV6L3DstMissToCpu, 1);
+    if (OPENNSL_FAILURE(rc)) {
+        VLOG_ERR("Failed to set opennslSwitchV6L3DstMissToCpu: unit=%d rc=%s",
+                 unit, opennsl_errmsg(rc));
+        return 1;
     }
 
     return 0;
@@ -130,85 +170,10 @@ hc_routing_enable_l3_interface(int hw_unit, opennsl_port_t hw_port,
         goto failed_l3_intf_create;
     }
 
-    /* Send ARP to CPU */
-    rc = opennsl_switch_control_port_set(hw_unit, hw_port, opennslSwitchArpRequestToCpu, 1);
-    if (OPENNSL_FAILURE(rc)) {
-        VLOG_ERR("Failed to set opennslSwitchArpRequestToCpu: unit=%d port=%d rc=%s",
-                 hw_unit, hw_port, opennsl_errmsg(rc));
-        goto failed_opennslSwitchArpRequestToCpu;
-    }
-    rc = opennsl_switch_control_port_set(hw_unit, hw_port, opennslSwitchArpReplyToCpu, 1);
-    if (OPENNSL_FAILURE(rc)) {
-        VLOG_ERR("Failed to set opennslSwitchArpReplyToCpu: unit=%d port=%d rc=%s",
-                 hw_unit, hw_port, opennsl_errmsg(rc));
-        goto failed_opennslSwitchArpReplyToCpu;
-    }
-
-    /* IPv6 ND packets */
-    rc = opennsl_switch_control_port_set(hw_unit, hw_port, opennslSwitchNdPktToCpu, 1);
-    if (OPENNSL_FAILURE(rc)) {
-        VLOG_ERR("Failed to set opennslSwitchNdPktToCpu: unit=%d port=%d rc=%s",
-                 hw_unit, hw_port, opennsl_errmsg(rc));
-        goto failed_opennslSwitchNdPktToCpu;
-    }
-
-    /* Send IPv4 and IPv6 to CPU */
-    rc = opennsl_switch_control_port_set(hw_unit, hw_port, opennslSwitchUnknownL3DestToCpu, 1);
-    if (OPENNSL_FAILURE(rc)) {
-        VLOG_ERR("Failed to set opennslSwitchUnknownL3DestToCpu: unit=%d port=%d rc=%s",
-                 hw_unit, hw_port, opennsl_errmsg(rc));
-        goto failed_opennslSwitchUnknownL3DestToCpu;
-    }
-
-    rc = opennsl_switch_control_port_set(hw_unit, hw_port, opennslSwitchV6L3DstMissToCpu, 1);
-    if (OPENNSL_FAILURE(rc)) {
-        VLOG_ERR("Failed to set opennslSwitchV6L3DstMissToCpu: unit=%d port=%d rc=%s",
-                 hw_unit, hw_port, opennsl_errmsg(rc));
-        goto failed_opennslSwitchV6L3DstMissToCpu;
-    }
-
     SW_L3_DBG("Enabled L3 on unit=%d port=%d vlan=%d vrf=%d",
             hw_unit, hw_port, vlan_id, vrf_id);
 
-    VLOG_DBG("Enabled L3 on unit=%d port=%d vlan=%d vrf=%d",
-            hw_unit, hw_port, vlan_id, vrf_id);
-
     return l3_intf;
-
-failed_opennslSwitchV6L3DstMissToCpu:
-    rc = opennsl_switch_control_port_set(hw_unit, hw_port, opennslSwitchUnknownL3DestToCpu, 0);
-    if (OPENNSL_FAILURE(rc)) {
-        VLOG_ERR("Failed to clear opennslSwitchUnknownL3DestToCpu: unit=%d port=%d rc=%s",
-                 hw_unit, hw_port, opennsl_errmsg(rc));
-    }
-
-failed_opennslSwitchUnknownL3DestToCpu:
-    rc = opennsl_switch_control_port_set(hw_unit, hw_port, opennslSwitchNdPktToCpu, 0);
-    if (OPENNSL_FAILURE(rc)) {
-        VLOG_ERR("Failed to clear opennslSwitchNdPktToCpu: unit=%d port=%d rc=%s",
-                 hw_unit, hw_port, opennsl_errmsg(rc));
-    }
-
-failed_opennslSwitchNdPktToCpu:
-    rc = opennsl_switch_control_port_set(hw_unit, hw_port, opennslSwitchArpReplyToCpu, 0);
-    if (OPENNSL_FAILURE(rc)) {
-        VLOG_ERR("Failed to clear opennslSwitchArpReplyToCpu: unit=%d port=%d rc=%s",
-                 hw_unit, hw_port, opennsl_errmsg(rc));
-    }
-
-failed_opennslSwitchArpReplyToCpu:
-    rc = opennsl_switch_control_port_set(hw_unit, hw_port, opennslSwitchArpRequestToCpu, 0);
-    if (OPENNSL_FAILURE(rc)) {
-        VLOG_ERR("Failed to clear opennslSwitchArpRequestToCpu: unit=%d port=%d rc=%s",
-                 hw_unit, hw_port, opennsl_errmsg(rc));
-    }
-
-failed_opennslSwitchArpRequestToCpu:
-    rc = opennsl_l3_intf_delete(hw_unit, l3_intf);
-    if (OPENNSL_FAILURE(rc)) {
-        VLOG_ERR("Failed at opennsl_l3_intf_delete: unit=%d port=%d vlan=%d vrf=%d rc=%s",
-                 hw_unit, hw_port, vlan_id, vrf_id, opennsl_errmsg(rc));
-    }
 
 failed_l3_intf_create:
     free(l3_intf);
@@ -242,38 +207,6 @@ hc_routing_disable_l3_interface(int hw_unit, opennsl_port_t hw_port,
     opennsl_vrf_t vrf_id = l3_intf->l3a_vrf;
     opennsl_pbmp_t pbmp;
 
-    rc = opennsl_switch_control_port_set(hw_unit, hw_port, opennslSwitchV6L3DstMissToCpu, 0);
-    if (OPENNSL_FAILURE(rc)) {
-        VLOG_ERR("Failed to clear opennslSwitchV6L3DstMissToCpu: unit=%d port=%d rc=%s",
-                 hw_unit, hw_port, opennsl_errmsg(rc));
-    }
-
-    /* Stop sending unknown IPv4 and IPv6 to CPU */
-    rc = opennsl_switch_control_port_set(hw_unit, hw_port, opennslSwitchUnknownL3DestToCpu, 0);
-    if (OPENNSL_FAILURE(rc)) {
-        VLOG_ERR("Failed to clear opennslSwitchUnknownL3DestToCpu: unit=%d port=%d rc=%s",
-                 hw_unit, hw_port, opennsl_errmsg(rc));
-    }
-
-    /* Stop sending IPv6 ND packets to CPU */
-    rc = opennsl_switch_control_port_set(hw_unit, hw_port, opennslSwitchNdPktToCpu, 0);
-    if (OPENNSL_FAILURE(rc)) {
-        VLOG_ERR("Failed to clear opennslSwitchNdPktToCpu: unit=%d port=%d rc=%s",
-                 hw_unit, hw_port, opennsl_errmsg(rc));
-    }
-
-    rc = opennsl_switch_control_port_set(hw_unit, hw_port, opennslSwitchArpReplyToCpu, 0);
-    if (OPENNSL_FAILURE(rc)) {
-        VLOG_ERR("Failed to clear opennslSwitchArpReplyToCpu: unit=%d port=%d rc=%s",
-                 hw_unit, hw_port, opennsl_errmsg(rc));
-    }
-
-    /* Stop sending ARP to CPU */
-    rc = opennsl_switch_control_port_set(hw_unit, hw_port, opennslSwitchArpRequestToCpu, 0);
-    if (OPENNSL_FAILURE(rc)) {
-        VLOG_ERR("Failed to clear opennslSwitchArpRequestToCpu: unit=%d port=%d rc=%s",
-                 hw_unit, hw_port, opennsl_errmsg(rc));
-    }
 
     rc = opennsl_l3_intf_delete(hw_unit, l3_intf);
     if (OPENNSL_FAILURE(rc)) {
@@ -297,35 +230,85 @@ hc_routing_disable_l3_interface(int hw_unit, opennsl_port_t hw_port,
     }
 
     SW_L3_DBG("Disabled L3 on unit=%d port=%d vrf=%d", hw_unit, hw_port, vrf_id);
-    VLOG_DBG("Disabled L3 on unit=%d port=%d vrf=%d", hw_unit, hw_port, vrf_id);
 }
 
-/* Ft to add l3 host entry via ofproto */
+opennsl_l3_intf_t *
+hc_routing_enable_l3_vlan_interface(int hw_unit, opennsl_vrf_t vrf_id,
+                                    opennsl_vlan_t vlan_id,
+                                    unsigned char *mac)
+{
+    opennsl_error_t rc = OPENNSL_E_NONE;
+    opennsl_l3_intf_t *l3_intf;
+
+    /* Create L3 interface */
+    l3_intf = (opennsl_l3_intf_t *)xmalloc(sizeof(opennsl_l3_intf_t));
+    if (!l3_intf) {
+        VLOG_ERR("Failed allocating opennsl_l3_intf_t: unit=%d vlan=%d rc=%d",
+                 hw_unit, vlan_id, rc);
+        return NULL;
+    }
+
+    opennsl_l3_intf_t_init(l3_intf);
+    l3_intf->l3a_vrf = vrf_id;
+    l3_intf->l3a_intf_id = vlan_id;
+    l3_intf->l3a_flags = OPENNSL_L3_ADD_TO_ARL | OPENNSL_L3_WITH_ID;
+    memcpy(l3_intf->l3a_mac_addr, mac, ETH_ALEN);
+    l3_intf->l3a_vid = vlan_id;
+
+    rc = opennsl_l3_intf_create(hw_unit, l3_intf);
+    if (OPENNSL_FAILURE(rc)) {
+        VLOG_ERR("Failed at opennsl_l3_intf_create: unit=%d vlan=%d vrf=%d rc=%s",
+                 hw_unit, vlan_id, vrf_id, opennsl_errmsg(rc));
+        free(l3_intf);
+        return NULL;
+    }
+
+    SW_L3_DBG("Enabled L3 on unit=%d vlan=%d vrf=%d",
+            hw_unit, vlan_id, vrf_id);
+
+    return l3_intf;
+} /* hc_routing_enable_l3_vlan_interface */
+
+/* Function to add l3 host entry via ofproto */
 int
 hc_routing_add_host_entry(int hw_unit, opennsl_port_t hw_port,
                           opennsl_vrf_t vrf_id, bool is_ipv6_addr,
                           char *ip_addr, char *next_hop_mac_addr,
                           opennsl_if_t l3_intf_id,
-                          opennsl_if_t *l3_egress_id)
+                          opennsl_if_t *l3_egress_id,
+                          opennsl_vlan_t vlan_id)
 {
     opennsl_error_t rc = OPENNSL_E_NONE;
     opennsl_l3_egress_t egress_object;
     opennsl_l3_host_t l3host;
     in_addr_t ipv4_dest_addr;
     char ipv6_dest_addr[sizeof(struct in6_addr)];
-    int flags = OPENNSL_L3_HOST_LOCAL;
-    struct ether_addr *ether_mac = NULL;
+    int flags = 0;
+    struct ether_addr *ether_mac = ether_aton(next_hop_mac_addr);
+    opennsl_port_t port = hw_port;
+    opennsl_l2_addr_t addr;
+
+    /* If we dont have a hw_port, this is likely a vlan interface
+     * Look it up.
+     */
+    if(hw_port == -1) {
+        opennsl_mac_t host_mac;
+        if (ether_mac != NULL)
+           memcpy(host_mac, ether_mac, ETH_ALEN);
+        opennsl_l2_addr_get(hw_unit, host_mac, vlan_id, &addr);
+        port = addr.port;
+    }
 
     /* Create the l3_egress object which gives the index to l3 interface
-    ** during lookup */
+     * during lookup */
     VLOG_DBG("In hc_routing_add_host_entry for ip %s", ip_addr);
     opennsl_l3_egress_t_init(&egress_object);
 
     /* Copy the nexthop destmac, set dest port and index of L3_INTF table
-    ** which is created above */
+     * which is created above */
     egress_object.intf = l3_intf_id;
-    egress_object.port = hw_port;
-    ether_mac = ether_aton(next_hop_mac_addr);
+    egress_object.port = port;
+
     if (ether_mac != NULL) {
         memcpy(egress_object.mac_addr, ether_mac, ETH_ALEN);
     } else {
@@ -340,18 +323,17 @@ hc_routing_add_host_entry(int hw_unit, opennsl_port_t hw_port,
     }
 
     VLOG_DBG("Created L3 egress ID %d for out_port: %d intf_id: %d ",
-          *l3_egress_id, hw_port, l3_intf_id);
+          *l3_egress_id, port, l3_intf_id);
 
     /* Create Host Entry */
     opennsl_l3_host_t_init(&l3host);
     if( is_ipv6_addr ) {
-        VLOG_DBG("ipv6 addr type");
         flags |= OPENNSL_L3_IP6;
 
         /* convert string ip into host format */
         rc = inet_pton(AF_INET6, ip_addr, ipv6_dest_addr);
         if ( rc != 1 ) {
-            VLOG_ERR("invalid ipv6-%s", ip_addr);
+            VLOG_ERR("Failed to create L3 host entry. Invalid ipv6 address %s", ip_addr);
             return 1; /* Return error */
         }
 
@@ -360,11 +342,11 @@ hc_routing_add_host_entry(int hw_unit, opennsl_port_t hw_port,
         /* convert string ip into host format */
         ipv4_dest_addr = inet_network(ip_addr);
         if ( ipv4_dest_addr == -1 ) {
-            VLOG_ERR("Invalid ip-%s", ip_addr);
+            VLOG_ERR("Failed to create L3 host entry. Invalid ipv4 address %s", ip_addr);
             return 1; /* Return error */
         }
 
-        VLOG_DBG("ipv4 addr converted =0x%x", ipv4_dest_addr);
+        VLOG_DBG("ipv4 addr converted = 0x%x", ipv4_dest_addr);
         l3host.l3a_ip_addr = ipv4_dest_addr;
     }
 
@@ -380,7 +362,7 @@ hc_routing_add_host_entry(int hw_unit, opennsl_port_t hw_port,
     return rc;
 } /* hc_routing_add_host_entry */
 
-/* Ft to delete l3 host entry via ofproto */
+/* Function to delete l3 host entry via ofproto */
 int
 hc_routing_delete_host_entry(int hw_unit, opennsl_port_t hw_port,
                              opennsl_vrf_t vrf_id, bool is_ipv6_addr,

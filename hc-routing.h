@@ -37,15 +37,26 @@ extern opennsl_l3_intf_t *hc_routing_enable_l3_interface(int hw_unit,
 extern void hc_routing_disable_l3_interface(int hw_unit,
                                             opennsl_port_t hw_port,
                                             opennsl_l3_intf_t *l3_intf);
+
+extern opennsl_l3_intf_t * hc_routing_enable_l3_vlan_interface(int hw_unit,
+                                                               opennsl_vrf_t vrf_id,
+                                                               opennsl_vlan_t vlan_id,
+                                                               unsigned char *mac);
+
+extern void hc_routing_disable_l3_vlan_interface(int hw_unit,
+                                                 opennsl_l3_intf_t *l3_intf);
+
 extern int hc_routing_add_host_entry(int hw_unit, opennsl_port_t hw_port,
                                      opennsl_vrf_t vrf_id, bool is_ipv6_addr,
                                      char *ip_addr, char *next_hop_mac_addr,
                                      opennsl_if_t l3_intf_id,
-                                     opennsl_if_t *l3_egress_id);
+                                     opennsl_if_t *l3_egress_id,
+                                     opennsl_vlan_t vlan_id);
 extern int hc_routing_delete_host_entry(int hw_unit, opennsl_port_t hw_port,
                                         opennsl_vrf_t vrf_id,
                                         bool is_ipv6_addr, char *ip_addr,
                                         opennsl_if_t *l3_egress_id);
+
 extern int hc_routing_get_host_hit(int hw_unit, opennsl_vrf_t vrf_id,
                                    bool is_ipv6_addr, char *ip_addr, bool *hit_bit);
 
@@ -55,6 +66,7 @@ extern int hc_routing_route_entry_action(int hw_unit,
                                          struct ofproto_route *routep);
 
 extern void hc_l3intf_dump(struct ds *ds, int intfid);
+
 extern void hc_l3host_dump(struct ds *ds, int ipv6_enabled);
 extern void hc_l3route_dump(struct ds *ds, int ipv6_enabled);
 

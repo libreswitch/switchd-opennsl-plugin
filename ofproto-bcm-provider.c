@@ -27,10 +27,13 @@
 #include <ofproto/tunnel.h>
 #include <openvswitch/vlog.h>
 
+#include <openhalon-idl.h>
+
 #include "hc-pbmp.h"
 #include "hc-vlan.h"
 #include "hc-lag.h"
 #include "hc-routing.h"
+#include "hc-knet.h"
 #include "netdev-bcmsdk.h"
 #include "platform-defines.h"
 #include "ofproto-bcm-provider.h"
@@ -141,8 +144,11 @@ del(const char *type OVS_UNUSED, const char *name OVS_UNUSED)
 }
 
 static const char *
-port_open_type(const char *datapath_type OVS_UNUSED, const char *port_type OVS_UNUSED)
+port_open_type(const char *datapath_type OVS_UNUSED, const char *port_type)
 {
+    if(!strcmp(port_type, INTERFACE_TYPE_INTERNAL)) {
+        return port_type;
+    }
     return "system";
 }
 
@@ -523,12 +529,30 @@ bundle_add_port(struct ofbundle *bundle, ofp_port_t ofp_port,
 static void
 bundle_destroy(struct ofbundle *bundle)
 {
-    struct bcmsdk_provider_node *ofproto;
+    struct bcmsdk_provider_node *ofproto = bundle->ofproto;;
     struct bcmsdk_provider_ofport_node *port, *next_port;
 
     if (!bundle) {
         return;
     }
+
+    /* Delete the KNET vlan filters if they were configured */
+    if(bundle->vlan_knet_filter_ids[0]) {
+        bcmsdk_knet_filter_delete(NULL, bundle->hw_unit,
+                                  bundle->vlan_knet_filter_ids[0]);
+    }
+
+    if(bundle->vlan_knet_filter_ids[1]) {
+        bcmsdk_knet_filter_delete(NULL, bundle->hw_unit,
+                                  bundle->vlan_knet_filter_ids[1]);
+    }
+
+    if(bundle->vlan_knet_filter_ids[2]) {
+        bcmsdk_knet_filter_delete(NULL, bundle->hw_unit,
+                                  bundle->vlan_knet_filter_ids[2]);
+    }
+
+    memset(bundle->vlan_knet_filter_ids, 0, sizeof(bundle->vlan_knet_filter_ids));
 
     if (bundle->l3_intf) {
         hc_routing_disable_l3_interface(bundle->hw_unit,
@@ -622,7 +646,7 @@ bundle_set(struct ofproto *ofproto_, void *aux,
         bundle->name = NULL;
         bundle->l3_intf = NULL;
         bundle->hw_unit = 0;
-        bundle->hw_port = 0;
+        bundle->hw_port = -1;
 
         list_init(&bundle->ports);
         bundle->vlan_mode = PORT_VLAN_ACCESS;
@@ -633,6 +657,7 @@ bundle_set(struct ofproto *ofproto_, void *aux,
         bundle->bond_hw_handle = -1;
         bundle->lacp = NULL;
         bundle->bond = NULL;
+        memset(bundle->vlan_knet_filter_ids, 0, sizeof(bundle->vlan_knet_filter_ids));
     }
 
     if (!bundle->name || strcmp(s->name, bundle->name)) {
@@ -648,6 +673,12 @@ bundle_set(struct ofproto *ofproto_, void *aux,
              (int) s->n_slaves, s->bond,
              s->hw_bond_should_exist,
              s->bond_handle_alloc_only);
+
+    /* Allocate Broadcom hw port bitmap. */
+    all_pbm = bcmsdk_alloc_pbmp();
+    if (all_pbm == NULL) {
+        return ENOMEM;
+    }
 
     if ((-1 == bundle->bond_hw_handle) &&
         (s->hw_bond_should_exist || (s->bond_handle_alloc_only))) {
@@ -695,6 +726,33 @@ bundle_set(struct ofproto *ofproto_, void *aux,
     }
 
     VLOG_INFO("s->n_slaves: %zu\n", s->n_slaves);
+
+    /*
+     * Configure  KNET filter for vlan interfaces in bridge
+     * Vlan ports will have a single interface of type
+     * internal and have vlan_id set.
+     * Skip this for bridge internal interface which will have same
+     * name as bridge (ofproto->up.name)
+     * */
+    if(!ofproto->vrf && s->n_slaves == 1 && strcmp(bundle->name, ofproto->up.name)) {
+        struct bcmsdk_provider_ofport_node *port;
+        opennsl_vlan_t vlan_id;
+        const char *type;
+
+        port = get_ofp_port(bundle->ofproto, s->slaves[0]);
+        type = netdev_get_type(port->up.netdev);
+        vlan_id = s->vlan;
+
+        VLOG_DBG("bridge %s interface type %s vland id %d", ofproto->up.name, type, vlan_id);
+        if(!strcmp(type, INTERFACE_TYPE_INTERNAL) && vlan_id && !bundle->vlan_knet_filter_ids[0]) {
+            VLOG_INFO("Creating KNET filters for vlan interface vlan%d", vlan_id);
+            bcmsdk_knet_vlan_interface_filter_create(ofproto->up.name, vlan_id,
+                                                     &bundle->vlan_knet_filter_ids[0]);
+            /* Configuration for internal vlan interface is done */
+            goto done;
+        }
+    }
+
     /* for now, we don't support L3 on top of LAG */
     if (ofproto->vrf &&
         (ofproto->vrf_id != BCM_MAX_VRFS)
@@ -703,14 +761,25 @@ bundle_set(struct ofproto *ofproto_, void *aux,
         int hw_unit, hw_port;
         opennsl_vlan_t vlan_id;
         uint8_t mac[ETH_ADDR_LEN];
+        const char *type = NULL;
 
         port = get_ofp_port(bundle->ofproto, s->slaves[0]);
         if (!port) {
             VLOG_ERR("slave is not in the ports");
         }
+
+        type = netdev_get_type(port->up.netdev);
         netdev_bcmsdk_get_hw_info(port->up.netdev, &hw_unit, &hw_port, mac);
 
-        vlan_id = smap_get_int(s->port_options[PORT_HW_CONFIG], "internal_vlan_id", 0);
+        /* For internal vlan interfaces, we get vlanid from tag column
+         * For regular l3 interfaces we will get from internal vlan id from
+         * hw_config column
+         */
+        if(strcmp(type, INTERFACE_TYPE_INTERNAL) == 0) {
+            vlan_id = s->vlan;
+        } else {
+            vlan_id = smap_get_int(s->port_options[PORT_HW_CONFIG], "internal_vlan_id", 0);
+        }
 
         if (bundle->l3_intf) {
             /* if reserved vlan changed or removed */
@@ -718,17 +787,29 @@ bundle_set(struct ofproto *ofproto_, void *aux,
                 hc_routing_disable_l3_interface(hw_unit, hw_port, bundle->l3_intf);
                 bundle->l3_intf = NULL;
                 bundle->hw_unit = 0;
-                bundle->hw_port = 0;
+                bundle->hw_port = -1;
             }
         }
 
         if (vlan_id && !bundle->l3_intf) {
-            bundle->l3_intf = hc_routing_enable_l3_interface(
-                                hw_unit, hw_port, ofproto->vrf_id, vlan_id,
-                                mac);
-            if (bundle->l3_intf) {
-                bundle->hw_unit = hw_unit;
-                bundle->hw_port = hw_port;
+
+            /* If interface type is not internal create l3 interface, else
+             * create an l3 vlan interface on every hw_unit. */
+            if(strcmp(type, INTERFACE_TYPE_INTERNAL)) {
+                bundle->l3_intf = hc_routing_enable_l3_interface(
+                        hw_unit, hw_port, ofproto->vrf_id, vlan_id,
+                        mac);
+                if (bundle->l3_intf) {
+                    bundle->hw_unit = hw_unit;
+                    bundle->hw_port = hw_port;
+                }
+            } else {
+                int unit = 0;
+                for (unit = 0; unit <= MAX_SWITCH_UNIT_ID; unit++) {
+                    bundle->l3_intf = hc_routing_enable_l3_vlan_interface(
+                            unit, ofproto->vrf_id, vlan_id,
+                            mac);
+                }
             }
         }
     }
@@ -745,11 +826,6 @@ bundle_set(struct ofproto *ofproto_, void *aux,
        VLOG_DBG("BOND config options option_arg= %s", opt_arg);
     }
 
-    /* Allocate Broadcom hw port bitmap. */
-    all_pbm = bcmsdk_alloc_pbmp();
-    if (all_pbm == NULL) {
-        return ENOMEM;
-    }
 
     /* Go through the list of physical interfaces (slaves) that
      * belong to this logical port, and construct a corresponding
@@ -1419,7 +1495,8 @@ add_l3_host_entry(const struct ofproto *ofproto_, void *aux,
                                    ofproto->vrf_id, is_ipv6_addr,
                                    ip_addr, next_hop_mac_addr,
                                    port_bundle->l3_intf->l3a_intf_id,
-                                   l3_egress_id);
+                                   l3_egress_id,
+                                   port_bundle->l3_intf->l3a_vid);
     if (rc) {
         VLOG_ERR("Failed to add L3 host entry for ip %s", ip_addr);
     }
