@@ -16,22 +16,25 @@
 project (ovs_bcm_plugin)
 cmake_minimum_required (VERSION 2.8)
 
+set (SRC_DIR src)
+set (INCL_DIR include)
+
 # Define sources
-set (SOURCES bcm.c
-             bcm-plugins.c
-             bufmon-bcm-provider.c
-             hc-bcm-init.c
-             hc-bufmon.c
-             hc-debug.c
-             hc-knet.c
-             hc-lag.c
-             hc-pbmp.c
-             hc-port.c
-             hc-stats.c
-             hc-vlan.c
-             hc-routing.c
-             netdev-bcmsdk.c
-             ofproto-bcm-provider.c
+set (SOURCES ${SRC_DIR}/bcm.c
+             ${SRC_DIR}/bcm-plugins.c
+             ${SRC_DIR}/bufmon-bcm-provider.c
+             ${SRC_DIR}/hc-bcm-init.c
+             ${SRC_DIR}/hc-bufmon.c
+             ${SRC_DIR}/hc-debug.c
+             ${SRC_DIR}/hc-knet.c
+             ${SRC_DIR}/hc-lag.c
+             ${SRC_DIR}/hc-pbmp.c
+             ${SRC_DIR}/hc-port.c
+             ${SRC_DIR}/hc-stats.c
+             ${SRC_DIR}/hc-vlan.c
+             ${SRC_DIR}/hc-routing.c
+             ${SRC_DIR}/netdev-bcmsdk.c
+             ${SRC_DIR}/ofproto-bcm-provider.c
     )
 
 # Define and locate needed libraries and includes
@@ -42,7 +45,8 @@ pkg_check_modules(OPENNSL REQUIRED opennsl)
 # Define compile flags
 set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OPENNSL_CFLAGS} -DINCLUDE_L3 -std=gnu99 -Wall -Werror")
 
-include_directories(${CMAKE_SOURCE_DIR} ${OVSCOMMON_INCLUDE_DIRS}
+include_directories(${CMAKE_SOURCE_DIR}/${INCL_DIR}
+	            ${OVSCOMMON_INCLUDE_DIRS}
 	            ${OPENNSL_INCLUDE_DIRS})
 
 # Create our library
