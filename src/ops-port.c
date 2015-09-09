@@ -1,10 +1,22 @@
 /*
- * Hewlett-Packard Company Confidential (C) Copyright 2015 Hewlett-Packard Development Company, L.P.
+ * Copyright (C) 2015 Hewlett-Packard Development Company, L.P.
+ * All Rights Reserved.
  *
- * File:    hc-port.c
+ *   Licensed under the Apache License, Version 2.0 (the "License"); you may
+ *   not use this file except in compliance with the License. You may obtain
+ *   a copy of the License at
  *
- * Purpose: This file contains OpenHalon application code in the Broadcom SDK.
+ *        http://www.apache.org/licenses/LICENSE-2.0
  *
+ *   Unless required by applicable law or agreed to in writing, software
+ *   distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+ *   WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+ *   License for the specific language governing permissions and limitations
+ *   under the License.
+ *
+ * File: ops-port.c
+ *
+ * Purpose: This file contains OpenSwitch application code in the Broadcom SDK.
  */
 
 #include <stdlib.h>
@@ -17,12 +29,12 @@
 #include <opennsl/port.h>
 
 #include "platform-defines.h"
-#include "hc-debug.h"
-#include "hc-knet.h"
-#include "hc-vlan.h"
-#include "hc-port.h"
+#include "ops-debug.h"
+#include "ops-knet.h"
+#include "ops-vlan.h"
+#include "ops-port.h"
 
-VLOG_DEFINE_THIS_MODULE(hc_port);
+VLOG_DEFINE_THIS_MODULE(ops_port);
 
 #define JUMBO_SZ        0x2400
 #define JUMBO_10G_SZ    0x3fe4
@@ -37,7 +49,7 @@ extern void netdev_bcmsdk_link_state_callback(int unit, int hw_id, int link_stat
 /* This struct should only be written by the Broadcom linkscan thread. */
 opennsl_pbmp_t linked_up_ports[MAX_SWITCH_UNITS];
 
-struct hc_port_info *port_info[MAX_SWITCH_UNITS];
+struct ops_port_info *port_info[MAX_SWITCH_UNITS];
 
 /////////////////////////////////////////////////////////////////////////////
 //                    Link State Notification Handler                      //
@@ -45,7 +57,7 @@ struct hc_port_info *port_info[MAX_SWITCH_UNITS];
 //  NOTE: This is called back from Broadcom linkscan thread.               //
 /////////////////////////////////////////////////////////////////////////////
 void
-hc_link_state_callback(int unit, opennsl_port_t hw_port, opennsl_port_info_t *info)
+ops_link_state_callback(int unit, opennsl_port_t hw_port, opennsl_port_info_t *info)
 {
     int link_status = 0;
 
@@ -56,25 +68,25 @@ hc_link_state_callback(int unit, opennsl_port_t hw_port, opennsl_port_info_t *in
         link_status = 1;
         OPENNSL_PBMP_PORT_ADD(linked_up_ports[unit], hw_port);
 
-        // HALON_TODO: need MUTEX since this is a different thread?
+        // OPS_TODO: need MUTEX since this is a different thread?
         vlan_reconfig_on_link_change(unit, hw_port, 1);
 
     } else {
-        // HALON_TODO: Flush MACs on link down.
+        // OPS_TODO: Flush MACs on link down.
         //flush_learned_macs(unit, hw_port);
 
         OPENNSL_PBMP_PORT_REMOVE(linked_up_ports[unit], hw_port);
 
-        // HALON_TODO: need MUTEX since this is a different thread?
+        // OPS_TODO: need MUTEX since this is a different thread?
         vlan_reconfig_on_link_change(unit, hw_port, 0);
     }
 
     netdev_bcmsdk_link_state_callback(unit, (int)hw_port, link_status);
 
-} // hc_link_state_callback
+} // ops_link_state_callback
 
 opennsl_pbmp_t
-hc_get_link_up_pbm(int unit)
+ops_get_link_up_pbm(int unit)
 {
     if (unit >= 0 && unit < MAX_SWITCH_UNITS) {
         return linked_up_ports[unit];
@@ -84,7 +96,7 @@ hc_get_link_up_pbm(int unit)
         OPENNSL_PBMP_CLEAR(empty_pbm);
         return empty_pbm;
     }
-} // hc_get_link_up_pbm
+} // ops_get_link_up_pbm
 
 /////////////////////// PHYSICAL INTERFACE CONFIG ///////////////////////////
 
@@ -112,7 +124,7 @@ split_port_linkscan_update(int hw_unit, int hw_port, int lane_count, int active)
 } // split_port_linkscan_update
 
 int
-split_port_lane_config(struct hc_port_info *p_info, bool is_split_needed)
+split_port_lane_config(struct ops_port_info *p_info, bool is_split_needed)
 {
     int                 i = 0;
     opennsl_error_t     rc = OPENNSL_E_NONE;
@@ -199,7 +211,7 @@ bcmsdk_set_port_config(int hw_unit, opennsl_port_t hw_port, const struct port_cf
 {
     opennsl_error_t     rc = OPENNSL_E_NONE;
     opennsl_port_info_t bcm_pinfo;
-    struct hc_port_info *p_info;
+    struct ops_port_info *p_info;
 
     p_info = PORT_INFO(hw_unit, hw_port);
     if (p_info == NULL) {
@@ -246,7 +258,7 @@ bcmsdk_set_port_config(int hw_unit, opennsl_port_t hw_port, const struct port_cf
             opennsl_port_ability_t_init(&port_ability);
             opennsl_port_ability_t_init(&advert_ability);
 
-            /* HALON_TODO: We only support advertising one speed or
+            /* OPS_TODO: We only support advertising one speed or
              * all possible speeds at the moment. */
             if (0 == pcfg->cfg_speed) {
                 // Full autonegotiation desired.  Get all possible speed/duplex
@@ -433,14 +445,14 @@ bcmsdk_get_port_config(int hw_unit, opennsl_port_t hw_port, struct port_cfg *pcf
 /////////////////////////////// INITIALIZATION ///////////////////////////////////
 
 int
-hc_port_init(int hw_unit)
+ops_port_init(int hw_unit)
 {
     opennsl_port_t hw_port;
     opennsl_port_config_t pcfg;
     opennsl_error_t rc = OPENNSL_E_NONE;
 
     // Allocate memory for MAX_PORTS(hw_unit) number of ports
-    port_info[hw_unit] = calloc(MAX_PORTS(hw_unit), sizeof(struct hc_port_info));
+    port_info[hw_unit] = calloc(MAX_PORTS(hw_unit), sizeof(struct ops_port_info));
     if (port_info[hw_unit] == NULL) {
         VLOG_ERR("Unable to allocate memory for port info struct."
                  "unit=%d max_ports=%d", hw_unit, MAX_PORTS(hw_unit));
@@ -468,7 +480,7 @@ hc_port_init(int hw_unit)
     // Note that all ports come up by default in a disabled
     // state.  So until intfd is ready to enable the ports,
     // we should not get any callbacks.
-    rc = opennsl_linkscan_register(hw_unit, hc_link_state_callback);
+    rc = opennsl_linkscan_register(hw_unit, ops_link_state_callback);
     if (OPENNSL_FAILURE(rc)) {
         VLOG_ERR("Linkscan registration error, err=%d (%s)",
                  rc, opennsl_errmsg(rc));
@@ -495,4 +507,4 @@ hc_port_init(int hw_unit)
 
     return 0;
 
-} // hc_port_init
+} // ops_port_init

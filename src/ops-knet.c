@@ -1,10 +1,22 @@
 /*
- * Hewlett-Packard Company Confidential (C) Copyright 2015 Hewlett-Packard Development Company, L.P.
+ * Copyright (C) 2015 Hewlett-Packard Development Company, L.P.
+ * All Rights Reserved.
  *
- * File:    hc-knet.c
+ *   Licensed under the Apache License, Version 2.0 (the "License"); you may
+ *   not use this file except in compliance with the License. You may obtain
+ *   a copy of the License at
+ *
+ *        http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *   Unless required by applicable law or agreed to in writing, software
+ *   distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+ *   WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+ *   License for the specific language governing permissions and limitations
+ *   under the License.
+ *
+ * File: ops-knet.c
  *
  * Purpose: This file contains implementation of KNET virtual linux Ethernet interface.
- *
  */
 
 #include <stdio.h>
@@ -18,10 +30,10 @@
 #include <opennsl/rx.h>
 
 #include "platform-defines.h"
-#include "hc-debug.h"
-#include "hc-knet.h"
+#include "ops-debug.h"
+#include "ops-knet.h"
 
-VLOG_DEFINE_THIS_MODULE(hc_knet);
+VLOG_DEFINE_THIS_MODULE(ops_knet);
 
 /* Byte positions of ETHERTYPE in ethernet frames */
 #define FRAME_ETHERTYPE_BYTE1_POSITION      16
@@ -373,7 +385,7 @@ knet_netif_traverse_cb (int unit, opennsl_knet_netif_t *netif, void *user_data)
 }
 
 static void
-hc_knet_netif_show (struct ds *ds)
+ops_knet_netif_show (struct ds *ds)
 {
     struct knet_user_data user_data;
     int unit = 0;
@@ -482,7 +494,7 @@ knet_filter_traverse_cb (int unit, opennsl_knet_filter_t *filter,
 }
 
 static void
-hc_knet_filter_show (struct ds *ds)
+ops_knet_filter_show (struct ds *ds)
 {
     struct knet_user_data user_data;
     int unit = 0;
@@ -502,14 +514,14 @@ hc_knet_filter_show (struct ds *ds)
 }
 
 void
-hc_knet_dump (struct ds *ds, knet_debug_type_t debug_type)
+ops_knet_dump (struct ds *ds, knet_debug_type_t debug_type)
 {
     switch (debug_type) {
     case KNET_DEBUG_NETIF:
-        hc_knet_netif_show(ds);
+        ops_knet_netif_show(ds);
         break;
     case KNET_DEBUG_FILTER:
-        hc_knet_filter_show(ds);
+        ops_knet_filter_show(ds);
         break;
     default:
         VLOG_ERR("show knet unknown option ");
@@ -520,7 +532,7 @@ hc_knet_dump (struct ds *ds, knet_debug_type_t debug_type)
 ///////////////////////////////// INIT /////////////////////////////////
 
 int
-hc_knet_init(int hw_unit)
+ops_knet_init(int hw_unit)
 {
     opennsl_error_t rc = OPENNSL_E_NONE;
 
@@ -538,4 +550,4 @@ hc_knet_init(int hw_unit)
 
     return 0;
 
-} /* hc_knet_init */
+} /* ops_knet_init */

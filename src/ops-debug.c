@@ -1,10 +1,22 @@
 /*
- * Hewlett-Packard Company Confidential (C) Copyright 2015 Hewlett-Packard Development Company, L.P.
+ * Copyright (C) 2015 Hewlett-Packard Development Company, L.P.
+ * All Rights Reserved.
  *
- * File:    hc_debug.c
+ *   Licensed under the Apache License, Version 2.0 (the "License"); you may
+ *   not use this file except in compliance with the License. You may obtain
+ *   a copy of the License at
  *
- * Purpose: Main file for the implementation of HP Open Halon specific BCM shell debug commands.
+ *        http://www.apache.org/licenses/LICENSE-2.0
  *
+ *   Unless required by applicable law or agreed to in writing, software
+ *   distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+ *   WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+ *   License for the specific language governing permissions and limitations
+ *   under the License.
+ *
+ * File: ops-debug.c
+ *
+ * Purpose: Main file for the implementation of OpenSwitch specific BCM shell debug commands.
  */
 
 #include <stdio.h>
@@ -23,16 +35,16 @@
 #include <opennsl/types.h>
 #include <opennsl/l2.h>
 
-#include "hc-lag.h"
+#include "ops-lag.h"
 #include "platform-defines.h"
-#include "hc-vlan.h"
-#include "hc-debug.h"
-#include "hc-routing.h"
-#include "hc-knet.h"
+#include "ops-vlan.h"
+#include "ops-debug.h"
+#include "ops-routing.h"
+#include "ops-knet.h"
 #include "ofproto-bcm-provider.h"
-#include "hc-port.h"
+#include "ops-port.h"
 
-VLOG_DEFINE_THIS_MODULE(hc_debug);
+VLOG_DEFINE_THIS_MODULE(ops_debug);
 
 
 uint32 slog_level = 0x0;
@@ -40,10 +52,10 @@ uint32 slog_level = 0x0;
 // OPS_TODO: for BPDU TX/RX debugging.
 int pkt_debug = 0;
 
-hc_debug_t hc_debug_list[] = {
+ops_debug_t ops_debug_list[] = {
 
     {"rx_tx_pkt",   0},         // to print RX/TX packets on BCM shell
-    {"hc_init", SWITCHD_INIT_DBG},
+    {"ops_init", SWITCHD_INIT_DBG},
     {"port",    SWITCHD_PORT_DBG},
     {"lag",     SWITCHD_LAG_DBG},
     {"vlan",    SWITCHD_VLAN_DBG},
@@ -53,17 +65,17 @@ hc_debug_t hc_debug_list[] = {
 // Broadcom shell debug command.
 char cmd_hp_usage[] =
 "Usage:\n\t"
-"ovs-appctl plugin/debug <cmds> - Run HP OpenHalon BCM Plugin specific debug commands.\n"
+"ovs-appctl plugin/debug <cmds> - Run HP OpenSwitch BCM Plugin specific debug commands.\n"
 "\n"
 "   debug [[+/-]<option> ...] [all/none] - enable/disable debugging.\n"
-"   vlan <vid> - displays Halon VLAN info.\n"
+"   vlan <vid> - displays OpenSwitch VLAN info.\n"
 "   knet [netif | filter] - displays knet information\n"
-"   l3intf [<interface id>] - display Halon interface info.\n"
-"   l3host - display Halon l3 host info.\n"
-"   l3v6host - display Halon l3 IPv6 host info.\n"
-"   l3route - display Halon l3 Routes.\n"
-"   l3v6route - display Halon l3 IPv6 Routes.\n"
-"   lag [<lagid>] - displays Halon LAG info.\n"
+"   l3intf [<interface id>] - display OpenSwitch interface info.\n"
+"   l3host - display OpenSwitch l3 host info.\n"
+"   l3v6host - display OpenSwitch l3 IPv6 host info.\n"
+"   l3route - display OpenSwitch l3 Routes.\n"
+"   l3v6route - display OpenSwitch l3 IPv6 Routes.\n"
+"   lag [<lagid>] - displays OpenSwitch LAG info.\n"
 "   help - displays this help text.\n"
 ;
 
@@ -89,7 +101,7 @@ bcmsdk_datapath_version(void)
 #define NEXT_ARG()  ((arg_idx < argc) ? argv[arg_idx++] : NULL)
 
 static void
-handle_hc_debug(struct ds *ds, int arg_idx, int argc, const char *argv[])
+handle_ops_debug(struct ds *ds, int arg_idx, int argc, const char *argv[])
 {
     char        c = '\0';
     const char *ch = NULL;
@@ -97,9 +109,9 @@ handle_hc_debug(struct ds *ds, int arg_idx, int argc, const char *argv[])
     uint8       count = 1;
     uint8       found = 0;
     uint8       dbg_list_sz = 0;
-    hc_debug_t  *dbg = NULL;
+    ops_debug_t  *dbg = NULL;
 
-    dbg_list_sz = (sizeof(hc_debug_list)/sizeof(hc_debug_t));
+    dbg_list_sz = (sizeof(ops_debug_list)/sizeof(ops_debug_t));
 
     // If no parameters are given.
     if (arg_idx >= argc) {
@@ -114,7 +126,7 @@ handle_hc_debug(struct ds *ds, int arg_idx, int argc, const char *argv[])
         }
 
         for (i=0; i < dbg_list_sz; i++) {
-            dbg = &hc_debug_list[i];
+            dbg = &ops_debug_list[i];
             if (slog_level & dbg->value) {
                 ds_put_format(ds, "%s  ", dbg->sub_system);
                 count++;
@@ -129,7 +141,7 @@ handle_hc_debug(struct ds *ds, int arg_idx, int argc, const char *argv[])
         ds_put_format(ds, "Debugging is disabled for the following subsystems:\n");
         count = 1;
         for (i=0; i < dbg_list_sz; i++) {
-            dbg = &hc_debug_list[i];
+            dbg = &ops_debug_list[i];
             if (!(slog_level & dbg->value)) {
                 ds_put_format(ds, "%s  ", dbg->sub_system);
                 count++;
@@ -147,7 +159,7 @@ handle_hc_debug(struct ds *ds, int arg_idx, int argc, const char *argv[])
                 break;
             } else if (0 == strcmp(ch, "all")) {
                 for (i=0; i < dbg_list_sz; i++) {
-                    dbg = &hc_debug_list[i];
+                    dbg = &ops_debug_list[i];
                     slog_level |= dbg->value;
                 }
                 break;
@@ -163,7 +175,7 @@ handle_hc_debug(struct ds *ds, int arg_idx, int argc, const char *argv[])
                 // search for the subsystem.
                 found = 0;
                 for (i=0; i < dbg_list_sz; i++) {
-                    dbg = &hc_debug_list[i];
+                    dbg = &ops_debug_list[i];
                     if (0 == strcmp(ch, dbg->sub_system)) {
                         switch(c) {
                         case '+':                       /* OR */
@@ -186,7 +198,7 @@ handle_hc_debug(struct ds *ds, int arg_idx, int argc, const char *argv[])
             }
         }
     }
-} // handle_hc_debug
+} // handle_ops_debug
 
 static void
 bcm_plugin_debug(struct unixctl_conn *conn, int argc,
@@ -207,7 +219,7 @@ bcm_plugin_debug(struct unixctl_conn *conn, int argc,
         ch = NEXT_ARG();
 
         if (0 == strcmp(ch, "debug")) {
-            handle_hc_debug(&ds, arg_idx, argc, argv);
+            handle_ops_debug(&ds, arg_idx, argc, argv);
             goto done;
         } else if (!strcmp(ch, "vlan")) {
             int vid = -1;
@@ -215,17 +227,17 @@ bcm_plugin_debug(struct unixctl_conn *conn, int argc,
             if (NULL != (ch = NEXT_ARG())) {
                 vid = atoi(ch);
             }
-            hc_vlan_dump(&ds, vid);
+            ops_vlan_dump(&ds, vid);
             goto done;
 
         } else if (!strcmp(ch, "knet")) {
             if (NULL != (ch = NEXT_ARG())) {
                 if (!strcmp(ch, "netif")) {
                     /* KNET netif information */
-                    hc_knet_dump(&ds, KNET_DEBUG_NETIF);
+                    ops_knet_dump(&ds, KNET_DEBUG_NETIF);
                 } else if (!strcmp(ch, "filter")) {
                     /* KNET filter information */
-                    hc_knet_dump(&ds, KNET_DEBUG_FILTER);
+                    ops_knet_dump(&ds, KNET_DEBUG_FILTER);
                 } else {
                     ds_put_format(&ds, "Unsupported knet command - %s.\n", ch);
                 }
@@ -239,23 +251,23 @@ bcm_plugin_debug(struct unixctl_conn *conn, int argc,
             if (NULL != (ch = NEXT_ARG())) {
                 intfid = atoi(ch);
             }
-            hc_l3intf_dump(&ds, intfid);
+            ops_l3intf_dump(&ds, intfid);
             goto done;
 
         } else if (!strcmp(ch, "l3host")) {
-            hc_l3host_dump(&ds, FALSE);
+            ops_l3host_dump(&ds, FALSE);
             goto done;
 
         } else if (!strcmp(ch, "l3v6host")) {
-            hc_l3host_dump(&ds, TRUE);
+            ops_l3host_dump(&ds, TRUE);
             goto done;
 
         } else if (!strcmp(ch, "l3route")) {
-            hc_l3route_dump(&ds, FALSE);
+            ops_l3route_dump(&ds, FALSE);
             goto done;
 
         } else if (!strcmp(ch, "l3v6route")) {
-            hc_l3route_dump(&ds, TRUE);
+            ops_l3route_dump(&ds, TRUE);
             goto done;
 
         } else if (!strcmp(ch, "lag")) {
@@ -264,7 +276,7 @@ bcm_plugin_debug(struct unixctl_conn *conn, int argc,
             if (NULL != (ch = NEXT_ARG())) {
                 lagid = atoi(ch);
             }
-            hc_lag_dump(&ds, lagid);
+            ops_lag_dump(&ds, lagid);
             goto done;
 
         } else if (!strcmp(ch, "help")) {
@@ -359,7 +371,7 @@ static int
 process_mac_table_cb(int unit, opennsl_l2_addr_t *addr, void *ptr)
 {
     l2_traverse_data_t *user_data = (l2_traverse_data_t *)ptr;
-    struct hc_port_info *p_info = PORT_INFO(unit, addr->port);
+    struct ops_port_info *p_info = PORT_INFO(unit, addr->port);
 
     if (p_info == NULL || p_info->name == NULL) {
         return 0;
@@ -561,7 +573,7 @@ done:
 ///////////////////////////////// INIT /////////////////////////////////
 
 int
-hc_debug_init(void)
+ops_debug_init(void)
 {
     unixctl_command_register("plugin/debug", "[cmds]", 0, INT_MAX,
                              bcm_plugin_debug, NULL);
@@ -570,4 +582,4 @@ hc_debug_init(void)
 
     return 0;
 
-} // hc_debug_init
+} // ops_debug_init

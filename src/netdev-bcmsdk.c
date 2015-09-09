@@ -1,18 +1,20 @@
 /*
- * Copyright (c) 2010, 2011, 2012, 2013 Nicira, Inc.
  * Copyright (C) 2015 Hewlett-Packard Development Company, L.P.
+ * All Rights Reserved.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at:
+ *   Licensed under the Apache License, Version 2.0 (the "License"); you may
+ *   not use this file except in compliance with the License. You may obtain
+ *   a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *        http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ *   Unless required by applicable law or agreed to in writing, software
+ *   distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+ *   WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+ *   License for the specific language governing permissions and limitations
+ *   under the License.
+ *
+ * File: netdev-bcmsdk.c
  */
 
 #include <config.h>
@@ -27,12 +29,12 @@
 
 #include <opennsl/port.h>
 
-#include "hc-port.h"
-#include "hc-knet.h"
-#include "hc-stats.h"
+#include "ops-port.h"
+#include "ops-knet.h"
+#include "ops-stats.h"
 #include "platform-defines.h"
 #include "netdev-bcmsdk.h"
-#include "hc-routing.h"
+#include "ops-routing.h"
 
 VLOG_DEFINE_THIS_MODULE(netdev_bcmsdk);
 
@@ -71,7 +73,7 @@ struct netdev_bcmsdk {
     struct port_cfg pcfg;
 
     /* Port info structure. */
-    struct hc_port_info *port_info;
+    struct ops_port_info *port_info;
 
     /* ----- Subport/lane split config (e.g. QSFP+) ----- */
 
@@ -88,7 +90,7 @@ struct netdev_bcmsdk {
 
     /* Pointer to parent port port_info data.
      * Valid for split children ports only. */
-    struct hc_port_info *split_parent_portp;
+    struct ops_port_info *split_parent_portp;
 
 };
 
@@ -234,7 +236,7 @@ netdev_bcmsdk_set_hw_intf_info(struct netdev *netdev_, const struct smap *args)
     struct netdev_bcmsdk *netdev = netdev_bcmsdk_cast(netdev_);
     struct netdev *p_netdev_ = NULL;
     struct netdev_bcmsdk *p_netdev = NULL;
-    struct hc_port_info *p_info = NULL;
+    struct ops_port_info *p_info = NULL;
     struct ether_addr ZERO_MAC = {{0}};
     struct ether_addr *ether_mac = NULL;
     int rc = 0;
@@ -747,7 +749,7 @@ netdev_bcmsdk_enable_l3(const struct netdev *netdev_, int vrf_id)
     ovs_mutex_lock(&netdev->mutex);
 
     if (netdev->intf_initialized) {
-        rc = hc_routing_enable_l3_interface(netdev->hw_unit, netdev->hw_id,
+        rc = ops_routing_enable_l3_interface(netdev->hw_unit, netdev->hw_id,
                                             vrf_id, netdev->hwaddr, &netdev->l3_intf_id);
         if (rc) {
             VLOG_ERR("Failed to enable L3 on interface %s", netdev->up.name);
@@ -770,7 +772,7 @@ netdev_bcmsdk_disable_l3(const struct netdev *netdev_, int vrf_id)
     ovs_mutex_lock(&netdev->mutex);
 
     if (netdev->intf_initialized) {
-        rc = hc_routing_disable_l3_interface(netdev->hw_unit, netdev->hw_id, vrf_id,
+        rc = ops_routing_disable_l3_interface(netdev->hw_unit, netdev->hw_id, vrf_id,
                                              &netdev->l3_intf_id);
         if (rc) {
             VLOG_ERR("Failed to disable L3 on interface %s", netdev->up.name);

@@ -1,13 +1,26 @@
 /*
- * Hewlett-Packard Company Confidential (C) Copyright 2015 Hewlett-Packard Development Company, L.P.
+ * Copyright (C) 2015 Hewlett-Packard Development Company, L.P.
+ * All Rights Reserved.
  *
- * File:    hc-pbmp.h
+ *   Licensed under the Apache License, Version 2.0 (the "License"); you may
+ *   not use this file except in compliance with the License. You may obtain
+ *   a copy of the License at
  *
- * Purpose: This file provides public definitions for OpenHalon port bitmap abstraction.
+ *        http://www.apache.org/licenses/LICENSE-2.0
  *
+ *   Unless required by applicable law or agreed to in writing, software
+ *   distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+ *   WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+ *   License for the specific language governing permissions and limitations
+ *   under the License.
+ *
+ * File: ops-pbmp.h
+ *
+ * Purpose: This file provides public definitions for OpenSwitch port bitmap abstraction.
  */
-#ifndef __HC_PBMP_H__
-#define __HC_PBMP_H__ 1
+
+#ifndef __OPS_PBMP_H__
+#define __OPS_PBMP_H__ 1
 
 #include <opennsl/types.h>
 
@@ -35,4 +48,4 @@ extern void bcmsdk_pbmp_and(opennsl_pbmp_t *dst_pbm,
                             const opennsl_pbmp_t *src_pbm_1,
                             const opennsl_pbmp_t *src_pbm_2);
 
-#endif /* __HC_PBMP_H__ */
+#endif /* __OPS_PBMP_H__ */

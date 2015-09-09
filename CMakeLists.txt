@@ -23,16 +23,16 @@ set (INCL_DIR include)
 set (SOURCES ${SRC_DIR}/bcm.c
              ${SRC_DIR}/bcm-plugins.c
              ${SRC_DIR}/bufmon-bcm-provider.c
-             ${SRC_DIR}/hc-bcm-init.c
-             ${SRC_DIR}/hc-bufmon.c
-             ${SRC_DIR}/hc-debug.c
-             ${SRC_DIR}/hc-knet.c
-             ${SRC_DIR}/hc-lag.c
-             ${SRC_DIR}/hc-pbmp.c
-             ${SRC_DIR}/hc-port.c
-             ${SRC_DIR}/hc-stats.c
-             ${SRC_DIR}/hc-vlan.c
-             ${SRC_DIR}/hc-routing.c
+             ${SRC_DIR}/ops-bcm-init.c
+             ${SRC_DIR}/ops-bufmon.c
+             ${SRC_DIR}/ops-debug.c
+             ${SRC_DIR}/ops-knet.c
+             ${SRC_DIR}/ops-lag.c
+             ${SRC_DIR}/ops-pbmp.c
+             ${SRC_DIR}/ops-port.c
+             ${SRC_DIR}/ops-stats.c
+             ${SRC_DIR}/ops-vlan.c
+             ${SRC_DIR}/ops-routing.c
              ${SRC_DIR}/netdev-bcmsdk.c
              ${SRC_DIR}/ofproto-bcm-provider.c
     )

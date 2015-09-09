@@ -1,10 +1,22 @@
 /*
- * Hewlett-Packard Company Confidential (C) Copyright 2015 Hewlett-Packard Development Company, L.P.
+ * Copyright (C) 2015 Hewlett-Packard Development Company, L.P.
+ * All Rights Reserved.
  *
- * File:    hc-vlan.c
+ *   Licensed under the Apache License, Version 2.0 (the "License"); you may
+ *   not use this file except in compliance with the License. You may obtain
+ *   a copy of the License at
  *
- * Purpose: This file contains OpenHalon VLAN related application code in the Broadcom SDK.
+ *        http://www.apache.org/licenses/LICENSE-2.0
  *
+ *   Unless required by applicable law or agreed to in writing, software
+ *   distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+ *   WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+ *   License for the specific language governing permissions and limitations
+ *   under the License.
+ *
+ * File: ops-vlan.c
+ *
+ * Purpose: This file contains OpenSwitch VLAN related application code in the Broadcom SDK.
  */
 
 #include <stdio.h>
@@ -17,19 +29,19 @@
 #include <opennsl/vlan.h>
 
 #include "platform-defines.h"
-#include "hc-debug.h"
-#include "hc-pbmp.h"
-#include "hc-port.h"
-#include "hc-vlan.h"
+#include "ops-debug.h"
+#include "ops-pbmp.h"
+#include "ops-port.h"
+#include "ops-vlan.h"
 
-VLOG_DEFINE_THIS_MODULE(hc_vlan);
+VLOG_DEFINE_THIS_MODULE(ops_vlan);
 
-#define HC_VLAN_MIN       0
-#define HC_VLAN_MAX       4095
-#define HC_VLAN_COUNT     (HC_VLAN_MAX - HC_VLAN_MIN + 1)
-#define HC_VLAN_VALID(v)  ((v)>HC_VLAN_MIN && (v)<HC_VLAN_MAX)
+#define OPS_VLAN_MIN       0
+#define OPS_VLAN_MAX       4095
+#define OPS_VLAN_COUNT     (OPS_VLAN_MAX - OPS_VLAN_MIN + 1)
+#define OPS_VLAN_VALID(v)  ((v)>OPS_VLAN_MIN && (v)<OPS_VLAN_MAX)
 
-typedef struct hc_vlan_data {
+typedef struct ops_vlan_data {
 
     int vid;
     int hw_created;  // Boolean indicating if this VLAN
@@ -49,7 +61,7 @@ typedef struct hc_vlan_data {
     opennsl_pbmp_t hw_native_tag_ports[MAX_SWITCH_UNITS];
     opennsl_pbmp_t hw_native_untag_ports[MAX_SWITCH_UNITS];
 
-} hc_vlan_data_t;
+} ops_vlan_data_t;
 
 // Global empty port bitmap.
 opennsl_pbmp_t g_empty_pbm;
@@ -59,15 +71,15 @@ opennsl_pbmp_t g_empty_pbm;
 // to help optimize looping through all VIDs, where loop
 // can be stopped when all VLANs have been seen.
 // Note that valid VID range is only 1-4094.
-unsigned int hc_vlan_count = 0;
-hc_vlan_data_t *hc_vlans[HC_VLAN_COUNT] = { NULL };
+unsigned int ops_vlan_count = 0;
+ops_vlan_data_t *ops_vlans[OPS_VLAN_COUNT] = { NULL };
 
-unsigned int hc_internal_vlan_count = 0;
-hc_vlan_data_t *hc_internal_vlans[HC_VLAN_COUNT] = { NULL };
+unsigned int ops_internal_vlan_count = 0;
+ops_vlan_data_t *ops_internal_vlans[OPS_VLAN_COUNT] = { NULL };
 ////////////////////////////////// DEBUG ///////////////////////////////////
 
 static void
-show_vlan_data(struct ds *ds, hc_vlan_data_t *vlanp)
+show_vlan_data(struct ds *ds, ops_vlan_data_t *vlanp)
 {
     int unit;
     char pfmt[_SHR_PBMP_FMT_LEN];
@@ -98,34 +110,34 @@ show_vlan_data(struct ds *ds, hc_vlan_data_t *vlanp)
 } // show_vlan_data
 
 void
-hc_vlan_dump(struct ds *ds, int vid)
+ops_vlan_dump(struct ds *ds, int vid)
 {
     int unit;
     char pfmt[_SHR_PBMP_FMT_LEN];
 
     for (unit = 0; unit <= MAX_SWITCH_UNIT_ID; unit++) {
         ds_put_format(ds, "Unit %d linked up ports = %s\n", unit,
-                      _SHR_PBMP_FMT(hc_get_link_up_pbm(unit), pfmt));
+                      _SHR_PBMP_FMT(ops_get_link_up_pbm(unit), pfmt));
     }
 
-    if (HC_VLAN_VALID(vid)) {
-        if (hc_vlans[vid] != NULL) {
-            show_vlan_data(ds, hc_vlans[vid]);
+    if (OPS_VLAN_VALID(vid)) {
+        if (ops_vlans[vid] != NULL) {
+            show_vlan_data(ds, ops_vlans[vid]);
         } else {
             ds_put_format(ds, "VLAN %d does not exist.\n", vid);
         }
     } else {
         int vid, count;
-        ds_put_format(ds, "Dumping all VLANs (count=%d)...\n", hc_vlan_count);
-        for (vid=0, count=0; vid<HC_VLAN_COUNT && count<hc_vlan_count; vid++) {
-            if (hc_vlans[vid] != NULL) {
+        ds_put_format(ds, "Dumping all VLANs (count=%d)...\n", ops_vlan_count);
+        for (vid=0, count=0; vid<OPS_VLAN_COUNT && count<ops_vlan_count; vid++) {
+            if (ops_vlans[vid] != NULL) {
                 count++;
-                show_vlan_data(ds, hc_vlans[vid]);
+                show_vlan_data(ds, ops_vlans[vid]);
             }
         }
     }
 
-} // hc_vlan_dump
+} // ops_vlan_dump
 
 ////////////////////////////////// HW API //////////////////////////////////
 
@@ -398,22 +410,22 @@ hw_del_ports_from_vlan(int unit, opennsl_pbmp_t all_bmp, opennsl_pbmp_t untagged
 
 ////////////////////////////// INTERNAL API ///////////////////////////////
 
-static hc_vlan_data_t *
+static ops_vlan_data_t *
 get_vlan_data(int vid, bool internal)
 {
     int unit;
-    hc_vlan_data_t *vlanp = NULL;
+    ops_vlan_data_t *vlanp = NULL;
 
-    if (internal && hc_internal_vlans[vid] != NULL) {
-        return hc_internal_vlans[vid];
+    if (internal && ops_internal_vlans[vid] != NULL) {
+        return ops_internal_vlans[vid];
     }
 
-    if (hc_vlans[vid] != NULL) {
-        return hc_vlans[vid];
+    if (ops_vlans[vid] != NULL) {
+        return ops_vlans[vid];
     }
 
     // VLAN data hasn't been created yet.
-    vlanp = malloc(sizeof(hc_vlan_data_t));
+    vlanp = malloc(sizeof(ops_vlan_data_t));
     if (!vlanp) {
         VLOG_ERR("Failed to allocate memory for %s VLAN vid=%d",
                  internal ? "internal" : "", vid);
@@ -424,11 +436,11 @@ get_vlan_data(int vid, bool internal)
     vlanp->hw_created = 0;
 
     if (internal) {
-        hc_internal_vlans[vid] = vlanp;
-        hc_internal_vlan_count++;
+        ops_internal_vlans[vid] = vlanp;
+        ops_internal_vlan_count++;
     } else {
-        hc_vlans[vid] = vlanp;
-        hc_vlan_count++;
+        ops_vlans[vid] = vlanp;
+        ops_vlan_count++;
     }
 
     // Initialize member port bitmaps
@@ -452,9 +464,9 @@ free_vlan_data(int vid, bool internal)
 {
     int unit;
     int any_member;
-    hc_vlan_data_t *vlanp = NULL;
+    ops_vlan_data_t *vlanp = NULL;
 
-    vlanp = internal ? hc_internal_vlans[vid] : hc_vlans[vid];
+    vlanp = internal ? ops_internal_vlans[vid] : ops_vlans[vid];
     if (!vlanp) {
         VLOG_ERR("Trying to free non-existent %s VLAN data (vid=%d)!",
                  internal ? "internal" : "", vid);
@@ -481,11 +493,11 @@ free_vlan_data(int vid, bool internal)
     if (!any_member) {
         free(vlanp);
         if (internal) {
-            hc_internal_vlans[vid] = NULL;
-            hc_internal_vlan_count--;
+            ops_internal_vlans[vid] = NULL;
+            ops_internal_vlan_count--;
         } else {
-            hc_vlans[vid] = NULL;
-            hc_vlan_count--;
+            ops_vlans[vid] = NULL;
+            ops_vlan_count--;
         }
     }
 
@@ -497,7 +509,7 @@ int
 bcmsdk_create_vlan(int vid, bool internal)
 {
     int unit;
-    hc_vlan_data_t *vlanp;
+    ops_vlan_data_t *vlanp;
 
     SW_VLAN_DBG("%s entry: vid=%d", __FUNCTION__, vid);
 
@@ -516,7 +528,7 @@ bcmsdk_create_vlan(int vid, bool internal)
         opennsl_pbmp_t bcm_pbm;
         opennsl_pbmp_t linkup_pbm;
 
-        linkup_pbm = hc_get_link_up_pbm(unit);
+        linkup_pbm = ops_get_link_up_pbm(unit);
 
         hw_create_vlan(unit, vid);
         vlanp->hw_created = 1;
@@ -571,9 +583,9 @@ int
 bcmsdk_destroy_vlan(int vid, bool internal)
 {
     int unit;
-    hc_vlan_data_t *vlanp = hc_vlans[vid];
+    ops_vlan_data_t *vlanp = ops_vlans[vid];
 
-    vlanp = internal ? hc_internal_vlans[vid] : hc_vlans[vid];
+    vlanp = internal ? ops_internal_vlans[vid] : ops_vlans[vid];
 
     if (vlanp) {
         opennsl_pbmp_t bcm_pbm;
@@ -627,7 +639,7 @@ int
 bcmsdk_add_access_ports(int vid, opennsl_pbmp_t *pbm, bool internal)
 {
     int unit;
-    hc_vlan_data_t *vlanp = NULL;
+    ops_vlan_data_t *vlanp = NULL;
 
     // An ACCESS port carries packets on exactly one VLAN specified
     // in the tag column.  Packets egressing on an access port have
@@ -656,7 +668,7 @@ bcmsdk_add_access_ports(int vid, opennsl_pbmp_t *pbm, bool internal)
 
         // Filter out ports that are not linked up.
         if (!internal) {
-            OPENNSL_PBMP_AND(bcm_pbm, hc_get_link_up_pbm(unit));
+            OPENNSL_PBMP_AND(bcm_pbm, ops_get_link_up_pbm(unit));
         }
 
         // If any port is left, and VLAN is already created
@@ -678,12 +690,12 @@ bcmsdk_del_access_ports(int vid, opennsl_pbmp_t *pbm, bool internal)
 {
     SW_VLAN_DBG("%s entry: vid=%d", __FUNCTION__, vid);
 
-    if ((internal && hc_internal_vlans[vid] != NULL) ||
-        (!internal && hc_vlans[vid] != NULL)) {
+    if ((internal && ops_internal_vlans[vid] != NULL) ||
+        (!internal && ops_vlans[vid] != NULL)) {
         int unit;
-        hc_vlan_data_t *vlanp;
+        ops_vlan_data_t *vlanp;
 
-        vlanp = internal ? hc_internal_vlans[vid] : hc_vlans[vid];
+        vlanp = internal ? ops_internal_vlans[vid] : ops_vlans[vid];
 
         for (unit = 0; unit <= MAX_SWITCH_UNIT_ID; unit++) {
             opennsl_pbmp_t bcm_pbm;
@@ -718,7 +730,7 @@ void
 bcmsdk_add_trunk_ports(int vid, opennsl_pbmp_t *pbm)
 {
     int unit;
-    hc_vlan_data_t *vlanp = NULL;
+    ops_vlan_data_t *vlanp = NULL;
 
     // A TRUNK port carries packets on one or more specified
     // VLANs specified in the trunks column (often,  on  every
@@ -731,7 +743,7 @@ bcmsdk_add_trunk_ports(int vid, opennsl_pbmp_t *pbm)
     // Any packet that ingresses on a trunk port tagged with a
     // VLAN that the port does not trunk is dropped.
     //
-    // HALON NOTE: h/w switches does not support VLAN 0.
+    // OpenSwitch NOTE: h/w switches does not support VLAN 0.
 
     SW_VLAN_DBG("%s entry: vid=%d", __FUNCTION__, vid);
 
@@ -750,7 +762,7 @@ bcmsdk_add_trunk_ports(int vid, opennsl_pbmp_t *pbm)
         OPENNSL_PBMP_OR(vlanp->cfg_trunk_ports[unit], bcm_pbm);
 
         // Filter out ports that are not linked up.
-        OPENNSL_PBMP_AND(bcm_pbm, hc_get_link_up_pbm(unit));
+        OPENNSL_PBMP_AND(bcm_pbm, ops_get_link_up_pbm(unit));
 
         // If any port is left, and VLAN is already created
         // in h/w, go ahead and configure it.
@@ -770,9 +782,9 @@ bcmsdk_del_trunk_ports(int vid, opennsl_pbmp_t *pbm)
 {
     SW_VLAN_DBG("%s entry: vid=%d", __FUNCTION__, vid);
 
-    if (hc_vlans[vid] != NULL) {
+    if (ops_vlans[vid] != NULL) {
         int unit;
-        hc_vlan_data_t *vlanp = hc_vlans[vid];
+        ops_vlan_data_t *vlanp = ops_vlans[vid];
 
         for (unit = 0; unit <= MAX_SWITCH_UNIT_ID; unit++) {
             opennsl_pbmp_t bcm_pbm;
@@ -806,7 +818,7 @@ void
 bcmsdk_add_native_tagged_ports(int vid, opennsl_pbmp_t *pbm)
 {
     int unit;
-    hc_vlan_data_t *vlanp = NULL;
+    ops_vlan_data_t *vlanp = NULL;
 
     // A NATIVE-TAGGED port resembles a trunk port, with the
     // exception that a packet without an 802.1Q header that
@@ -830,7 +842,7 @@ bcmsdk_add_native_tagged_ports(int vid, opennsl_pbmp_t *pbm)
         OPENNSL_PBMP_OR(vlanp->cfg_native_tag_ports[unit], bcm_pbm);
 
         // Filter out ports that are not linked up.
-        OPENNSL_PBMP_AND(bcm_pbm, hc_get_link_up_pbm(unit));
+        OPENNSL_PBMP_AND(bcm_pbm, ops_get_link_up_pbm(unit));
 
         // If any port is left, and VLAN is already created
         // in h/w, go ahead and configure it.
@@ -853,9 +865,9 @@ bcmsdk_del_native_tagged_ports(int vid, opennsl_pbmp_t *pbm)
 {
     SW_VLAN_DBG("%s entry: vid=%d", __FUNCTION__, vid);
 
-    if (hc_vlans[vid] != NULL) {
+    if (ops_vlans[vid] != NULL) {
         int unit;
-        hc_vlan_data_t *vlanp = hc_vlans[vid];
+        ops_vlan_data_t *vlanp = ops_vlans[vid];
 
         for (unit = 0; unit <= MAX_SWITCH_UNIT_ID; unit++) {
             opennsl_pbmp_t bcm_pbm;
@@ -892,7 +904,7 @@ void
 bcmsdk_add_native_untagged_ports(int vid, opennsl_pbmp_t *pbm)
 {
     int unit;
-    hc_vlan_data_t *vlanp = NULL;
+    ops_vlan_data_t *vlanp = NULL;
 
     // A NATIVE-UNTAGGED port resembles a native-tagged port,
     // with the exception that a packet that egresses on a
@@ -916,7 +928,7 @@ bcmsdk_add_native_untagged_ports(int vid, opennsl_pbmp_t *pbm)
         OPENNSL_PBMP_OR(vlanp->cfg_native_untag_ports[unit], bcm_pbm);
 
         // Filter out ports that are not linked up.
-        OPENNSL_PBMP_AND(bcm_pbm, hc_get_link_up_pbm(unit));
+        OPENNSL_PBMP_AND(bcm_pbm, ops_get_link_up_pbm(unit));
 
         // If any port is left, and VLAN is already created
         // in h/w, go ahead and configure it.
@@ -937,9 +949,9 @@ bcmsdk_del_native_untagged_ports(int vid, opennsl_pbmp_t *pbm)
 {
     SW_VLAN_DBG("%s entry: vid=%d", __FUNCTION__, vid);
 
-    if (hc_vlans[vid] != NULL) {
+    if (ops_vlans[vid] != NULL) {
         int unit;
-        hc_vlan_data_t *vlanp = hc_vlans[vid];
+        ops_vlan_data_t *vlanp = ops_vlans[vid];
 
         for (unit = 0; unit <= MAX_SWITCH_UNIT_ID; unit++) {
             opennsl_pbmp_t bcm_pbm;
@@ -974,15 +986,15 @@ vlan_reconfig_on_link_change(int unit, opennsl_port_t hw_port, int link_is_up)
 {
     int vid, count;
     opennsl_pbmp_t pbm;
-    hc_vlan_data_t *vlanp;
+    ops_vlan_data_t *vlanp;
 
     OPENNSL_PBMP_CLEAR(pbm);
     OPENNSL_PBMP_PORT_ADD(pbm, hw_port);
 
-    for (vid=0, count=0; vid<HC_VLAN_COUNT && count<hc_vlan_count; vid++) {
-        if (hc_vlans[vid] != NULL) {
+    for (vid=0, count=0; vid<OPS_VLAN_COUNT && count<ops_vlan_count; vid++) {
+        if (ops_vlans[vid] != NULL) {
             count++;
-            vlanp = hc_vlans[vid];
+            vlanp = ops_vlans[vid];
             if (vlanp->hw_created) {
                 if (link_is_up) {
                     // Link has come up.
@@ -1033,9 +1045,9 @@ vlan_reconfig_on_link_change(int unit, opennsl_port_t hw_port, int link_is_up)
 ///////////////////////////////// INIT /////////////////////////////////
 
 int
-hc_vlan_init(int hw_unit)
+ops_vlan_init(int hw_unit)
 {
     OPENNSL_PBMP_CLEAR(g_empty_pbm);
     return 0;
 
-} // hc_vlan_init
+} // ops_vlan_init

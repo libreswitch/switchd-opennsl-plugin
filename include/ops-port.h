@@ -1,13 +1,26 @@
 /*
- * Hewlett-Packard Company Confidential (C) Copyright 2015 Hewlett-Packard Development Company, L.P.
+ * Copyright (C) 2015 Hewlett-Packard Development Company, L.P.
+ * All Rights Reserved.
  *
- * File:    hc_port.h
+ *   Licensed under the Apache License, Version 2.0 (the "License"); you may
+ *   not use this file except in compliance with the License. You may obtain
+ *   a copy of the License at
+ *
+ *        http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *   Unless required by applicable law or agreed to in writing, software
+ *   distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+ *   WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+ *   License for the specific language governing permissions and limitations
+ *   under the License.
+ *
+ * File: ops-port.h
  *
  * Purpose: This file provides public definitions for BCMSDK Port applications.
- *
  */
-#ifndef __HC_PORT_H__
-#define __HC_PORT_H__ 1
+
+#ifndef __OPS_PORT_H__
+#define __OPS_PORT_H__ 1
 
 #include <stdint.h>
 #include <netinet/ether.h>
@@ -25,8 +38,8 @@
 
 #define BCMSDK_MTU_TO_MAXFRAMESIZE_PAD    24
 
-#define PORT_INFO(unit, port)    ((port_info[(unit)] != (struct hc_port_info *) NULL) ? \
-                                  &(port_info[(unit)][(port)]) : (struct hc_port_info *)NULL)
+#define PORT_INFO(unit, port)    ((port_info[(unit)] != (struct ops_port_info *) NULL) ? \
+                                  &(port_info[(unit)][(port)]) : (struct ops_port_info *)NULL)
 
 #define MAX_QSFP_SPLIT_PORT_COUNT           4
 
@@ -46,7 +59,7 @@ struct port_cfg {
     int   link_speed;
 };
 
-struct hc_port_info {
+struct ops_port_info {
     char    *name;
     int     hw_unit;        /* Hardware unit number. */
     int     hw_port;        /* Hardware port number. */
@@ -62,16 +75,16 @@ struct hc_port_info {
     bool        lanes_split_status;
 };
 
-extern struct hc_port_info *port_info[MAX_SWITCH_UNITS];
+extern struct ops_port_info *port_info[MAX_SWITCH_UNITS];
 
-extern int hc_port_init(int hw_unit);
-extern opennsl_pbmp_t hc_get_link_up_pbm(int unit);
+extern int ops_port_init(int hw_unit);
+extern opennsl_pbmp_t ops_get_link_up_pbm(int unit);
 
 extern int bcmsdk_port_kernel_if_init(char *name, int hw_unit, opennsl_port_t hw_port,
                                       struct ether_addr *mac);
 extern int bcmsdk_port_kernel_if_deinit(char *name, int hw_unit, opennsl_port_t hw_port);
 
-extern int split_port_lane_config(struct hc_port_info *p_info, bool is_split_needed);
+extern int split_port_lane_config(struct ops_port_info *p_info, bool is_split_needed);
 
 extern int bcmsdk_set_port_config(int hw_unit, opennsl_port_t hw_port, const struct port_cfg *pcfg);
 extern int bcmsdk_set_enable_state(int hw_unit, opennsl_port_t hw_port, int enable);
@@ -79,4 +92,4 @@ extern int bcmsdk_get_enable_state(int hw_unit, opennsl_port_t hw_port, int *ena
 extern int bcmsdk_get_link_status(int hw_unit, opennsl_port_t hw_port, int *linkup);
 extern int bcmsdk_get_port_config(int hw_unit, opennsl_port_t hw_port, struct port_cfg *pcfg);
 
-#endif /* __HC_PORT_H__ */
+#endif /* __OPS_PORT_H__ */

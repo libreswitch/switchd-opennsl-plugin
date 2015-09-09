@@ -1,10 +1,22 @@
 /*
- * Hewlett-Packard Company Confidential (C) Copyright 2015 Hewlett-Packard Development Company, L.P.
+ * Copyright (C) 2015 Hewlett-Packard Development Company, L.P.
+ * All Rights Reserved.
  *
- * File:    hc-bufmon.c
+ *   Licensed under the Apache License, Version 2.0 (the "License"); you may
+ *   not use this file except in compliance with the License. You may obtain
+ *   a copy of the License at
  *
- * Purpose: This file contains OpenHalon bufmon related application code
+ *        http://www.apache.org/licenses/LICENSE-2.0
  *
+ *   Unless required by applicable law or agreed to in writing, software
+ *   distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+ *   WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+ *   License for the specific language governing permissions and limitations
+ *   under the License.
+ *
+ * File: ops-bufmon.c
+ *
+ * Purpose: This file contains OpenSwitch bufmon related application code
  */
 
 #include <stdio.h>
@@ -20,9 +32,9 @@
 
 #include "bufmon-bcm-provider.h"
 #include "platform-defines.h"
-#include "hc-debug.h"
+#include "ops-debug.h"
 
-VLOG_DEFINE_THIS_MODULE(hc_bufmon);
+VLOG_DEFINE_THIS_MODULE(ops_bufmon);
 
 /* structure to map realm string to statid  and counter helper functions */
 typedef struct realm_helper {

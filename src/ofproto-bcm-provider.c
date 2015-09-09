@@ -29,11 +29,11 @@
 
 #include <openhalon-idl.h>
 
-#include "hc-pbmp.h"
-#include "hc-vlan.h"
-#include "hc-lag.h"
-#include "hc-routing.h"
-#include "hc-knet.h"
+#include "ops-pbmp.h"
+#include "ops-vlan.h"
+#include "ops-lag.h"
+#include "ops-routing.h"
+#include "ops-knet.h"
 #include "netdev-bcmsdk.h"
 #include "platform-defines.h"
 #include "ofproto-bcm-provider.h"
@@ -555,7 +555,7 @@ bundle_destroy(struct ofbundle *bundle)
     memset(bundle->vlan_knet_filter_ids, 0, sizeof(bundle->vlan_knet_filter_ids));
 
     if (bundle->l3_intf) {
-        hc_routing_disable_l3_interface(bundle->hw_unit,
+        ops_routing_disable_l3_interface(bundle->hw_unit,
                                         bundle->hw_port,
                                         bundle->l3_intf);
         bundle->l3_intf = NULL;
@@ -784,7 +784,7 @@ bundle_set(struct ofproto *ofproto_, void *aux,
         if (bundle->l3_intf) {
             /* if reserved vlan changed or removed */
             if (bundle->l3_intf->l3a_vid != vlan_id) {
-                hc_routing_disable_l3_interface(hw_unit, hw_port, bundle->l3_intf);
+                ops_routing_disable_l3_interface(hw_unit, hw_port, bundle->l3_intf);
                 bundle->l3_intf = NULL;
                 bundle->hw_unit = 0;
                 bundle->hw_port = -1;
@@ -796,7 +796,7 @@ bundle_set(struct ofproto *ofproto_, void *aux,
             /* If interface type is not internal create l3 interface, else
              * create an l3 vlan interface on every hw_unit. */
             if(strcmp(type, INTERFACE_TYPE_INTERNAL)) {
-                bundle->l3_intf = hc_routing_enable_l3_interface(
+                bundle->l3_intf = ops_routing_enable_l3_interface(
                         hw_unit, hw_port, ofproto->vrf_id, vlan_id,
                         mac);
                 if (bundle->l3_intf) {
@@ -806,7 +806,7 @@ bundle_set(struct ofproto *ofproto_, void *aux,
             } else {
                 int unit = 0;
                 for (unit = 0; unit <= MAX_SWITCH_UNIT_ID; unit++) {
-                    bundle->l3_intf = hc_routing_enable_l3_vlan_interface(
+                    bundle->l3_intf = ops_routing_enable_l3_vlan_interface(
                             unit, ofproto->vrf_id, vlan_id,
                             mac);
                 }
@@ -815,7 +815,7 @@ bundle_set(struct ofproto *ofproto_, void *aux,
     }
 
     /* Look for port configuration options
-     * HALON_TBD - fill up stubs with actual actions */
+     * OPS_TODO: - fill up stubs with actual actions */
     opt_arg = smap_get(s->port_options[PORT_OPT_VLAN], "vlan_options_p0");
     if (opt_arg != NULL) {
        VLOG_DBG("VLAN config options option_arg= %s", opt_arg);
@@ -1491,7 +1491,7 @@ add_l3_host_entry(const struct ofproto *ofproto_, void *aux,
         return 1; /* Return error */
     }
 
-    rc = hc_routing_add_host_entry(port_bundle->hw_unit, port_bundle->hw_port,
+    rc = ops_routing_add_host_entry(port_bundle->hw_unit, port_bundle->hw_port,
                                    ofproto->vrf_id, is_ipv6_addr,
                                    ip_addr, next_hop_mac_addr,
                                    port_bundle->l3_intf->l3a_intf_id,
@@ -1521,7 +1521,7 @@ delete_l3_host_entry(const struct ofproto *ofproto_, void *aux,
         return 1; /* Return error */
     }
 
-    rc = hc_routing_delete_host_entry(port_bundle->hw_unit,
+    rc = ops_routing_delete_host_entry(port_bundle->hw_unit,
                                       port_bundle->hw_port,
                                       ofproto->vrf_id, is_ipv6_addr, ip_addr,
                                       l3_egress_id);
@@ -1547,7 +1547,7 @@ get_l3_host_hit_bit(const struct ofproto *ofproto_, void *aux,
         return 1; /* Return error */
     }
 
-    rc = hc_routing_get_host_hit(port_bundle->hw_unit, ofproto->vrf_id,
+    rc = ops_routing_get_host_hit(port_bundle->hw_unit, ofproto->vrf_id,
                                  is_ipv6_addr, ip_addr, hit_bit);
     if (rc) {
         VLOG_ERR("Failed to get L3 host hit for ip %s", ip_addr);
@@ -1564,7 +1564,7 @@ l3_route_action(const struct ofproto *ofprotop,
 {
     struct bcmsdk_provider_node *ofproto = bcmsdk_provider_node_cast(ofprotop);
 
-    return hc_routing_route_entry_action(0, ofproto->vrf_id, action, routep);
+    return ops_routing_route_entry_action(0, ofproto->vrf_id, action, routep);
 }
 
 const struct ofproto_class ofproto_bcm_provider_class = {

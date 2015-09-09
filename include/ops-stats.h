@@ -14,14 +14,14 @@
  *   License for the specific language governing permissions and limitations
  *   under the License.
  *
- * File: bcm.h
+ * File: ops-stats.h
+ *
+ * Purpose: This file provides public definitions for Interface statistics API.
  */
 
-#ifndef BCM_H
-#define BCM_H 1
+#ifndef __OPS_STAT_H__
+#define __OPS_STAT_H__ 1
 
-/* OVS API to start/stop BCM SDK */
-void ovs_bcm_init(void);
-void ovs_bcm_init_done(void);
+extern int bcmsdk_get_port_stats(int hw_unit, int hw_port, struct netdev_stats *stats);
 
-#endif /* bcm.h */
+#endif /* __OPS_STAT_H__ */

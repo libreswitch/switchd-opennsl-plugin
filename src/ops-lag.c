@@ -1,11 +1,22 @@
 /*
- * Hewlett-Packard Company Confidential (C) Copyright 2015 Hewlett-Packard Development Company, L.P.
+ * Copyright (C) 2015 Hewlett-Packard Development Company, L.P.
+ * All Rights Reserved.
  *
- * File:    hc-lag.c
+ *   Licensed under the Apache License, Version 2.0 (the "License"); you may
+ *   not use this file except in compliance with the License. You may obtain
+ *   a copy of the License at
  *
- * Purpose: This file contains OpenHalon LAG related application code
- *          in the Broadcom SDK.
+ *        http://www.apache.org/licenses/LICENSE-2.0
  *
+ *   Unless required by applicable law or agreed to in writing, software
+ *   distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+ *   WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+ *   License for the specific language governing permissions and limitations
+ *   under the License.
+ *
+ * File: ops-lag.c
+ *
+ * Purpose: This file contains OpenSwitch LAG related application code in the Broadcom SDK.
  */
 
 #include <stdlib.h>
@@ -17,13 +28,13 @@
 #include <opennsl/trunk.h>
 
 #include "platform-defines.h"
-#include "hc-debug.h"
-#include "hc-lag.h"
+#include "ops-debug.h"
+#include "ops-lag.h"
 
-VLOG_DEFINE_THIS_MODULE(hc_lag);
+VLOG_DEFINE_THIS_MODULE(ops_lag);
 
-typedef struct hc_lag_data {
-    TAILQ_ENTRY(hc_lag_data)  lag_data_list;
+typedef struct ops_lag_data {
+    TAILQ_ENTRY(ops_lag_data)  lag_data_list;
 
     opennsl_trunk_t lag_id;
     int lag_mode;                                // OpenNSL LAG hash mode.
@@ -32,16 +43,16 @@ typedef struct hc_lag_data {
     opennsl_pbmp_t ports_pbm[MAX_SWITCH_UNITS];  // Attached ports
     opennsl_pbmp_t egr_en_pbm[MAX_SWITCH_UNITS]; // Ports with egress enabled.
 
-} hc_lag_data_t;
+} ops_lag_data_t;
 
 static int lags_data_initialized = 0;
-TAILQ_HEAD(hc_lag_data_head, hc_lag_data) hc_lags;
+TAILQ_HEAD(ops_lag_data_head, ops_lag_data) ops_lags;
 
 /* Broadcom switch chip module ID.
-   HALON_TODO: Support multiple switch chips. */
+   OPS_TODO: Support multiple switch chips. */
 #define MODID_0         0
 
-static hc_lag_data_t *find_lag_data(opennsl_trunk_t lag_id);
+static ops_lag_data_t *find_lag_data(opennsl_trunk_t lag_id);
 static void hw_lag_detach_port(int unit, opennsl_trunk_t lag_id, opennsl_port_t hw_port);
 
 ////////////////////////////////// DEBUG ///////////////////////////////////
@@ -60,7 +71,7 @@ lag_mode_to_str(int lag_mode)
 } // lag_mode_to_str
 
 static void
-show_lag_data(struct ds *ds, hc_lag_data_t *lagp)
+show_lag_data(struct ds *ds, ops_lag_data_t *lagp)
 {
     int unit;
     char pfmt[_SHR_PBMP_FMT_LEN];
@@ -80,9 +91,9 @@ show_lag_data(struct ds *ds, hc_lag_data_t *lagp)
 } // show_lag_data
 
 void
-hc_lag_dump(struct ds *ds, opennsl_trunk_t lagid)
+ops_lag_dump(struct ds *ds, opennsl_trunk_t lagid)
 {
-    hc_lag_data_t *lagp = NULL;
+    ops_lag_data_t *lagp = NULL;
 
     if (lagid != -1) {
         lagp = find_lag_data(lagid);
@@ -96,7 +107,7 @@ hc_lag_dump(struct ds *ds, opennsl_trunk_t lagid)
             ds_put_format(ds, "LAG data not yet initialized.\n");
         } else {
             ds_put_format(ds, "Dumping all LAGs...\n");
-            for (lagp = hc_lags.tqh_first;
+            for (lagp = ops_lags.tqh_first;
                  lagp != NULL;
                  lagp = lagp->lag_data_list.tqe_next ) {
                 show_lag_data(ds, lagp);
@@ -104,7 +115,7 @@ hc_lag_dump(struct ds *ds, opennsl_trunk_t lagid)
         }
     }
 
-} // hc_vlan_dump
+} // ops_vlan_dump
 
 ////////////////////////////////// HW API //////////////////////////////////
 
@@ -192,7 +203,7 @@ hw_lag_attach_port(int unit, opennsl_trunk_t lag_id, opennsl_port_t hw_port)
     // If port is already attached to trunk, take appropriate action.
     // BCM API doesn't check for duplicate ports in trunk.
     if (is_port_attached_to_lag(unit, hw_port, &exist_lag_id)) {
-        hc_lag_data_t *lagp;
+        ops_lag_data_t *lagp;
 
         if (lag_id == exist_lag_id) {
             // Don't attempt to attach again.
@@ -339,17 +350,17 @@ hw_set_lag_balance_mode(int unit, opennsl_trunk_t lag_id, int lag_mode)
 
 ////////////////////////////// INTERNAL API ///////////////////////////////
 
-static hc_lag_data_t *
+static ops_lag_data_t *
 find_lag_data(opennsl_trunk_t lag_id)
 {
-    hc_lag_data_t *lagp = NULL;
+    ops_lag_data_t *lagp = NULL;
 
     if (!lags_data_initialized) {
-        TAILQ_INIT(&hc_lags);
+        TAILQ_INIT(&ops_lags);
         lags_data_initialized = 1;
     }
 
-    for (lagp = hc_lags.tqh_first;
+    for (lagp = ops_lags.tqh_first;
          lagp != NULL;
          lagp = lagp->lag_data_list.tqe_next ) {
         if (lagp->lag_id == lag_id) {
@@ -361,16 +372,16 @@ find_lag_data(opennsl_trunk_t lag_id)
 
 } // find_lag_data
 
-static hc_lag_data_t *
+static ops_lag_data_t *
 get_lag_data(opennsl_trunk_t lag_id)
 {
     int unit;
-    hc_lag_data_t *lagp = NULL;
+    ops_lag_data_t *lagp = NULL;
 
     lagp = find_lag_data(lag_id);
     if (lagp == NULL) {
         // LAG data hasn't been created yet.
-        lagp = malloc(sizeof(hc_lag_data_t));
+        lagp = malloc(sizeof(ops_lag_data_t));
         if (!lagp) {
             VLOG_ERR("Failed to allocate memory for LAG id=%d", lag_id);
             return NULL;
@@ -384,7 +395,7 @@ get_lag_data(opennsl_trunk_t lag_id)
             OPENNSL_PBMP_CLEAR(lagp->ports_pbm[unit]);
             OPENNSL_PBMP_CLEAR(lagp->egr_en_pbm[unit]);
         }
-        TAILQ_INSERT_TAIL(&hc_lags, lagp, lag_data_list);
+        TAILQ_INSERT_TAIL(&ops_lags, lagp, lag_data_list);
     }
 
     return lagp;
@@ -397,7 +408,7 @@ void
 bcmsdk_create_lag(opennsl_trunk_t *lag_idp)
 {
     int unit = 0;
-    hc_lag_data_t *lagp;
+    ops_lag_data_t *lagp;
 
     SW_LAG_DBG("entry: lag_id=%d", *lag_idp);
 
@@ -425,7 +436,7 @@ void
 bcmsdk_destroy_lag(opennsl_trunk_t lag_id)
 {
     int unit = 0;
-    hc_lag_data_t *lagp;
+    ops_lag_data_t *lagp;
 
     SW_LAG_DBG("entry: lag_id=%d", lag_id);
 
@@ -433,7 +444,7 @@ bcmsdk_destroy_lag(opennsl_trunk_t lag_id)
     if (lagp) {
         hw_destroy_lag(unit, lagp->lag_id);
 
-        TAILQ_REMOVE(&hc_lags, lagp, lag_data_list);
+        TAILQ_REMOVE(&ops_lags, lagp, lag_data_list);
         free(lagp);
     } else {
         VLOG_WARN("Deleting non-existing LAG, LAG_ID=%d", lag_id);
@@ -448,7 +459,7 @@ void
 bcmsdk_attach_ports_to_lag(opennsl_trunk_t lag_id, opennsl_pbmp_t *pbm)
 {
     int unit = 0;
-    hc_lag_data_t *lagp;
+    ops_lag_data_t *lagp;
     opennsl_port_t hw_port;
     opennsl_pbmp_t bcm_pbm;
 
@@ -499,7 +510,7 @@ void
 bcmsdk_egress_enable_lag_ports(opennsl_trunk_t lag_id, opennsl_pbmp_t *pbm)
 {
     int unit = 0;
-    hc_lag_data_t *lagp;
+    ops_lag_data_t *lagp;
     opennsl_port_t hw_port;
     opennsl_pbmp_t bcm_pbm;
 
@@ -550,7 +561,7 @@ void
 bcmsdk_set_lag_balance_mode(opennsl_trunk_t lag_id, int lag_mode)
 {
     int unit = 0;
-    hc_lag_data_t *lagp;
+    ops_lag_data_t *lagp;
 
     SW_LAG_DBG("entry: lag_id=%d", lag_id);
 

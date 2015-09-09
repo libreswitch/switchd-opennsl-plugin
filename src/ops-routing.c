@@ -30,23 +30,23 @@
 #include <opennsl/vlan.h>
 #include <opennsl/l3.h>
 #include <opennsl/l2.h>
-#include "hc-routing.h"
-#include "hc-debug.h"
-#include "hc-vlan.h"
-#include "hc-knet.h"
+#include "ops-routing.h"
+#include "ops-debug.h"
+#include "ops-vlan.h"
+#include "ops-knet.h"
 #include "platform-defines.h"
 #include <util.h>
 #include <ofproto/ofproto.h>
 
 
-VLOG_DEFINE_THIS_MODULE(hc_routing);
+VLOG_DEFINE_THIS_MODULE(ops_routing);
 
 opennsl_if_t local_nhid;
 /* fake MAC to create a local_nhid */
 opennsl_mac_t LOCAL_MAC =  {0x0,0x0,0x01,0x02,0x03,0x04};
 
 int
-hc_l3_init(int unit)
+ops_l3_init(int unit)
 {
     opennsl_error_t rc = OPENNSL_E_NONE;
     opennsl_l3_egress_t egress_object;
@@ -122,7 +122,7 @@ hc_l3_init(int unit)
 }
 
 opennsl_l3_intf_t *
-hc_routing_enable_l3_interface(int hw_unit, opennsl_port_t hw_port,
+ops_routing_enable_l3_interface(int hw_unit, opennsl_port_t hw_port,
                                opennsl_vrf_t vrf_id, opennsl_vlan_t vlan_id,
                                unsigned char *mac)
 {
@@ -199,7 +199,7 @@ failed_vlan_creation:
 }
 
 void
-hc_routing_disable_l3_interface(int hw_unit, opennsl_port_t hw_port,
+ops_routing_disable_l3_interface(int hw_unit, opennsl_port_t hw_port,
                                 opennsl_l3_intf_t *l3_intf)
 {
     opennsl_error_t rc = OPENNSL_E_NONE;
@@ -233,7 +233,7 @@ hc_routing_disable_l3_interface(int hw_unit, opennsl_port_t hw_port,
 }
 
 opennsl_l3_intf_t *
-hc_routing_enable_l3_vlan_interface(int hw_unit, opennsl_vrf_t vrf_id,
+ops_routing_enable_l3_vlan_interface(int hw_unit, opennsl_vrf_t vrf_id,
                                     opennsl_vlan_t vlan_id,
                                     unsigned char *mac)
 {
@@ -267,11 +267,11 @@ hc_routing_enable_l3_vlan_interface(int hw_unit, opennsl_vrf_t vrf_id,
             hw_unit, vlan_id, vrf_id);
 
     return l3_intf;
-} /* hc_routing_enable_l3_vlan_interface */
+} /* ops_routing_enable_l3_vlan_interface */
 
 /* Function to add l3 host entry via ofproto */
 int
-hc_routing_add_host_entry(int hw_unit, opennsl_port_t hw_port,
+ops_routing_add_host_entry(int hw_unit, opennsl_port_t hw_port,
                           opennsl_vrf_t vrf_id, bool is_ipv6_addr,
                           char *ip_addr, char *next_hop_mac_addr,
                           opennsl_if_t l3_intf_id,
@@ -301,7 +301,7 @@ hc_routing_add_host_entry(int hw_unit, opennsl_port_t hw_port,
 
     /* Create the l3_egress object which gives the index to l3 interface
      * during lookup */
-    VLOG_DBG("In hc_routing_add_host_entry for ip %s", ip_addr);
+    VLOG_DBG("In ops_routing_add_host_entry for ip %s", ip_addr);
     opennsl_l3_egress_t_init(&egress_object);
 
     /* Copy the nexthop destmac, set dest port and index of L3_INTF table
@@ -360,11 +360,11 @@ hc_routing_add_host_entry(int hw_unit, opennsl_port_t hw_port,
     }
 
     return rc;
-} /* hc_routing_add_host_entry */
+} /* ops_routing_add_host_entry */
 
 /* Function to delete l3 host entry via ofproto */
 int
-hc_routing_delete_host_entry(int hw_unit, opennsl_port_t hw_port,
+ops_routing_delete_host_entry(int hw_unit, opennsl_port_t hw_port,
                              opennsl_vrf_t vrf_id, bool is_ipv6_addr,
                              char *ip_addr, opennsl_if_t *l3_egress_id)
 {
@@ -376,7 +376,7 @@ hc_routing_delete_host_entry(int hw_unit, opennsl_port_t hw_port,
 
 
     /* Delete an IP route / Host Entry */
-    VLOG_DBG("In hc_routing_delete_host_entry for ip %s", ip_addr);
+    VLOG_DBG("In ops_routing_delete_host_entry for ip %s", ip_addr);
     opennsl_l3_host_t_init(&l3host);
     if( is_ipv6_addr ) {
         VLOG_DBG("ipv6 addr type");
@@ -421,11 +421,11 @@ hc_routing_delete_host_entry(int hw_unit, opennsl_port_t hw_port,
 
     *l3_egress_id = -1;
     return rc;
-} /* hc_routing_delete_host_entry */
+} /* ops_routing_delete_host_entry */
 
 /* Ft to read and reset the host hit-bit */
 int
-hc_routing_get_host_hit(int hw_unit, opennsl_vrf_t vrf_id,
+ops_routing_get_host_hit(int hw_unit, opennsl_vrf_t vrf_id,
                         bool is_ipv6_addr, char *ip_addr, bool *hit_bit)
 {
     opennsl_error_t rc = OPENNSL_E_NONE;
@@ -434,7 +434,7 @@ hc_routing_get_host_hit(int hw_unit, opennsl_vrf_t vrf_id,
     char ipv6_dest_addr[sizeof(struct in6_addr)];
     int flags = OPENNSL_L3_HOST_LOCAL;
 
-    VLOG_DBG("In hc_routing_get_host_hit for ip %s", ip_addr);
+    VLOG_DBG("In ops_routing_get_host_hit for ip %s", ip_addr);
     opennsl_l3_host_t_init(&l3host);
     if( is_ipv6_addr ) {
         VLOG_DBG("ipv6 addr type");
@@ -482,7 +482,7 @@ hc_routing_get_host_hit(int hw_unit, opennsl_vrf_t vrf_id,
     }
 
     return rc;
-} /* hc_routing_get_host_hit */
+} /* ops_routing_get_host_hit */
 
 
 /* TODO: remove it once opennsl api becomes available */
@@ -543,7 +543,7 @@ string_to_prefix(int family, char *ip_address, void *prefix,
 
 
 int
-hc_routing_route_entry_action(int hw_unit,
+ops_routing_route_entry_action(int hw_unit,
                               opennsl_vrf_t vrf_id,
                               enum ofproto_route_action action,
                               struct ofproto_route *routep)
@@ -665,7 +665,7 @@ hc_routing_route_entry_action(int hw_unit,
     }
 
     return rc;
-} /* hc_routing_route_entry_action */
+} /* ops_routing_route_entry_action */
 
 
 static void
@@ -693,7 +693,7 @@ l3_intf_print(struct ds *ds, int unit, int print_hdr,
 } /* l3_intf_print */
 
 void
-hc_l3intf_dump(struct ds *ds, int intfid)
+ops_l3intf_dump(struct ds *ds, int intfid)
 {
     int               unit;
     int               rv;
@@ -752,9 +752,9 @@ hc_l3intf_dump(struct ds *ds, int intfid)
             }
         }
     }
-} /* hc_l3intf_dump */
+} /* ops_l3intf_dump */
 
-int hc_host_print(
+int ops_host_print(
     int unit,
     int index,
     opennsl_l3_host_t *info,
@@ -799,10 +799,10 @@ int hc_host_print(
     }
 
     return OPENNSL_E_NONE;
-} /*hc_host_print*/
+} /*ops_host_print*/
 
 void
-hc_l3host_dump(struct ds *ds, int ipv6_enabled)
+ops_l3host_dump(struct ds *ds, int ipv6_enabled)
 {
     int               unit = 0;
     int               rv;
@@ -825,17 +825,17 @@ hc_l3host_dump(struct ds *ds, int ipv6_enabled)
         ds_put_format(ds ,"------------------------------------------------"
                            "---------------------\n");
         opennsl_l3_host_traverse(unit, OPENNSL_L3_IP6, first_entry, last_entry,
-                                 &hc_host_print, ds);
+                                 &ops_host_print, ds);
     } else {
         ds_put_format(ds ,"Entry VRF     IP address     INTF PORT    HIT \n");
         ds_put_format(ds ,"-----------------------------------------------\n");
         opennsl_l3_host_traverse(unit, 0, first_entry, last_entry,
-                                 &hc_host_print, ds);
+                                 &ops_host_print, ds);
     }
 
-} /* hc_l3host_dump */
+} /* ops_l3host_dump */
 
-int hc_route_print(
+int ops_route_print(
     int unit,
     int index,
     opennsl_l3_route_t *info,
@@ -937,10 +937,10 @@ int hc_route_print(
         }
     }
     return OPENNSL_E_NONE;
-} /*hc_route_print*/
+} /*ops_route_print*/
 
 void
-hc_l3route_dump(struct ds *ds, int ipv6_enabled)
+ops_l3route_dump(struct ds *ds, int ipv6_enabled)
 {
     int               unit = 0;
     int               rv;
@@ -957,7 +957,7 @@ hc_l3route_dump(struct ds *ds, int ipv6_enabled)
     last_entry = l3_hw_status.l3info_max_route;
     first_entry = 0;
     /*
-     * HALON_TODO: We need the l3info_used_route to display the number of
+     * OPS_TODO: We need the l3info_used_route to display the number of
      * entries used
      */
 
@@ -967,13 +967,13 @@ hc_l3route_dump(struct ds *ds, int ipv6_enabled)
         ds_put_format(ds ,"-----------------------------------------------------"
                       "----------------------------------------------------------\n");
         opennsl_l3_route_traverse(unit, OPENNSL_L3_IP6, first_entry, last_entry,
-                                 &hc_route_print, ds);
+                                 &ops_route_print, ds);
     } else {
         ds_put_format(ds, "Entry VRF    Subnet             Mask            I/F     HIT \n");
         ds_put_format(ds ,"------------------------------------------------------------\n");
 
         opennsl_l3_route_traverse(unit, 0, first_entry, last_entry,
-                                 &hc_route_print, ds);
+                                 &ops_route_print, ds);
     }
 
-} /* hc_l3route_dump */
+} /* ops_l3route_dump */

@@ -14,14 +14,19 @@
  *   License for the specific language governing permissions and limitations
  *   under the License.
  *
- * File: bcm.h
+ * File: ops-bcm-init.h
  */
 
-#ifndef BCM_H
-#define BCM_H 1
+#ifndef __OPS_BCM_INIT_H__
+#define __OPS_BCM_INIT_H__ 1
 
-/* OVS API to start/stop BCM SDK */
-void ovs_bcm_init(void);
-void ovs_bcm_init_done(void);
+/* This function initializes switchd application threads within the SDK. */
+#define BCM_DIAG_SHELL_CUSTOM_INIT_F        ops_bcm_appl_init
 
-#endif /* bcm.h */
+/* Number of RX packets per second.
+ * This limit is enforced in the user space SDK. */
+#define OPS_RX_GLOBAL_PPS            10000
+
+extern int ops_switch_main(int argc, char *argv[]);
+
+#endif // __OPS_BCM_INIT_H__

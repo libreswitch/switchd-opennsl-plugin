@@ -1,11 +1,24 @@
 /*
- * Hewlett-Packard Company Confidential (C) Copyright 2015 Hewlett-Packard Development Company, L.P.
+ * Copyright (C) 2015 Hewlett-Packard Development Company, L.P.
+ * All Rights Reserved.
  *
- * File:    hc-knet.h
+ *   Licensed under the Apache License, Version 2.0 (the "License"); you may
+ *   not use this file except in compliance with the License. You may obtain
+ *   a copy of the License at
  *
+ *        http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *   Unless required by applicable law or agreed to in writing, software
+ *   distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+ *   WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+ *   License for the specific language governing permissions and limitations
+ *   under the License.
+ *
+ * File: ops-knet.h
  */
-#ifndef __HC_KNET_H__
-#define __HC_KNET_H__ 1
+
+#ifndef __OPS_KNET_H__
+#define __OPS_KNET_H__ 1
 
 #include <ovs/dynamic-string.h>
 #include <netinet/ether.h>
@@ -35,7 +48,7 @@ struct knet_user_data {
     int count;
 };
 
-extern int hc_knet_init(int unit);
+extern int ops_knet_init(int unit);
 extern int bcmsdk_knet_if_create(char *name, int unit, opennsl_port_t port,
                                  struct ether_addr *mac, int *knet_if_id);
 extern int bcmsdk_knet_if_delete(char *name, int unit, int knet_if_id);
@@ -48,6 +61,6 @@ extern void bcmsdk_knet_port_filter_create(char *name, int hw_unit, opennsl_port
 extern void bcmsdk_knet_vlan_interface_filter_create(char *name,  opennsl_vlan_t vid,
                                                      int *knet_filter_id);
 
-extern void hc_knet_dump(struct ds *ds, knet_debug_type_t debug_type);
+extern void ops_knet_dump(struct ds *ds, knet_debug_type_t debug_type);
 
-#endif /* __HC_KNET_H__ */
+#endif /* __OPS_KNET_H__ */

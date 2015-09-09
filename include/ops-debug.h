@@ -1,14 +1,27 @@
 /*
- * Hewlett-Packard Company Confidential (C) Copyright 2015 Hewlett-Packard Development Company, L.P.
+ * Copyright (C) 2015 Hewlett-Packard Development Company, L.P.
+ * All Rights Reserved.
  *
- * File:    halon_debug.h
+ *   Licensed under the Apache License, Version 2.0 (the "License"); you may
+ *   not use this file except in compliance with the License. You may obtain
+ *   a copy of the License at
+ *
+ *        http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *   Unless required by applicable law or agreed to in writing, software
+ *   distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+ *   WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+ *   License for the specific language governing permissions and limitations
+ *   under the License.
+ *
+ * File: ops-debug.h
  *
  * Purpose: This file provides public definitions for switchd debugging.
  *
  */
 
-#ifndef __HALON_DEBUG_H__
-#define __HALON_DEBUG_H__ 1
+#ifndef __OPS_DEBUG_H__
+#define __OPS_DEBUG_H__ 1
 
 #include <shared/pbmp.h>
 
@@ -30,7 +43,7 @@ do {                                                          \
         }                                                     \
 } while (0)
 
-// HALON_TODO - rework these to simply use ovs-appctl to turn
+// OPS_TODO - rework these to simply use ovs-appctl to turn
 // debugging on/off for each subsystem.
 #define SW_INIT_DBG(format...)   DBG_SLOG(SWITCHD_INIT_DBG, format)
 #define SW_PORT_DBG(format...)   DBG_SLOG(SWITCHD_PORT_DBG, format)
@@ -44,11 +57,11 @@ do {                                                          \
 #define SW_VLAN_DBG_ENABLED()   (slog_level & SWITCHD_VLAN_DBG)
 #define SW_L3_DBG_ENABLED()     (slog_level & SWITCHD_L3_DBG)
 
-typedef struct hc_debug_s {
+typedef struct ops_debug_s {
     char            *sub_system;
     unsigned int    value;
-} hc_debug_t;
+} ops_debug_t;
 
-extern int hc_debug_init(void);
+extern int ops_debug_init(void);
 
-#endif // __HALON_DEBUG_H__
+#endif // __OPS_DEBUG_H__
