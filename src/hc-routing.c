@@ -844,7 +844,14 @@ int hc_route_print(
     char *hit;
     struct ds *pds = (struct ds *)user_data;
 
-    hit = (info->l3a_flags & OPENNSL_L3_HIT) ? "Y" : "N";
+    /* ECMP */
+    opennsl_error_t rc;
+    opennsl_l3_egress_ecmp_t ecmp_grp;
+    opennsl_l3_ecmp_member_t ecmp_member[32];
+    int member_count = 0, i;
+
+    memset(ecmp_member, 0, sizeof(ecmp_member));
+    memset(&ecmp_grp, 0, sizeof(ecmp_grp));
 
     if (info->l3a_flags & OPENNSL_L3_IP6) {
         char subnet_str[IPV6_PREFIX_LEN];
@@ -867,9 +874,32 @@ int hc_route_print(
             (((uint16)info->l3a_ip6_mask[10] << 8) | info->l3a_ip6_mask[11]),
             (((uint16)info->l3a_ip6_mask[12] << 8) | info->l3a_ip6_mask[13]),
             (((uint16)info->l3a_ip6_mask[14] << 8) | info->l3a_ip6_mask[15]));
+        /* OPS_TODO: Remove hardcoded 32 and use the one is ovs headers*/
+        ecmp_grp.ecmp_intf = info->l3a_intf;
 
-        ds_put_format(pds, "%-6d %-4d %-42s %-42s %2d %4s\n", index,
-                info->l3a_vrf, subnet_str, subnet_mask, info->l3a_intf, hit);
+        rc = opennsl_l3_ecmp_get(unit, &ecmp_grp, 32, ecmp_member,
+                                 &member_count);
+
+        if (rc == OPENNSL_E_NOT_FOUND) {
+            hit = (info->l3a_flags & OPENNSL_L3_HIT) ? "Y" : "N";
+            ds_put_format(pds, "%-6d %-4d %-42s %-42s %2d %4s\n", index,
+                    info->l3a_vrf, subnet_str, subnet_mask,
+                    info->l3a_intf, hit);
+        } else {
+            if (member_count > 0) {
+                hit = (ecmp_member[0].flags & OPENNSL_L3_HIT) ? "Y" : "N";
+                ds_put_format(pds, "%-6d %-4d %-42s %-42s %2d %4s\n", index,
+                        info->l3a_vrf, subnet_str, subnet_mask,
+                        ecmp_member[0].egress_if, hit);
+                /*
+                 * This is an ecmp entry.
+                 */
+                for (i = 1; i < member_count; i++) {
+                    hit = (ecmp_member[i].flags & OPENNSL_L3_HIT) ? "Y" : "N";
+                    ds_put_format(pds, "%98d %4s\n",ecmp_member[i].egress_if, hit);
+                }
+            }
+        }
     } else {
         char subnet_str[IPV4_PREFIX_LEN];
         char subnet_mask[IPV4_PREFIX_LEN];
@@ -880,8 +910,31 @@ int hc_route_print(
             (info->l3a_ip_mask >> 24) & 0xff, (info->l3a_ip_mask >> 16) & 0xff,
             (info->l3a_ip_mask >> 8) & 0xff, info->l3a_ip_mask & 0xff);
 
-        ds_put_format(pds,"%-6d %-4d %-16s %-16s %2d %5s\n", index,
-                      info->l3a_vrf, subnet_str, subnet_mask, info->l3a_intf, hit);
+        ecmp_grp.ecmp_intf = info->l3a_intf;
+
+        rc = opennsl_l3_ecmp_get(unit, &ecmp_grp, 32, ecmp_member,
+                                 &member_count);
+
+        if (rc == OPENNSL_E_NOT_FOUND) {
+            /* Non ECMP case */
+                hit = (info->l3a_flags & OPENNSL_L3_HIT) ? "Y" : "N";
+                ds_put_format(pds,"%-6d %-4d %-16s %-16s %2d %5s\n", index,
+                              info->l3a_vrf, subnet_str, subnet_mask, info->l3a_intf, hit);
+        } else {
+            if (member_count > 0) {
+                hit = (ecmp_member[0].flags & OPENNSL_L3_HIT) ? "Y" : "N";
+                ds_put_format(pds,"%-6d %-4d %-16s %-16s %2d %5s\n", index,
+                              info->l3a_vrf, subnet_str, subnet_mask,
+                              ecmp_member[0].egress_if, hit);
+                /*
+                 * This is an ecmp entry.
+                 */
+                for (i = 1; i < member_count; i++) {
+                    hit = (ecmp_member[i].flags & OPENNSL_L3_HIT) ? "Y" : "N";
+                    ds_put_format(pds, "%46d %5s\n",ecmp_member[i].egress_if, hit);
+                }
+            }
+        }
     }
     return OPENNSL_E_NONE;
 } /*hc_route_print*/
