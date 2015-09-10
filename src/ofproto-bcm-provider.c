@@ -27,6 +27,7 @@
 #include <ofproto/tunnel.h>
 #include <openvswitch/vlog.h>
 
+#include <vswitch-idl.h>
 #include <openhalon-idl.h>
 
 #include "ops-pbmp.h"
@@ -146,7 +147,7 @@ del(const char *type OVS_UNUSED, const char *name OVS_UNUSED)
 static const char *
 port_open_type(const char *datapath_type OVS_UNUSED, const char *port_type)
 {
-    if(!strcmp(port_type, INTERFACE_TYPE_INTERNAL)) {
+    if(strcmp(port_type, OVSREC_INTERFACE_TYPE_INTERNAL) == 0) {
         return port_type;
     }
     return "system";
@@ -744,7 +745,8 @@ bundle_set(struct ofproto *ofproto_, void *aux,
         vlan_id = s->vlan;
 
         VLOG_DBG("bridge %s interface type %s vland id %d", ofproto->up.name, type, vlan_id);
-        if(!strcmp(type, INTERFACE_TYPE_INTERNAL) && vlan_id && !bundle->vlan_knet_filter_ids[0]) {
+        if((strcmp(type, OVSREC_INTERFACE_TYPE_INTERNAL) == 0) && vlan_id &&
+           (bundle->vlan_knet_filter_ids[0] == 0)) {
             VLOG_INFO("Creating KNET filters for vlan interface vlan%d", vlan_id);
             bcmsdk_knet_vlan_interface_filter_create(ofproto->up.name, vlan_id,
                                                      &bundle->vlan_knet_filter_ids[0]);
@@ -775,7 +777,7 @@ bundle_set(struct ofproto *ofproto_, void *aux,
          * For regular l3 interfaces we will get from internal vlan id from
          * hw_config column
          */
-        if(strcmp(type, INTERFACE_TYPE_INTERNAL) == 0) {
+        if(strcmp(type, OVSREC_INTERFACE_TYPE_INTERNAL) == 0) {
             vlan_id = s->vlan;
         } else {
             vlan_id = smap_get_int(s->port_options[PORT_HW_CONFIG], "internal_vlan_id", 0);
@@ -795,7 +797,7 @@ bundle_set(struct ofproto *ofproto_, void *aux,
 
             /* If interface type is not internal create l3 interface, else
              * create an l3 vlan interface on every hw_unit. */
-            if(strcmp(type, INTERFACE_TYPE_INTERNAL)) {
+            if(strcmp(type, OVSREC_INTERFACE_TYPE_INTERNAL) != 0) {
                 bundle->l3_intf = ops_routing_enable_l3_interface(
                         hw_unit, hw_port, ofproto->vrf_id, vlan_id,
                         mac);
