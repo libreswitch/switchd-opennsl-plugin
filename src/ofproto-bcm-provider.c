@@ -1567,6 +1567,20 @@ l3_route_action(const struct ofproto *ofprotop,
     return ops_routing_route_entry_action(0, ofproto->vrf_id, action, routep);
 }
 
+/* Function to enable/disable ECMP */
+int
+l3_ecmp_set(const struct ofproto *ofprotop, bool enable)
+{
+    return ops_routing_ecmp_set(0, enable);
+}
+
+/* Function to enable/disable ECMP hash configs */
+int
+l3_ecmp_hash_set(const struct ofproto *ofprotop, unsigned int hash, bool enable)
+{
+    return ops_routing_ecmp_hash_set(0, hash, enable);
+}
+
 const struct ofproto_class ofproto_bcm_provider_class = {
     init,
     enumerate_types,
@@ -1663,4 +1677,6 @@ const struct ofproto_class ofproto_bcm_provider_class = {
     delete_l3_host_entry,       /* Delete l3 host entry */
     get_l3_host_hit_bit,        /* Get l3 host entry hit bits */
     l3_route_action,            /* l3 route action - install, update, delete */
+    l3_ecmp_set,                /* enable/disable ECMP globally */
+    l3_ecmp_hash_set,           /* enable/disable ECMP hash configs */
 };
