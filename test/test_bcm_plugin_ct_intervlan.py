@@ -15,6 +15,7 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
+"""
 import lib
 import pytest
 import re
@@ -121,3 +122,4 @@ class Test_intervlan_ct:
             assert "Test failed"
         else:
             LogOutput('info', "test passed\n\n\n\n############################# Next Test #########################\n")
+"""
