@@ -20,6 +20,8 @@
 
 #include <string.h>
 #include <errno.h>
+#include <assert.h>
+#include <util.h>
 #include <netinet/ether.h>
 #include <arpa/inet.h>
 #include <linux/if_ether.h>
@@ -30,13 +32,13 @@
 #include <opennsl/vlan.h>
 #include <opennsl/l3.h>
 #include <opennsl/l2.h>
+#include <ofproto/ofproto.h>
 #include "ops-routing.h"
 #include "ops-debug.h"
 #include "ops-vlan.h"
 #include "ops-knet.h"
 #include "platform-defines.h"
-#include <util.h>
-#include <ofproto/ofproto.h>
+#include "openhalon-dflt.h"
 
 
 VLOG_DEFINE_THIS_MODULE(ops_routing);
@@ -44,6 +46,13 @@ VLOG_DEFINE_THIS_MODULE(ops_routing);
 opennsl_if_t local_nhid;
 /* fake MAC to create a local_nhid */
 opennsl_mac_t LOCAL_MAC =  {0x0,0x0,0x01,0x02,0x03,0x04};
+
+/* all routes in asic*/
+struct ops_route_table{
+   struct hmap routes;
+};
+
+struct ops_route_table ops_rtable;
 
 int
 ops_l3_init(int unit)
@@ -155,13 +164,16 @@ ops_l3_init(int unit)
         return 1;
     }
 
+    /* initialize route table hash map */
+    hmap_init(&ops_rtable.routes);
+
     return 0;
 }
 
 opennsl_l3_intf_t *
 ops_routing_enable_l3_interface(int hw_unit, opennsl_port_t hw_port,
-                               opennsl_vrf_t vrf_id, opennsl_vlan_t vlan_id,
-                               unsigned char *mac)
+                                opennsl_vrf_t vrf_id, opennsl_vlan_t vlan_id,
+                                unsigned char *mac)
 {
     opennsl_error_t rc = OPENNSL_E_NONE;
     opennsl_pbmp_t pbmp;
@@ -237,7 +249,7 @@ failed_vlan_creation:
 
 void
 ops_routing_disable_l3_interface(int hw_unit, opennsl_port_t hw_port,
-                                opennsl_l3_intf_t *l3_intf)
+                                 opennsl_l3_intf_t *l3_intf)
 {
     opennsl_error_t rc = OPENNSL_E_NONE;
     opennsl_vlan_t vlan_id = l3_intf->l3a_vid;
@@ -271,8 +283,8 @@ ops_routing_disable_l3_interface(int hw_unit, opennsl_port_t hw_port,
 
 opennsl_l3_intf_t *
 ops_routing_enable_l3_vlan_interface(int hw_unit, opennsl_vrf_t vrf_id,
-                                    opennsl_vlan_t vlan_id,
-                                    unsigned char *mac)
+                                     opennsl_vlan_t vlan_id,
+                                     unsigned char *mac)
 {
     opennsl_error_t rc = OPENNSL_E_NONE;
     opennsl_l3_intf_t *l3_intf;
@@ -306,14 +318,187 @@ ops_routing_enable_l3_vlan_interface(int hw_unit, opennsl_vrf_t vrf_id,
     return l3_intf;
 } /* ops_routing_enable_l3_vlan_interface */
 
+/* Add nexthop into the route entry */
+static void
+ops_nexthop_add(struct ops_route *route,  struct ofproto_route_nexthop *of_nh)
+{
+    char *hashstr;
+    struct ops_nexthop *nh;
+
+    if (!route || !of_nh) {
+        return;
+    }
+
+    nh = xzalloc(sizeof(*nh));
+    nh->type = of_nh->type;
+    /* NOTE: Either IP or Port, not both */
+    if (of_nh->id) {
+        nh->id = xstrdup(of_nh->id);
+    }
+
+    nh->l3_egress_id = (of_nh->state == OFPROTO_NH_RESOLVED) ?
+                        of_nh->l3_egress_id : local_nhid ;
+
+    hashstr = of_nh->id;
+    hmap_insert(&route->nexthops, &nh->node, hash_string(hashstr, 0));
+    route->n_nexthops++;
+
+    VLOG_DBG("Add NH %s, egress_id %d, for route %s",
+              nh->id, nh->l3_egress_id, route->prefix);
+} /* ops_nexthop_add */
+
+/* Delete nexthop into route entry */
+static void
+ops_nexthop_delete(struct ops_route *route, struct ops_nexthop *nh)
+{
+    if (!route || !nh) {
+        return;
+    }
+
+    VLOG_DBG("Delete NH %s in route %s", nh->id, route->prefix);
+
+    hmap_remove(&route->nexthops, &nh->node);
+    if (nh->id) {
+        free(nh->id);
+    }
+    free(nh);
+    route->n_nexthops--;
+} /* ops_nexthop_delete */
+
+/* Find nexthop entry in the route's nexthops hash */
+static struct ops_nexthop*
+ops_nexthop_lookup(struct ops_route *route, struct ofproto_route_nexthop *of_nh)
+{
+    char *hashstr;
+    struct ops_nexthop *nh;
+
+    hashstr = of_nh->id;
+    HMAP_FOR_EACH_WITH_HASH(nh, node, hash_string(hashstr, 0),
+                            &route->nexthops) {
+        if ((strcmp(nh->id, of_nh->id) == 0)){
+            return nh;
+        }
+    }
+    return NULL;
+} /* ops_nexthop_lookup */
+
+/* Create route hash */
+static void
+ops_route_hash(int vrf, char *prefix, char *hashstr, int hashlen)
+{
+    snprintf(hashstr, hashlen, "%d:%s", vrf, prefix);
+} /* ops_route_hash */
+
+/* Find a route entry matching the prefix */
+static struct ops_route *
+ops_route_lookup(int vrf, struct ofproto_route *of_routep)
+{
+    struct ops_route *route;
+    char hashstr[OPS_ROUTE_HASH_MAXSIZE];
+
+    ops_route_hash(vrf, of_routep->prefix, hashstr, sizeof(hashstr));
+    HMAP_FOR_EACH_WITH_HASH(route, node, hash_string(hashstr, 0),
+                            &ops_rtable.routes) {
+        if ((strcmp(route->prefix, of_routep->prefix) == 0) &&
+            (route->vrf == vrf)) {
+            return route;
+        }
+    }
+    return NULL;
+} /* ops_route_lookup */
+
+/* Add new route and NHs */
+static struct ops_route*
+ops_route_add(int vrf, struct ofproto_route *of_routep)
+{
+    int i;
+    struct ops_route *routep;
+    struct ofproto_route_nexthop *of_nh;
+    char hashstr[OPS_ROUTE_HASH_MAXSIZE];
+
+    if (!of_routep) {
+        return NULL;
+    }
+
+    routep = xzalloc(sizeof(*routep));
+    routep->vrf = vrf;
+    routep->prefix = xstrdup(of_routep->prefix);
+    routep->is_ipv6 = (of_routep->family == OFPROTO_ROUTE_IPV6) ? true : false;
+    routep->n_nexthops = 0;
+
+    hmap_init(&routep->nexthops);
+
+    for (i = 0; i < of_routep->n_nexthops; i++) {
+        of_nh = &of_routep->nexthops[i];
+        ops_nexthop_add(routep, of_nh);
+    }
+
+    ops_route_hash(vrf, of_routep->prefix, hashstr, sizeof(hashstr));
+    hmap_insert(&ops_rtable.routes, &routep->node, hash_string(hashstr, 0));
+    VLOG_DBG("Add route %s", of_routep->prefix);
+    return routep;
+} /* ops_route_add */
+
+/* Update route nexthop: add, delete, resolve and unresolve nh */
+static void
+ops_route_update(int vrf, struct ops_route *routep,
+                 struct ofproto_route *of_routep,
+                 bool is_delete_nh)
+{
+    struct ops_nexthop* nh;
+    struct ofproto_route_nexthop *of_nh;
+    int i;
+
+    for (i = 0; i < of_routep->n_nexthops; i++) {
+        of_nh = &of_routep->nexthops[i];
+        nh = ops_nexthop_lookup(routep, of_nh);
+        if (is_delete_nh) {
+            ops_nexthop_delete(routep, nh);
+        } else {
+            /* add or update */
+            if (!nh) {
+                ops_nexthop_add(routep, of_nh);
+            } else {
+                /* update is currently resolved on unreoslved */
+                nh->l3_egress_id = (of_nh->state == OFPROTO_NH_RESOLVED) ?
+                                    of_nh->l3_egress_id : local_nhid ;
+            }
+        }
+    }
+} /* ops_route_update */
+
+/* Delete route in system*/
+static void
+ops_route_delete(struct ops_route *routep)
+{
+    struct ops_nexthop *nh, *next;
+
+    if (!routep) {
+        return;
+    }
+
+    VLOG_DBG("delete route %s", routep->prefix);
+
+    hmap_remove(&ops_rtable.routes, &routep->node);
+
+    HMAP_FOR_EACH_SAFE(nh, next, node, &routep->nexthops) {
+        ops_nexthop_delete(routep, nh);
+    }
+
+    if (routep->prefix) {
+        free(routep->prefix);
+    }
+    free(routep);
+} /* ops_route_delete */
+
 /* Function to add l3 host entry via ofproto */
 int
 ops_routing_add_host_entry(int hw_unit, opennsl_port_t hw_port,
-                          opennsl_vrf_t vrf_id, bool is_ipv6_addr,
-                          char *ip_addr, char *next_hop_mac_addr,
-                          opennsl_if_t l3_intf_id,
-                          opennsl_if_t *l3_egress_id,
-                          opennsl_vlan_t vlan_id)
+                           opennsl_vrf_t vrf_id, bool is_ipv6_addr,
+                           char *ip_addr, char *next_hop_mac_addr,
+                           opennsl_if_t l3_intf_id,
+                           opennsl_if_t *l3_egress_id,
+                           opennsl_vlan_t vlan_id)
 {
     opennsl_error_t rc = OPENNSL_E_NONE;
     opennsl_l3_egress_t egress_object;
@@ -402,8 +587,8 @@ ops_routing_add_host_entry(int hw_unit, opennsl_port_t hw_port,
 /* Function to delete l3 host entry via ofproto */
 int
 ops_routing_delete_host_entry(int hw_unit, opennsl_port_t hw_port,
-                             opennsl_vrf_t vrf_id, bool is_ipv6_addr,
-                             char *ip_addr, opennsl_if_t *l3_egress_id)
+                              opennsl_vrf_t vrf_id, bool is_ipv6_addr,
+                              char *ip_addr, opennsl_if_t *l3_egress_id)
 {
     opennsl_error_t rc = OPENNSL_E_NONE;
     opennsl_l3_host_t l3host;
@@ -463,7 +648,7 @@ ops_routing_delete_host_entry(int hw_unit, opennsl_port_t hw_port,
 /* Ft to read and reset the host hit-bit */
 int
 ops_routing_get_host_hit(int hw_unit, opennsl_vrf_t vrf_id,
-                        bool is_ipv6_addr, char *ip_addr, bool *hit_bit)
+                         bool is_ipv6_addr, char *ip_addr, bool *hit_bit)
 {
     opennsl_error_t rc = OPENNSL_E_NONE;
     opennsl_l3_host_t l3host;
@@ -521,26 +706,15 @@ ops_routing_get_host_hit(int hw_unit, opennsl_vrf_t vrf_id,
     return rc;
 } /* ops_routing_get_host_hit */
 
-
-/* TODO: remove it once opennsl api becomes available */
-uint32
-opennsl_ip_mask_create(int len)
-{
-    return ((len) ? (~((0x1 << (32 - (len))) - 1)) : 0);
-}
-
-
-#define IPV4_PREFIX_MAX_LEN 32
-#define IPV6_PREFIX_MAX_LEN 128
-
+/* Convert from string to ipv4/ipv6 prefix */
 static int
-string_to_prefix(int family, char *ip_address, void *prefix,
-                  unsigned char *prefixlen)
+ops_string_to_prefix(int family, char *ip_address, void *prefix,
+                     unsigned char *prefixlen)
 {
     char *p;
     char *tmp_ip_addr;
-    int maxlen = (family == AF_INET) ? IPV4_PREFIX_MAX_LEN :
-                                       IPV6_PREFIX_MAX_LEN;
+    int maxlen = (family == AF_INET) ? IPV4_PREFIX_LEN :
+                                       IPV6_PREFIX_LEN;
     *prefixlen = maxlen;
     tmp_ip_addr = strdup(ip_address);
 
@@ -575,20 +749,351 @@ string_to_prefix(int family, char *ip_address, void *prefix,
 
     free(tmp_ip_addr);
     return 0;
-}
+} /* ops_string_to_prefix */
 
+/* Find or create and ecmp egress object */
+static int
+ops_create_or_update_ecmp_object(int hw_unit, struct ops_route *routep,
+                                 opennsl_if_t *ecmp_intfp, bool update)
+{
+    int nh_count = 0;
+    struct ops_nexthop *nh;
+    opennsl_if_t egress_obj[MAX_NEXTHOPS_PER_ROUTE];
+    opennsl_error_t rc = OPENNSL_E_NONE;
+    opennsl_l3_egress_ecmp_t ecmp_grp;
+    bool install_local_nhid = true;
 
+    if(!routep) {
+        return EINVAL;
+    }
 
+    HMAP_FOR_EACH(nh, node, &routep->nexthops) {
+        if (nh->l3_egress_id == local_nhid) {
+         /* install one local_nhid for all unresolved nh */
+            if (install_local_nhid) {
+                egress_obj[nh_count++] = nh->l3_egress_id;
+                install_local_nhid = false;
+            }
+        } else {
+            egress_obj[nh_count++] = nh->l3_egress_id;
+        }
+        /* break once max ecmp is reached */
+        if (nh_count == MAX_NEXTHOPS_PER_ROUTE) {
+            break;
+        }
+    }
+
+    if (update){
+        opennsl_l3_egress_ecmp_t_init(&ecmp_grp);
+        ecmp_grp.flags = (OPENNSL_L3_REPLACE | OPENNSL_L3_WITH_ID);
+        ecmp_grp.ecmp_intf = *ecmp_intfp;
+        rc = opennsl_l3_egress_ecmp_create(hw_unit, &ecmp_grp, nh_count,
+                                           egress_obj);
+        if (OPENNSL_FAILURE(rc)) {
+            VLOG_ERR("Failed to update ecmp object for route %s: rc=%s",
+                     routep->prefix, opennsl_errmsg(rc));
+            return rc;
+        }
+    } else {
+        rc = opennsl_l3_egress_ecmp_find(hw_unit, nh_count, egress_obj,
+                                         &ecmp_grp);
+        if (OPENNSL_E_NONE == rc) {
+            *ecmp_intfp = ecmp_grp.ecmp_intf;
+        } else {
+            opennsl_l3_egress_ecmp_t_init(&ecmp_grp);
+            rc = opennsl_l3_egress_ecmp_create(hw_unit, &ecmp_grp, nh_count,
+                                               egress_obj);
+
+            if (OPENNSL_FAILURE(rc)) {
+                VLOG_ERR("Failed to create ecmp object for route %s: rc=%s",
+                     routep->prefix, opennsl_errmsg(rc));
+                return rc;
+            }
+            *ecmp_intfp = ecmp_grp.ecmp_intf;
+        }
+
+    }
+    return rc;
+} /* ops_create_or_update_ecmp_object */
+
+/* Delete ecmp object */
+static int
+ops_delete_ecmp_object(int hw_unit, opennsl_if_t ecmp_intf)
+{
+    opennsl_error_t rc = OPENNSL_E_NONE;
+    opennsl_l3_egress_ecmp_t ecmp_grp;
+
+    opennsl_l3_egress_ecmp_t_init(&ecmp_grp);
+    ecmp_grp.ecmp_intf = ecmp_intf;
+
+    rc = opennsl_l3_egress_ecmp_destroy(hw_unit, &ecmp_grp);
+    if (OPENNSL_FAILURE(rc)) {
+        VLOG_ERR("Failed to delete ecmp egress object %d: %s",
+                  ecmp_intf, opennsl_errmsg(rc));
+        return rc;
+    }
+    return rc;
+} /* ops_delete_ecmp_object */
+
+/* add or update ECMP or non-ECMP route */
+static int
+ops_add_route_entry(int hw_unit, opennsl_vrf_t vrf_id,
+                    struct ofproto_route *of_routep,
+                    opennsl_l3_route_t *routep)
+{
+    struct ops_route *ops_routep;
+    struct ops_nexthop *ops_nh;
+    opennsl_if_t l3_intf;
+    int rc;
+    bool add_route = false;
+
+    /* assert for zero nexthop */
+    assert(of_routep && (of_routep->n_nexthops > 0));
+
+    /* look for prefix in LPM table*/
+    rc = opennsl_l3_route_get(hw_unit, routep);
+
+    /* Return error other than found / not found */
+    if ((rc != OPENNSL_E_NOT_FOUND) &&
+        (rc != OPENNSL_E_NONE)) {
+        VLOG_ERR("Route lookup error: %s", opennsl_errmsg(rc));
+        return rc;
+    }
+
+    /* new route */
+    if (rc == OPENNSL_E_NOT_FOUND){
+        /* add the route in local data structure */
+        ops_routep = ops_route_add(vrf_id, of_routep);
+        /* create or get ecmp object */
+        if (ops_routep->n_nexthops > 1){
+            rc = ops_create_or_update_ecmp_object(hw_unit, ops_routep,
+                                                 &l3_intf, false);
+            if (OPS_FAILURE(rc)) {
+                return rc;
+            }
+            routep->l3a_intf = l3_intf;
+            routep->l3a_flags |= OPENNSL_L3_MULTIPATH;
+        } else {
+            HMAP_FOR_EACH(ops_nh, node, &ops_routep->nexthops) {
+                routep->l3a_intf = ops_nh->l3_egress_id;
+            }
+        }
+        add_route = true;
+    } else {
+        /* update route in local data structure */
+        ops_routep = ops_route_lookup(vrf_id, of_routep);
+        if (!ops_routep) {
+            VLOG_ERR("Failed to find route %s", of_routep->prefix);
+            return EINVAL;
+        }
+
+        ops_route_update(vrf_id, ops_routep, of_routep, false);
+
+        switch (ops_routep->rstate) {
+        case OPS_ROUTE_STATE_NON_ECMP:
+            /* if nexthops becomes more than 1 */
+            if (ops_routep->n_nexthops > 1) {
+                rc = ops_create_or_update_ecmp_object(hw_unit, ops_routep,
+                                                     &l3_intf, false);
+                if (OPS_FAILURE(rc)) {
+                    VLOG_ERR("Failed to create ecmp object for route %s: %s",
+                              ops_routep->prefix, opennsl_errmsg(rc));
+                    return rc;
+                }
+                routep->l3a_intf = l3_intf;
+                routep->l3a_flags |= (OPENNSL_L3_MULTIPATH |
+                                      OPENNSL_L3_REPLACE);
+            } else {
+                HMAP_FOR_EACH(ops_nh, node, &ops_routep->nexthops) {
+                    routep->l3a_intf = ops_nh->l3_egress_id;
+                    routep->l3a_flags &= ~OPENNSL_L3_MULTIPATH;
+                    routep->l3a_flags |= OPENNSL_L3_REPLACE;
+                }
+            }
+            break;
+        case OPS_ROUTE_STATE_ECMP:
+            /* update the ecmp table */
+            l3_intf = routep->l3a_intf;
+            rc = ops_create_or_update_ecmp_object(hw_unit, ops_routep,
+                                                 &l3_intf, true);
+            if (OPS_FAILURE(rc)) {
+                VLOG_ERR("Failed to update ecmp object for route %s: %s",
+                         ops_routep->prefix, opennsl_errmsg(rc));
+                return rc;
+            }
+            routep->l3a_flags |= (OPENNSL_L3_MULTIPATH |
+                                  OPENNSL_L3_REPLACE);
+            break;
+        default:
+            break;
+        }
+
+    }
+    ops_routep->rstate = (ops_routep->n_nexthops > 1) ?
+                         OPS_ROUTE_STATE_ECMP : OPS_ROUTE_STATE_NON_ECMP;
+
+    rc = opennsl_l3_route_add(hw_unit, routep);
+    if (rc != OPENNSL_E_NONE) {
+        VLOG_ERR("Failed to %s route %s: %s",
+                  add_route ? "add" : "update", of_routep->prefix,
+                  opennsl_errmsg(rc));
+    } else {
+        VLOG_DBG("Success to %s route %s: %s",
+                  add_route ? "add" : "update", of_routep->prefix,
+                  opennsl_errmsg(rc));
+    }
+    return rc;
+} /* ops_add_route_entry */
+
+/* Delete a route entry */
+static int
+ops_delete_route_entry(int hw_unit, opennsl_vrf_t vrf_id,
+                       struct ofproto_route *of_routep,
+                       opennsl_l3_route_t *routep)
+{
+    struct ops_route *ops_routep;
+    opennsl_if_t l3_intf ;
+    bool is_delete_ecmp = false;
+    int rc;
+
+    assert(of_routep);
+
+    /* look for prefix in LPM table*/
+    rc = opennsl_l3_route_get(hw_unit, routep);
+    if (OPENNSL_FAILURE(rc)) {
+        VLOG_ERR("Route lookup error: %s", opennsl_errmsg(rc));
+        return rc;
+    }
+
+    /* route lookup in local data structure */
+    ops_routep = ops_route_lookup(vrf_id, of_routep);
+    if (!ops_routep) {
+        VLOG_ERR("Failed to get route %s", of_routep->prefix);
+        return EINVAL;
+    }
+
+    ops_route_delete(ops_routep);
+
+    if (routep->l3a_flags & OPENNSL_L3_MULTIPATH) {
+        l3_intf = routep->l3a_intf;
+        is_delete_ecmp = true;
+    }
+
+    rc = opennsl_l3_route_delete(hw_unit, routep);
+    if (OPENNSL_FAILURE(rc)) {
+        VLOG_ERR("Failed to delete route %s: %s", of_routep->prefix,
+                  opennsl_errmsg(rc));
+    } else {
+        VLOG_DBG("Success to delete route %s: %s", of_routep->prefix,
+                 opennsl_errmsg(rc));
+    }
+
+    if (is_delete_ecmp) {
+        rc = ops_delete_ecmp_object(hw_unit, l3_intf);
+    }
+    return rc;
+} /* ops_delete_route_entry */
+
+/* Delete nexthop entry in route table */
+static int
+ops_delete_nh_entry(int hw_unit, opennsl_vrf_t vrf_id,
+                    struct ofproto_route *of_routep,
+                    opennsl_l3_route_t *routep)
+{
+    struct ops_route *ops_routep;
+    struct ops_nexthop *ops_nh;
+    opennsl_if_t l3_intf;
+    bool is_delete_ecmp = false;
+    int rc;
+
+    /* assert for zero nexthop */
+    assert(of_routep && (of_routep->n_nexthops > 0));
+
+    /* look for prefix in LPM table*/
+    rc = opennsl_l3_route_get(hw_unit, routep);
+
+    /* Return error other than found / not found */
+    if (OPENNSL_FAILURE(rc)) {
+        VLOG_ERR("Route lookup error: %s", opennsl_errmsg(rc));
+        return rc;
+    }
+
+    /* route lookup in local data structure */
+    ops_routep = ops_route_lookup(vrf_id, of_routep);
+    if (!ops_routep) {
+        VLOG_ERR("Failed to get route %s", of_routep->prefix);
+        return EINVAL;
+    }
+    ops_route_update(vrf_id, ops_routep, of_routep, true);
+
+    switch (ops_routep->rstate) {
+    case OPS_ROUTE_STATE_NON_ECMP:
+        HMAP_FOR_EACH(ops_nh, node, &ops_routep->nexthops) {
+            routep->l3a_intf = ops_nh->l3_egress_id;
+            routep->l3a_flags &= ~OPENNSL_L3_MULTIPATH;
+            routep->l3a_flags |= OPENNSL_L3_REPLACE;
+        }
+        break;
+    case OPS_ROUTE_STATE_ECMP:
+        /* ecmp route to non-ecmp route*/
+        if (ops_routep->n_nexthops < 2) {
+            /* delete ecmp table if route has single nexthop */
+            if (routep->l3a_flags & OPENNSL_L3_MULTIPATH) {
+                /* store intf to delete ecmp object */
+                l3_intf = routep->l3a_intf;
+                is_delete_ecmp = true;
+            }
+            /* update with single nexthop */
+            HMAP_FOR_EACH(ops_nh, node, &ops_routep->nexthops) {
+                routep->l3a_intf = ops_nh->l3_egress_id;
+            }
+            routep->l3a_flags &= ~OPENNSL_L3_MULTIPATH;
+            routep->l3a_flags |= OPENNSL_L3_REPLACE;
+        } else {
+            /* update the ecmp table */
+            l3_intf = routep->l3a_intf;
+            rc = ops_create_or_update_ecmp_object(hw_unit, ops_routep,
+                                                 &l3_intf, false);
+            if (OPS_FAILURE(rc)) {
+                VLOG_ERR("Failed to update ecmp object for route %s: %s",
+                              ops_routep->prefix, opennsl_errmsg(rc));
+                    return rc;
+                }
+                routep->l3a_flags |= (OPENNSL_L3_MULTIPATH |
+                                      OPENNSL_L3_REPLACE);
+            }
+            break;
+        default:
+            break;
+    }
+    ops_routep->rstate = (ops_routep->n_nexthops > 1) ?
+                          OPS_ROUTE_STATE_ECMP : OPS_ROUTE_STATE_NON_ECMP;
+
+    rc = opennsl_l3_route_add(hw_unit, routep);
+    if (OPENNSL_FAILURE(rc)) {
+        VLOG_ERR("Failed to (delete NH) update route %s: %s",
+                  of_routep->prefix, opennsl_errmsg(rc));
+        return rc;
+    } else {
+        VLOG_DBG("Success to (delete NH) update route %s: %s",
+                  of_routep->prefix, opennsl_errmsg(rc));
+    }
+
+    if (is_delete_ecmp) {
+        rc = ops_delete_ecmp_object(hw_unit, l3_intf);
+    }
+    return rc;
+} /* ops_delete_nh_entry */
+
+/* Add, delete route and nexthop */
 int
 ops_routing_route_entry_action(int hw_unit,
-                              opennsl_vrf_t vrf_id,
-                              enum ofproto_route_action action,
-                              struct ofproto_route *routep)
+                               opennsl_vrf_t vrf_id,
+                               enum ofproto_route_action action,
+                               struct ofproto_route *routep)
 {
     int rc = 0;
     opennsl_l3_route_t route;
-    bool add_route = false;
-    struct ofproto_route_nexthop *nh;
     in_addr_t ipv4_addr;
     struct in6_addr ipv6_addr;
     uint8_t prefix_len;
@@ -600,18 +1105,16 @@ ops_routing_route_entry_action(int hw_unit,
         return EINVAL; /* Return error */
     }
 
-    nh = &routep->nexthops[0];
-
     opennsl_l3_route_t_init(&route);
 
     switch (routep->family) {
     case OFPROTO_ROUTE_IPV4:
-        string_to_prefix(AF_INET, routep->prefix, &ipv4_addr, &prefix_len);
+        ops_string_to_prefix(AF_INET, routep->prefix, &ipv4_addr, &prefix_len);
         route.l3a_subnet = ipv4_addr;
         route.l3a_ip_mask = opennsl_ip_mask_create(prefix_len);
         break;
     case OFPROTO_ROUTE_IPV6:
-        string_to_prefix(AF_INET6, routep->prefix, &ipv6_addr, &prefix_len);
+        ops_string_to_prefix(AF_INET6, routep->prefix, &ipv6_addr, &prefix_len);
         route.l3a_flags |= OPENNSL_L3_IP6;
         memcpy(route.l3a_ip6_net, &ipv6_addr, sizeof(struct in6_addr));
         opennsl_ip6_mask_create(route.l3a_ip6_mask, prefix_len);
@@ -623,77 +1126,18 @@ ops_routing_route_entry_action(int hw_unit,
     }
     route.l3a_vrf = vrf_id;
 
-    /* look for prefix in LPM table */
-    rc = opennsl_l3_route_get(hw_unit, &route);
-
-    VLOG_DBG("%s: l3 route get %d", __FUNCTION__, rc);
+    VLOG_DBG("action: %d, vrf: %d, prefix: %s, nexthops: %d",
+              action, vrf_id, routep->prefix, routep->n_nexthops);
 
     switch (action) {
     case OFPROTO_ROUTE_ADD:
-        /* entry not found */
-        if (rc == OPENNSL_E_NOT_FOUND) {
-            /* add the entry in LPM table */
-            if (nh->state == OFPROTO_NH_RESOLVED) {
-                route.l3a_intf = nh->l3_egress_id;
-           } else {
-                /* punt pkt to cpu for unresolved routes */
-                route.l3a_flags |= OPENNSL_L3_COPY_TO_CPU;
-                route.l3a_intf = local_nhid;
-            }
-            add_route = true;
-        } else { /* entry found */
-            if (route.l3a_intf == nh->l3_egress_id) {
-                /* nothing to update */
-                return rc;
-            } else {
-                if (nh->state == OFPROTO_NH_UNRESOLVED) {
-                    route.l3a_flags |= OPENNSL_L3_COPY_TO_CPU ;
-                    route.l3a_flags |= OPENNSL_L3_REPLACE;
-                    route.l3a_intf = local_nhid;
-                } else {
-                    route.l3a_flags &= ~OPENNSL_L3_COPY_TO_CPU;
-                    route.l3a_flags |= OPENNSL_L3_REPLACE;
-                    route.l3a_intf = nh->l3_egress_id;
-                }
-            }
-        }
-
-        rc = opennsl_l3_route_add(hw_unit, &route);
-        if (rc != OPENNSL_E_NONE) {
-            VLOG_ERR ("Fail to %s route %s in LPM table: %d",
-                      add_route ? "add" : "update", routep->prefix, rc);
-        } else {
-            VLOG_DBG ("Success to %s route %s in LPM table : %d",
-                      add_route ? "add" : "update", routep->prefix, rc);
-        }
+        rc = ops_add_route_entry(hw_unit, vrf_id, routep, &route);
         break;
     case OFPROTO_ROUTE_DELETE:
-        if (rc == OPENNSL_E_NOT_FOUND) {
-            return rc;
-        } else {
-            rc = opennsl_l3_route_delete(hw_unit, &route);
-            if (rc != OPENNSL_E_NONE) {
-                VLOG_ERR("Fail to delete route %s: %d", routep->prefix, rc);
-            } else {
-                VLOG_DBG("Success to delete route %s: %d", routep->prefix, rc);
-            }
-        }
+        rc = ops_delete_route_entry(hw_unit, vrf_id, routep, &route);
         break;
     case OFPROTO_ROUTE_DELETE_NH:
-        if (rc == OPENNSL_E_NOT_FOUND) {
-            return rc;
-        } else {
-            route.l3a_flags |= OPENNSL_L3_COPY_TO_CPU;
-            route.l3a_flags |= OPENNSL_L3_REPLACE;
-            route.l3a_intf = local_nhid;
-        }
-
-        rc = opennsl_l3_route_add(hw_unit, &route);
-        if (rc != OPENNSL_E_NONE) {
-            VLOG_ERR ("Fail to update the nexthop entry: %d", rc);
-        } else {
-            VLOG_DBG("Success to delete nexthop entry: %d", rc);
-        }
+        rc = ops_delete_nh_entry(hw_unit, vrf_id, routep, &route);
         break;
     default:
         VLOG_ERR("Unknown route action %d", action);
@@ -818,7 +1262,7 @@ ops_routing_ecmp_hash_set(int hw_unit, unsigned int hash, bool enable)
 
 static void
 l3_intf_print(struct ds *ds, int unit, int print_hdr,
-                     opennsl_l3_intf_t *intf)
+              opennsl_l3_intf_t *intf)
 {
     char if_mac_str[SAL_MACADDR_STR_LEN];
 
@@ -902,11 +1346,8 @@ ops_l3intf_dump(struct ds *ds, int intfid)
     }
 } /* ops_l3intf_dump */
 
-int ops_host_print(
-    int unit,
-    int index,
-    opennsl_l3_host_t *info,
-    void *user_data)
+int ops_host_print(int unit, int index, opennsl_l3_host_t *info,
+                   void *user_data)
 {
     char *hit;
     char *trunk = " ";
@@ -983,23 +1424,15 @@ ops_l3host_dump(struct ds *ds, int ipv6_enabled)
 
 } /* ops_l3host_dump */
 
-int ops_route_print(
-    int unit,
-    int index,
-    opennsl_l3_route_t *info,
-    void *user_data)
+int ops_route_print(int unit, int index, opennsl_l3_route_t *info,
+                    void *user_data)
 {
     char *hit;
+    char *ecmp_str;
     struct ds *pds = (struct ds *)user_data;
 
-    /* ECMP */
-    opennsl_error_t rc;
-    opennsl_l3_egress_ecmp_t ecmp_grp;
-    opennsl_l3_ecmp_member_t ecmp_member[32];
-    int member_count = 0, i;
-
-    memset(ecmp_member, 0, sizeof(ecmp_member));
-    memset(&ecmp_grp, 0, sizeof(ecmp_grp));
+    hit = (info->l3a_flags & OPENNSL_L3_HIT) ? "Y" : "N";
+    ecmp_str = (info->l3a_flags & OPENNSL_L3_MULTIPATH) ? "(ECMP)" : "";
 
     if (info->l3a_flags & OPENNSL_L3_IP6) {
         char subnet_str[IPV6_PREFIX_LEN];
@@ -1022,32 +1455,10 @@ int ops_route_print(
             (((uint16)info->l3a_ip6_mask[10] << 8) | info->l3a_ip6_mask[11]),
             (((uint16)info->l3a_ip6_mask[12] << 8) | info->l3a_ip6_mask[13]),
             (((uint16)info->l3a_ip6_mask[14] << 8) | info->l3a_ip6_mask[15]));
-        /* OPS_TODO: Remove hardcoded 32 and use the one is ovs headers*/
-        ecmp_grp.ecmp_intf = info->l3a_intf;
 
-        rc = opennsl_l3_ecmp_get(unit, &ecmp_grp, 32, ecmp_member,
-                                 &member_count);
-
-        if (rc == OPENNSL_E_NOT_FOUND) {
-            hit = (info->l3a_flags & OPENNSL_L3_HIT) ? "Y" : "N";
-            ds_put_format(pds, "%-6d %-4d %-42s %-42s %2d %4s\n", index,
-                    info->l3a_vrf, subnet_str, subnet_mask,
-                    info->l3a_intf, hit);
-        } else {
-            if (member_count > 0) {
-                hit = (ecmp_member[0].flags & OPENNSL_L3_HIT) ? "Y" : "N";
-                ds_put_format(pds, "%-6d %-4d %-42s %-42s %2d %4s\n", index,
-                        info->l3a_vrf, subnet_str, subnet_mask,
-                        ecmp_member[0].egress_if, hit);
-                /*
-                 * This is an ecmp entry.
-                 */
-                for (i = 1; i < member_count; i++) {
-                    hit = (ecmp_member[i].flags & OPENNSL_L3_HIT) ? "Y" : "N";
-                    ds_put_format(pds, "%98d %4s\n",ecmp_member[i].egress_if, hit);
-                }
-            }
-        }
+        ds_put_format(pds, "%-6d %-4d %-42s %-42s %2d %4s %s\n", index,
+                      info->l3a_vrf, subnet_str, subnet_mask, info->l3a_intf,
+                      hit, ecmp_str);
     } else {
         char subnet_str[IPV4_PREFIX_LEN];
         char subnet_mask[IPV4_PREFIX_LEN];
@@ -1058,31 +1469,9 @@ int ops_route_print(
             (info->l3a_ip_mask >> 24) & 0xff, (info->l3a_ip_mask >> 16) & 0xff,
             (info->l3a_ip_mask >> 8) & 0xff, info->l3a_ip_mask & 0xff);
 
-        ecmp_grp.ecmp_intf = info->l3a_intf;
-
-        rc = opennsl_l3_ecmp_get(unit, &ecmp_grp, 32, ecmp_member,
-                                 &member_count);
-
-        if (rc == OPENNSL_E_NOT_FOUND) {
-            /* Non ECMP case */
-                hit = (info->l3a_flags & OPENNSL_L3_HIT) ? "Y" : "N";
-                ds_put_format(pds,"%-6d %-4d %-16s %-16s %2d %5s\n", index,
-                              info->l3a_vrf, subnet_str, subnet_mask, info->l3a_intf, hit);
-        } else {
-            if (member_count > 0) {
-                hit = (ecmp_member[0].flags & OPENNSL_L3_HIT) ? "Y" : "N";
-                ds_put_format(pds,"%-6d %-4d %-16s %-16s %2d %5s\n", index,
-                              info->l3a_vrf, subnet_str, subnet_mask,
-                              ecmp_member[0].egress_if, hit);
-                /*
-                 * This is an ecmp entry.
-                 */
-                for (i = 1; i < member_count; i++) {
-                    hit = (ecmp_member[i].flags & OPENNSL_L3_HIT) ? "Y" : "N";
-                    ds_put_format(pds, "%46d %5s\n",ecmp_member[i].egress_if, hit);
-                }
-            }
-        }
+        ds_put_format(pds,"%-6d %-4d %-16s %-16s %2d %5s %s\n", index,
+                      info->l3a_vrf, subnet_str, subnet_mask, info->l3a_intf,
+                      hit, ecmp_str);
     }
     return OPENNSL_E_NONE;
 } /*ops_route_print*/

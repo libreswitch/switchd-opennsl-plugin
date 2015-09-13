@@ -29,6 +29,34 @@
 #define IPV4_PREFIX_LEN     32
 #define IPV6_PREFIX_LEN     64
 
+#define OPS_ROUTE_HASH_MAXSIZE 64
+
+#define OPS_FAILURE(rc) (((rc) < 0 ) || ((rc) == EINVAL))
+
+enum ops_route_state {
+    OPS_ROUTE_STATE_NON_ECMP = 0,
+    OPS_ROUTE_STATE_ECMP
+};
+
+struct ops_route {
+    struct hmap_node node;          /* all_routes */
+    int vrf;
+    char *prefix;                   /* route prefix */
+    char *from;                     /* routing protocol (BGP, OSPF) using this route */
+    bool is_ipv6;                   /* IP V4/V6 */
+    int n_nexthops;
+    struct hmap nexthops;           /* list of selected next hops */
+    enum ops_route_state rstate;     /* state of route */
+    int  nh_index;                  /* next hop index ecmp*/
+};
+
+struct ops_nexthop {
+    struct hmap_node node;            /* route->nexthops */
+    enum ofproto_nexthop_type type;   /* v4/v6 */
+    char *id;                         /* IP address or Port name */
+    int  l3_egress_id;
+};
+
 extern int ops_l3_init(int);
 
 extern opennsl_l3_intf_t *ops_routing_enable_l3_interface(int hw_unit,
