@@ -118,6 +118,43 @@ ops_l3_init(int unit)
         return 1;
     }
 
+    /* Enable ECMP enhanced hash method */
+    rc = opennsl_switch_control_set(unit, opennslSwitchHashControl,
+                                    OPENNSL_HASH_CONTROL_ECMP_ENHANCE);
+    if (OPENNSL_FAILURE(rc)) {
+        VLOG_ERR("Failed to set OPENNSL_HASH_CONTROL_ECMP_ENHANCE: unit=%d rc=%s",
+                 unit, opennsl_errmsg(rc));
+        return 1;
+    }
+
+    /* Enable IPv4 src ip, src port, dst ip, dst port hashing by default */
+    rc = opennsl_switch_control_set(unit, opennslSwitchHashIP4Field0,
+                                    OPENNSL_HASH_FIELD_IP4SRC_LO |
+                                    OPENNSL_HASH_FIELD_IP4SRC_HI |
+                                    OPENNSL_HASH_FIELD_SRCL4     |
+                                    OPENNSL_HASH_FIELD_IP4DST_LO |
+                                    OPENNSL_HASH_FIELD_IP4DST_HI |
+                                    OPENNSL_HASH_FIELD_DSTL4);
+    if (OPENNSL_FAILURE(rc)) {
+        VLOG_ERR("Failed to set opennslSwitchHashIP4Field0: unit=%d rc=%s",
+                 unit, opennsl_errmsg(rc));
+        return 1;
+    }
+
+    /* Enable IPv6 src ip, src port, dst ip, dst port hashing by default */
+    rc = opennsl_switch_control_set(unit, opennslSwitchHashIP6Field0,
+                                    OPENNSL_HASH_FIELD_IP6SRC_LO |
+                                    OPENNSL_HASH_FIELD_IP6SRC_HI |
+                                    OPENNSL_HASH_FIELD_SRCL4     |
+                                    OPENNSL_HASH_FIELD_IP6DST_LO |
+                                    OPENNSL_HASH_FIELD_IP6DST_HI |
+                                    OPENNSL_HASH_FIELD_DSTL4);
+    if (OPENNSL_FAILURE(rc)) {
+        VLOG_ERR("Failed to set opennslSwitchHashIP6Field0: unit=%d rc=%s",
+                 unit, opennsl_errmsg(rc));
+        return 1;
+    }
+
     return 0;
 }
 
@@ -667,6 +704,117 @@ ops_routing_route_entry_action(int hw_unit,
     return rc;
 } /* ops_routing_route_entry_action */
 
+/* OPS_TODO : Remove once these macros are exposed by opennsl */
+#define opennslSwitchHashMultipath (135)
+#define OPENNSL_HASH_ZERO          0x00000001
+int
+ops_routing_ecmp_set(int hw_unit, bool enable)
+{
+    int cur_cfg = 0;
+    static int last_cfg;
+    opennsl_error_t rc = OPENNSL_E_NONE;
+
+    rc = opennsl_switch_control_get(hw_unit, opennslSwitchHashMultipath,
+                                    &cur_cfg);
+    if (OPENNSL_FAILURE(rc)) {
+        VLOG_ERR("Failed to get opennslSwitchHashMultipath : unit=%d, rc=%s",
+                 hw_unit, opennsl_errmsg(rc));
+        return rc;
+    }
+
+    /* check if already in the desired state */
+    if (((cur_cfg != OPENNSL_HASH_ZERO) && enable) ||
+        ((cur_cfg == OPENNSL_HASH_ZERO) && !enable)) {
+        return OPENNSL_E_NONE;
+    }
+
+    if (enable) { /* Enable ECMP */
+        /* write back the config that existed before disabling */
+        rc = opennsl_switch_control_set(hw_unit, opennslSwitchHashMultipath,
+                                        last_cfg);
+        if (OPENNSL_FAILURE(rc)) {
+            VLOG_ERR("Failed to set opennslSwitchHashMultipath : unit=%d, rc=%s",
+                     hw_unit, opennsl_errmsg(rc));
+            return rc;
+        }
+    } else { /* Disable ECMP */
+        /* save the current config before disabling */
+        last_cfg = cur_cfg;
+        rc = opennsl_switch_control_set(hw_unit, opennslSwitchHashMultipath,
+                                        OPENNSL_HASH_ZERO);
+        if (OPENNSL_FAILURE(rc)) {
+            VLOG_ERR("Failed to clear opennslSwitchHashMultipath : unit=%d, rc=%s",
+                     hw_unit, opennsl_errmsg(rc));
+            return rc;
+        }
+    }
+    return OPENNSL_E_NONE;
+}
+
+int
+ops_routing_ecmp_hash_set(int hw_unit, unsigned int hash, bool enable)
+{
+    int hash_v4 = 0, hash_v6 = 0;
+    int cur_hash_ip4 = 0, cur_hash_ip6 = 0;
+    opennsl_error_t rc = OPENNSL_E_NONE;
+
+    rc = opennsl_switch_control_get(hw_unit, opennslSwitchHashIP4Field0,
+                                    &cur_hash_ip4);
+    if (OPENNSL_FAILURE(rc)) {
+        VLOG_ERR("Failed to get opennslSwitchHashIP4Field0 : unit=%d, rc=%s",
+                 hw_unit, opennsl_errmsg(rc));
+        return rc;
+    }
+    rc = opennsl_switch_control_get(hw_unit, opennslSwitchHashIP6Field0,
+                                    &cur_hash_ip6);
+    if (OPENNSL_FAILURE(rc)) {
+        VLOG_ERR("Failed to get opennslSwitchHashIP6Field0 : unit=%d, rc=%s",
+                 hw_unit, opennsl_errmsg(rc));
+        return rc;
+    }
+
+    if (hash & OFPROTO_ECMP_HASH_SRCPORT) {
+        hash_v4 |= OPENNSL_HASH_FIELD_SRCL4;
+        hash_v6 |= OPENNSL_HASH_FIELD_SRCL4;
+    }
+    if (hash & OFPROTO_ECMP_HASH_DSTPORT) {
+        hash_v4 |= OPENNSL_HASH_FIELD_DSTL4;
+        hash_v6 |= OPENNSL_HASH_FIELD_DSTL4;
+    }
+    if (hash & OFPROTO_ECMP_HASH_SRCIP) {
+        hash_v4 |= OPENNSL_HASH_FIELD_IP4SRC_LO | OPENNSL_HASH_FIELD_IP4SRC_HI;
+        hash_v6 |= OPENNSL_HASH_FIELD_IP6SRC_LO | OPENNSL_HASH_FIELD_IP6SRC_HI;
+    }
+    if (hash & OFPROTO_ECMP_HASH_DSTIP) {
+        hash_v4 |= OPENNSL_HASH_FIELD_IP4DST_LO | OPENNSL_HASH_FIELD_IP4DST_HI;
+        hash_v6 |= OPENNSL_HASH_FIELD_IP6DST_LO | OPENNSL_HASH_FIELD_IP6DST_HI;
+    }
+
+    if (enable) {
+        cur_hash_ip4 |= hash_v4;
+        cur_hash_ip6 |= hash_v6;
+    } else {
+        cur_hash_ip4 &= ~hash_v4;
+        cur_hash_ip6 &= ~hash_v6;
+    }
+
+    rc = opennsl_switch_control_set(hw_unit, opennslSwitchHashIP4Field0,
+                                    cur_hash_ip4);
+    if (OPENNSL_FAILURE(rc)) {
+        VLOG_ERR("Failed to set opennslSwitchHashIP4Field0 : unit=%d, hash=%x, rc=%s",
+                 hw_unit, cur_hash_ip4, opennsl_errmsg(rc));
+        return rc;
+    }
+    rc = opennsl_switch_control_set(hw_unit, opennslSwitchHashIP6Field0,
+                                    cur_hash_ip6);
+    if (OPENNSL_FAILURE(rc)) {
+        VLOG_ERR("Failed to set opennslSwitchHashIP6Field0 : unit=%d, hash=%x, rc=%s",
+                 hw_unit, cur_hash_ip6, opennsl_errmsg(rc));
+        return rc;
+    }
+
+    return OPENNSL_E_NONE;
+}
 
 static void
 l3_intf_print(struct ds *ds, int unit, int print_hdr,
@@ -962,6 +1110,24 @@ ops_l3route_dump(struct ds *ds, int ipv6_enabled)
      */
 
     if (ipv6_enabled == TRUE) {
+        int ipv6_hash = 0;
+        rv = opennsl_switch_control_get(unit, opennslSwitchHashIP6Field0,
+                                        &ipv6_hash);
+        if (OPENNSL_FAILURE(rv)){
+            VLOG_ERR("Error in get opennslSwitchHashIP6Field0: %s\n",
+                      opennsl_errmsg(rv));
+            return;
+        }
+        ds_put_format(ds ,"ECMP IPv6 hash\n");
+        ds_put_format(ds ,"Src Addr    Dst Addr    Src Port    Dst Port\n");
+        ds_put_format(ds ,"--------------------------------------------\n");
+        ds_put_format(ds ,"%4s %11s %11s %11s\n\n",
+                          ((ipv6_hash & OPENNSL_HASH_FIELD_IP6SRC_LO) ||
+                           (ipv6_hash & OPENNSL_HASH_FIELD_IP6SRC_HI)) ? "Y" : "N",
+                          ((ipv6_hash & OPENNSL_HASH_FIELD_IP6DST_LO) ||
+                           (ipv6_hash & OPENNSL_HASH_FIELD_IP6DST_HI)) ? "Y" : "N",
+                          (ipv6_hash & OPENNSL_HASH_FIELD_SRCL4) ? "Y" : "N",
+                          (ipv6_hash & OPENNSL_HASH_FIELD_DSTL4) ? "Y" : "N");
         ds_put_format(ds ,"Entry VRF                Subnet                      "
                       "                 Mask                         I/F     HIT \n");
         ds_put_format(ds ,"-----------------------------------------------------"
@@ -969,6 +1135,24 @@ ops_l3route_dump(struct ds *ds, int ipv6_enabled)
         opennsl_l3_route_traverse(unit, OPENNSL_L3_IP6, first_entry, last_entry,
                                  &ops_route_print, ds);
     } else {
+        int ipv4_hash = 0;
+        rv = opennsl_switch_control_get(unit, opennslSwitchHashIP4Field0,
+                                        &ipv4_hash);
+        if (OPENNSL_FAILURE(rv)){
+            VLOG_ERR("Error in get opennslSwitchHashIP4Field0: %s\n",
+                      opennsl_errmsg(rv));
+            return;
+        }
+        ds_put_format(ds ,"ECMP IPv4 hash\n");
+        ds_put_format(ds ,"Src Addr    Dst Addr    Src Port    Dst Port\n");
+        ds_put_format(ds ,"--------------------------------------------\n");
+        ds_put_format(ds ,"%4s %11s %11s %11s\n\n",
+                          ((ipv4_hash & OPENNSL_HASH_FIELD_IP4SRC_LO) ||
+                           (ipv4_hash & OPENNSL_HASH_FIELD_IP4SRC_HI)) ? "Y" : "N",
+                          ((ipv4_hash & OPENNSL_HASH_FIELD_IP4DST_LO) ||
+                           (ipv4_hash & OPENNSL_HASH_FIELD_IP4DST_HI)) ? "Y" : "N",
+                          (ipv4_hash & OPENNSL_HASH_FIELD_SRCL4) ? "Y" : "N",
+                          (ipv4_hash & OPENNSL_HASH_FIELD_DSTL4) ? "Y" : "N");
         ds_put_format(ds, "Entry VRF    Subnet             Mask            I/F     HIT \n");
         ds_put_format(ds ,"------------------------------------------------------------\n");
 

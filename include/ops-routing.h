@@ -68,6 +68,9 @@ extern int ops_routing_route_entry_action(int hw_unit,
                                          enum ofproto_route_action action,
                                          struct ofproto_route *routep);
 
+extern int ops_routing_ecmp_set(int hw_unit, bool enable);
+extern int ops_routing_ecmp_hash_set(int hw_unit, unsigned int hash,
+                                    bool enable);
 extern void ops_l3intf_dump(struct ds *ds, int intfid);
 
 extern void ops_l3host_dump(struct ds *ds, int ipv6_enabled);
