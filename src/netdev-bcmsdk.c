@@ -26,6 +26,7 @@
 #include <openvswitch/vlog.h>
 #include <openflow/openflow.h>
 #include <openhalon-idl.h>
+#include <openhalon-dflt.h>
 
 #include <opennsl/port.h>
 
@@ -881,7 +882,7 @@ netdev_internal_bcmsdk_set_hw_intf_info(struct netdev *netdev_, const struct sma
     struct netdev_bcmsdk *netdev = netdev_bcmsdk_cast(netdev_);
     int rc = 0;
     struct ether_addr *ether_mac = NULL;
-    const char *interface_type = smap_get(args, INTERFACE_HW_INTF_INFO_MAP_TYPE);
+    bool is_bridge_interface = smap_get_bool(args, INTERFACE_HW_INTF_INFO_MAP_BRIDGE, DFLT_INTERFACE_HW_INTF_INFO_MAP_BRIDGE);
 
     VLOG_DBG("netdev set_hw_intf_info for interace %s", netdev->up.name);
 
@@ -890,7 +891,7 @@ netdev_internal_bcmsdk_set_hw_intf_info(struct netdev *netdev_, const struct sma
     if (netdev->intf_initialized == false) {
         netdev->hw_unit = 0;
         netdev->hw_id = -1;
-        if(interface_type && !strcmp(interface_type, INTERFACE_HW_INTF_INFO_MAP_TYPE_BRIDGE)) {
+        if(is_bridge_interface) {
             ether_mac = (struct ether_addr *) netdev->hwaddr;
             rc = bcmsdk_knet_if_create(netdev->up.name, netdev->hw_unit, netdev->hw_id, ether_mac,
                     &(netdev->knet_if_id));
