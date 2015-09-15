@@ -45,6 +45,8 @@ def intervlan_knet_test(**kwargs):
           systemMac = curLine.split()[2]
 
     systemMac = systemMac.replace('"', '')
+    #Remove preceding 0s in mac
+    systemMac = systemMac.replace(':0', ':')
 
     LogOutput("info", "Verify bridge_normal knet interface creation")
     retStruct = switch.DeviceInteract(command="ovs-appctl plugin/debug knet netif")
@@ -86,6 +88,7 @@ def intervlan_knet_test(**kwargs):
     switch.VtyshShell(enter=True)
     switch.DeviceInteract(command="conf t")
     switch.DeviceInteract(command="no interface vlan10")
+    switch.DeviceInteract(command="exit")
     switch.VtyshShell(enter=False)
 
     #Verify L3 interface is deleted in ASIC
