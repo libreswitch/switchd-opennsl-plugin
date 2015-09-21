@@ -40,12 +40,15 @@
 #include "platform-defines.h"
 #include "openswitch-dflt.h"
 
-
 VLOG_DEFINE_THIS_MODULE(ops_routing);
 
 opennsl_if_t local_nhid;
 /* fake MAC to create a local_nhid */
 opennsl_mac_t LOCAL_MAC =  {0x0,0x0,0x01,0x02,0x03,0x04};
+
+/* KEY in ops_mac_move_egress_id_map */
+char    egress_id_key[24];
+struct hmap ops_mac_move_egress_id_map;
 
 /* all routes in asic*/
 struct ops_route_table{
@@ -240,6 +243,19 @@ ops_l3_init(int unit)
 
     /* initialize route table hash map */
     hmap_init(&ops_rtable.routes);
+
+    /* Initialize egress-id hash map. Used only during mac-move. */
+    hmap_init(&ops_mac_move_egress_id_map);
+
+    /* register for mac-move. When move happens, ASIC sends a MAC delete
+     * message followed by MAC add message. There will be MOVE flag set in
+     * both the messages, differentiating it from regular add and delete
+     * messages. */
+    rc = opennsl_l2_addr_register(unit, ops_l3_mac_move_cb, NULL);
+    if (OPENNSL_FAILURE(rc)) {
+        VLOG_ERR("L2 address registration failed");
+        return 1;
+    }
 
     return 0;
 }
@@ -1479,6 +1495,156 @@ l3_intf_print(struct ds *ds, int unit, int print_hdr,
                   if_mac_str, intf->l3a_mtu, intf->l3a_ttl);
     return;
 } /* l3_intf_print */
+
+static struct ops_mac_move_egress_id *
+ops_egress_id_lookup(char*egress_id_key_l)
+{
+   struct ops_mac_move_egress_id    *egress_id_node;
+
+   HMAP_FOR_EACH_WITH_HASH(egress_id_node, node, hash_string(egress_id_key_l, 0),
+                                               &ops_mac_move_egress_id_map) {
+           return egress_id_node;
+   }
+
+   return NULL;
+}
+
+void
+ops_l3_mac_move_add(int   unit,
+                    opennsl_l2_addr_t  *l2addr,
+                    void   *userdata)
+{
+   opennsl_l3_egress_t     egress_object;
+   opennsl_error_t         rc = OPENNSL_E_NONE;
+   struct ops_mac_move_egress_id    *egress_id_node;
+
+   if (!(l2addr->flags & OPENNSL_L2_MOVE_PORT)) {
+       /* Only handle ADD due to mac-move */
+       return;
+   }
+
+   /* ADD call, due to mac-move. */
+
+   memset(egress_id_key, 0, sizeof(egress_id_key));
+   snprintf(egress_id_key, 24, "%d:" ETH_ADDR_FMT, l2addr->vid,
+                               ETH_ADDR_ARGS(l2addr->mac));
+
+   egress_id_node = ops_egress_id_lookup(egress_id_key);
+   if (egress_id_node == NULL) {
+       VLOG_INFO("Egress object id NOT found in process cache, possibly "
+                 "deleted: unit=%d, key=%s, vlan=%d, mac=" ETH_ADDR_FMT,
+                 unit, egress_id_key, l2addr->vid, ETH_ADDR_ARGS(l2addr->mac));
+
+       /* Unexpected condition. This shouldn't happen. */
+       return;
+   }
+
+   /* Using egress id get egress object from ASIC */
+   rc = opennsl_l3_egress_get(unit, egress_id_node->egress_object_id, &egress_object);
+
+   if (rc != OPENNSL_E_NONE) {
+       VLOG_ERR("Egress object not found in ASIC for given vlan/mac. rc=%d "
+                 "unit=%d, key=%s, vlan=%d, mac=" ETH_ADDR_FMT ", egr-id: %d", rc,
+                 unit, egress_id_key, l2addr->vid, ETH_ADDR_ARGS(l2addr->mac),
+                 egress_id_node->egress_object_id);
+
+       goto done;
+   }
+
+
+   egress_object.flags    |= (OPENNSL_L3_REPLACE | OPENNSL_L3_WITH_ID);
+   egress_object.port     = l2addr->port;  /* new port */
+   /* L3 intf will remain unchanged */
+
+   rc = opennsl_l3_egress_create(unit, egress_object.flags, &egress_object,
+                                   &(egress_object.intf));
+   if (rc != OPENNSL_E_NONE) {
+       VLOG_ERR("Failed creation of egress object: rc=%d, unit=%d", rc, unit);
+       goto done;
+   }
+
+done:
+   /* remove hmap entry for given mac/vlan */
+   hmap_remove(&ops_mac_move_egress_id_map, &egress_id_node->node);
+}
+
+void
+ops_l3_mac_move_delete(int   unit,
+                       opennsl_l2_addr_t  *l2addr,
+                       void   *userdata)
+{
+   opennsl_l3_egress_t     egress_object;
+   opennsl_if_t            egress_object_id;
+   struct ops_mac_move_egress_id   *egress_node;
+   opennsl_error_t         rc = OPENNSL_E_NONE;
+
+   if (!(l2addr->flags & OPENNSL_L2_MOVE_PORT)) {
+       /* Only handle DELTE due to mac-move */
+       return;
+   }
+
+   /* DELETE call due to mac-move */
+
+   memset(egress_id_key, 0, sizeof(egress_id_key));
+   snprintf(egress_id_key, 24, "%d:" ETH_ADDR_FMT, l2addr->vid,
+                               ETH_ADDR_ARGS(l2addr->mac));
+
+   /* Create an egress object with old/deleted port and save in hashmap */
+
+   opennsl_l3_egress_t_init(&egress_object);
+   memcpy(egress_object.mac_addr, l2addr->mac, ETH_ALEN);
+   egress_object.vlan     = l2addr->vid;
+   egress_object.port     = l2addr->port; /* old/deleted port */
+   egress_object.intf     = l2addr->vid;  /* l3 intf is same as vlanid */
+
+   /* egress_id is the id of row containing egress_object in ASIC */
+   opennsl_l3_egress_find(unit, &egress_object, &egress_object_id);
+   if (rc != OPENNSL_E_NONE) {
+       VLOG_ERR("Failed retrieving egress object id: rc=%d, unit=%d, vlan=%d, "
+                "mac=" ETH_ADDR_FMT, rc, unit, l2addr->vid,
+                ETH_ADDR_ARGS(l2addr->mac));
+
+       return;
+   }
+
+   /* add the egress id to hashmap */
+   egress_node = (struct ops_mac_move_egress_id *) xmalloc(sizeof(struct
+                                                   ops_mac_move_egress_id));
+   if (egress_node == NULL) {
+       VLOG_ERR("Failed allocating memory to ops_mac_move_egress_id: "
+                "unit=%d", unit);
+       return;
+   }
+   egress_node->egress_object_id = egress_object_id;
+   hmap_insert(&ops_mac_move_egress_id_map, &egress_node->node, hash_string(egress_id_key, 0));
+}
+
+/*This function can get called by ASIC for following events:
+*  Add, Delete, Mac-Learn, Mac-Age, & Mac-Move
+*
+*  Currently, it handles Add & Delete events, triggered due to mac-move. */
+void
+ops_l3_mac_move_cb(int   unit,
+                   opennsl_l2_addr_t  *l2addr,
+                   int    operation,
+                   void   *userdata)
+{
+   if (l2addr == NULL) {
+       VLOG_ERR("Invalid arguments. l2-addr is NULL");
+       return;
+   }
+
+   switch(operation) {
+       case OPENNSL_L2_CALLBACK_ADD:
+           ops_l3_mac_move_add(unit, l2addr, userdata);
+           break;
+       case OPENNSL_L2_CALLBACK_DELETE:
+           ops_l3_mac_move_delete(unit, l2addr, userdata);
+           break;
+       default:
+           break;
+   }
+}
 
 void
 ops_l3intf_dump(struct ds *ds, int intfid)
