@@ -170,7 +170,7 @@ netdev_bcmsdk_construct(struct netdev *netdev_)
     ovs_mutex_init(&netdev->mutex);
     ovs_mutex_lock(&netdev->mutex);
 
-    /* OPENSWITCH_TODO: We should use MAC address defined in the
+    /* XXX: We should use MAC address defined in the
      * INTERFACE table instead of a randomly generated one. */
     netdev->hwaddr[0] = 0xaa;
     netdev->hwaddr[1] = 0x55;
@@ -740,53 +740,6 @@ netdev_bcmsdk_update_flags(struct netdev *netdev_,
     return rc;
 }
 
-#if 0
-static int
-netdev_bcmsdk_enable_l3(const struct netdev *netdev_, int vrf_id)
-{
-    struct netdev_bcmsdk *netdev = netdev_bcmsdk_cast(netdev_);
-    int rc = 0;
-
-    ovs_mutex_lock(&netdev->mutex);
-
-    if (netdev->intf_initialized) {
-        rc = ops_routing_enable_l3_interface(netdev->hw_unit, netdev->hw_id,
-                                            vrf_id, netdev->hwaddr, &netdev->l3_intf_id);
-        if (rc) {
-            VLOG_ERR("Failed to enable L3 on interface %s", netdev->up.name);
-        }
-    } else {
-        VLOG_ERR("Interface (%s) not initialized", netdev->up.name);
-    }
-
-    ovs_mutex_unlock(&netdev->mutex);
-
-    return rc;
-}
-
-static int
-netdev_bcmsdk_disable_l3(const struct netdev *netdev_, int vrf_id)
-{
-    struct netdev_bcmsdk *netdev = netdev_bcmsdk_cast(netdev_);
-    int rc = 0;
-
-    ovs_mutex_lock(&netdev->mutex);
-
-    if (netdev->intf_initialized) {
-        rc = ops_routing_disable_l3_interface(netdev->hw_unit, netdev->hw_id, vrf_id,
-                                             &netdev->l3_intf_id);
-        if (rc) {
-            VLOG_ERR("Failed to disable L3 on interface %s", netdev->up.name);
-        }
-    } else {
-        VLOG_ERR("Interface (%s) not initialized", netdev->up.name);
-    }
-
-    ovs_mutex_unlock(&netdev->mutex);
-
-    return rc;
-}
-#endif
 void
 netdev_bcmsdk_link_state_callback(int hw_unit, int hw_id, int link_status)
 {
@@ -915,40 +868,6 @@ error:
     return rc;
 }
 
-static int
-netdev_internal_bcmsdk_get_carrier(const struct netdev *netdev_, bool *carrier)
-{
-    /* OPENSWITCH_TODO: What needs to be done for internal interfaces */
-    return 0;
-}
-
-static int
-netdev_internal_bcmsdk_get_mtu(const struct netdev *netdev_, int *mtup)
-{
-    int rc = 1;
-    /* OPENSWITCH_TODO: What needs to be done for internal interfaces */
-    return rc;
-}
-
-static int
-netdev_internal_bcmsdk_get_stats(const struct netdev *netdev_, struct netdev_stats *stats)
-{
-    /* OPENSWITCH_TODO: What needs to be done for internal interfaces */
-    memset(stats, 0, sizeof(struct netdev_stats));
-    return 0;
-}
-
-static int
-netdev_internal_bcmsdk_get_features(const struct netdev *netdev_,
-                                    enum netdev_features *current,
-                                    enum netdev_features *advertised,
-                                    enum netdev_features *supported,
-                                    enum netdev_features *peer)
-{
-    int rc = 1;
-    /* OPENSWITCH_TODO: What needs to be done for internal interfaces */
-    return rc;
-}
 
 static int
 netdev_internal_bcmsdk_update_flags(struct netdev *netdev_,
@@ -956,9 +875,8 @@ netdev_internal_bcmsdk_update_flags(struct netdev *netdev_,
                                     enum netdev_flags on,
                                     enum netdev_flags *old_flagsp)
 {
-    int rc = 0;
-    /* OPENSWITCH_TODO: What needs to be done for internal interfaces */
-    return rc;
+    /* XXX: Not yet supported for internal interfaces */
+    return EOPNOTSUPP;
 }
 
 static const struct netdev_class bcmsdk_internal_class = {
@@ -987,15 +905,15 @@ static const struct netdev_class bcmsdk_internal_class = {
 
     netdev_bcmsdk_set_etheraddr,
     netdev_bcmsdk_get_etheraddr,
-    netdev_internal_bcmsdk_get_mtu,
+    NULL,                       /* get_mtu */
     NULL,                       /* set_mtu */
     NULL,                       /* get_ifindex */
-    netdev_internal_bcmsdk_get_carrier,
-    netdev_bcmsdk_get_carrier_resets,
+    NULL,                       /* get_carrier */
+    NULL,                       /* get_carrier_resets */
     NULL,                       /* get_miimon */
-    netdev_internal_bcmsdk_get_stats,
+    NULL,                       /* get_stats */
 
-    netdev_internal_bcmsdk_get_features,
+    NULL,                       /* get_features */
     NULL,                       /* set_advertisements */
 
     NULL,                       /* set_policing */
