@@ -15,29 +15,28 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
-"""
-import lib
 import pytest
-import re
-import switch
-from switch import *
-from lib import *
-from switch.CLI.lldp import *
-from switch.CLI.interface import *
-from switch.CLI import *
-from switch.OVS import *
+from opstestfw import *
+from opstestfw.switch.CLI import *
+from opstestfw.switch.OVS import *
+
 # Topology definition
 topoDict = {"topoExecution": 1000,
+            "topoType": "physical",
             "topoTarget": "dut01",
             "topoDevices": "dut01",
             "topoFilters": "dut01:system-category:switch"}
 
+
 def ecmp_hash_check_status(switch, is_ipv4, is_enabled):
+
     if (is_ipv4):
-        retStruct = switch.DeviceInteract(command="ovs-appctl plugin/debug l3route")
+        appctl_command = "ovs-appctl plugin/debug l3route"
+        retStruct = switch.DeviceInteract(command=appctl_command)
         log_ip_str = "IPv4"
     else:
-        retStruct = switch.DeviceInteract(command="ovs-appctl plugin/debug l3v6route")
+        appctl_command = "ovs-appctl plugin/debug l3v6route"
+        retStruct = switch.DeviceInteract(command=appctl_command)
         log_ip_str = "IPv6"
     if (is_enabled):
         ecmp_hash_status = 'Y'
@@ -60,11 +59,13 @@ def ecmp_hash_check_status(switch, is_ipv4, is_enabled):
                or hash_fields[1] != ecmp_hash_status \
                or hash_fields[2] != ecmp_hash_status \
                or hash_fields[3] != ecmp_hash_status:
-                LogOutput("error", "Could not %s ECMP %s hash in ASIC" % \
-                                    (log_enable_str, log_ip_str))
+                LogOutput("error", "Could not %s ECMP %s hash in ASIC" %
+                                   (log_enable_str, log_ip_str))
+
 
 def ecmp_hash_test(**kwargs):
-    switch = kwargs.get('switch',None)
+
+    switch = kwargs.get('switch', None)
 
     switch.VtyshShell(enter=True)
     switch.ConfigVtyShell(enter=True)
@@ -90,13 +91,16 @@ def ecmp_hash_test(**kwargs):
     ecmp_hash_check_status(switch, True, True)
     ecmp_hash_check_status(switch, False, True)
 
+
 class Test_ecmp_hash_ct:
-    def setup_class (cls):
+
+    def setup_class(cls):
         # Test object will parse command line and formulate the env
         Test_ecmp_hash_ct.testObj = testEnviron(topoDict=topoDict)
-        #    Get topology object
+        # Get topology object
         Test_ecmp_hash_ct.topoObj = Test_ecmp_hash_ct.testObj.topoObjGet()
-    def teardown_class (cls):
+
+    def teardown_class(cls):
         Test_ecmp_hash_ct.topoObj.terminate_nodes()
 
     def test_ecmp_hash_ct(self):
@@ -105,5 +109,4 @@ class Test_ecmp_hash_ct:
         if retValue != 0:
             assert "Test failed"
         else:
-            LogOutput('info', "test passed\n\n\n\n############################# Next Test #########################\n")
-"""
+            LogOutput('info', "\n### Test Passed ###\n")
