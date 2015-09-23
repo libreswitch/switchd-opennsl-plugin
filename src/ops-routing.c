@@ -761,22 +761,13 @@ ops_create_or_update_ecmp_object(int hw_unit, struct ops_route *routep,
     opennsl_if_t egress_obj[MAX_NEXTHOPS_PER_ROUTE];
     opennsl_error_t rc = OPENNSL_E_NONE;
     opennsl_l3_egress_ecmp_t ecmp_grp;
-    bool install_local_nhid = true;
 
     if(!routep) {
         return EINVAL;
     }
 
     HMAP_FOR_EACH(nh, node, &routep->nexthops) {
-        if (nh->l3_egress_id == local_nhid) {
-         /* install one local_nhid for all unresolved nh */
-            if (install_local_nhid) {
-                egress_obj[nh_count++] = nh->l3_egress_id;
-                install_local_nhid = false;
-            }
-        } else {
-            egress_obj[nh_count++] = nh->l3_egress_id;
-        }
+        egress_obj[nh_count++] = nh->l3_egress_id;
         /* break once max ecmp is reached */
         if (nh_count == MAX_NEXTHOPS_PER_ROUTE) {
             break;
@@ -795,23 +786,15 @@ ops_create_or_update_ecmp_object(int hw_unit, struct ops_route *routep,
             return rc;
         }
     } else {
-        rc = opennsl_l3_egress_ecmp_find(hw_unit, nh_count, egress_obj,
-                                         &ecmp_grp);
-        if (OPENNSL_E_NONE == rc) {
-            *ecmp_intfp = ecmp_grp.ecmp_intf;
-        } else {
-            opennsl_l3_egress_ecmp_t_init(&ecmp_grp);
-            rc = opennsl_l3_egress_ecmp_create(hw_unit, &ecmp_grp, nh_count,
-                                               egress_obj);
-
-            if (OPENNSL_FAILURE(rc)) {
-                VLOG_ERR("Failed to create ecmp object for route %s: rc=%s",
+        opennsl_l3_egress_ecmp_t_init(&ecmp_grp);
+        rc = opennsl_l3_egress_ecmp_create(hw_unit, &ecmp_grp, nh_count,
+                                           egress_obj);
+        if (OPENNSL_FAILURE(rc)) {
+            VLOG_ERR("Failed to create ecmp object for route %s: rc=%s",
                      routep->prefix, opennsl_errmsg(rc));
-                return rc;
-            }
-            *ecmp_intfp = ecmp_grp.ecmp_intf;
+            return rc;
         }
-
+        *ecmp_intfp = ecmp_grp.ecmp_intf;
     }
     return rc;
 } /* ops_create_or_update_ecmp_object */
@@ -1085,6 +1068,26 @@ ops_delete_nh_entry(int hw_unit, opennsl_vrf_t vrf_id,
     return rc;
 } /* ops_delete_nh_entry */
 
+/* update the error */
+static void
+ops_update_nexthop_error(int ret_code, struct ofproto_route *of_routep)
+{
+    char *error_str = NULL;
+    struct ofproto_route_nexthop *of_nh;
+
+    if (OPENNSL_FAILURE(ret_code)) {
+        error_str = opennsl_errmsg(ret_code);
+    } else {
+        error_str = strerror(ret_code);
+    }
+
+    for (int i = 0;  i < of_routep->n_nexthops; i++) {
+        of_nh = &of_routep->nexthops[i];
+        of_nh->err_str = error_str;
+        of_nh->rc = ret_code;
+    }
+}/* ops_update_nexthop_error */
+
 /* Add, delete route and nexthop */
 int
 ops_routing_route_entry_action(int hw_unit,
@@ -1143,6 +1146,11 @@ ops_routing_route_entry_action(int hw_unit,
         VLOG_ERR("Unknown route action %d", action);
         rc = EINVAL;
         break;
+    }
+
+    if ((action == OFPROTO_ROUTE_ADD) && OPS_FAILURE(rc)) {
+        /* upadate the next hops error */
+        ops_update_nexthop_error(rc, routep);
     }
 
     return rc;
@@ -1550,3 +1558,105 @@ ops_l3route_dump(struct ds *ds, int ipv6_enabled)
     }
 
 } /* ops_l3route_dump */
+
+static int
+l3_egress_print(int unit, int index, opennsl_l3_egress_t *info, void *user_data)
+{
+    char mac_str[SAL_MACADDR_STR_LEN];
+    struct ds *pds = (struct ds *)user_data;
+
+    snprintf(mac_str, SAL_MACADDR_STR_LEN, "%s",
+             ether_ntoa((struct ether_addr*)info->mac_addr));
+
+    ds_put_format(pds ,"%d %-18s %4d %4d %4d %4s %4s\n",
+                  index, mac_str, info->vlan, info->intf, info->port,
+                  (info->flags & OPENNSL_L3_COPY_TO_CPU) ? "yes" : "no",
+                  (info->flags & OPENNSL_L3_DST_DISCARD) ? "yes" : "no");
+
+    return 0;
+} /* l3_egress_print */
+
+void
+ops_l3egress_dump(struct ds *ds, int egressid)
+{
+    int unit = 0;
+    opennsl_error_t rc;
+    opennsl_l3_egress_t egress_object;
+
+    ds_put_format(ds ,"Entry      Mac             Vlan INTF PORT ToCpu Drop\n");
+    ds_put_format(ds ,"-----------------------------------------------------\n");
+
+    /* single egress object */
+    if (egressid != -1) {
+        opennsl_l3_egress_t_init(&egress_object);
+        rc = opennsl_l3_egress_get(unit, egressid, &egress_object);
+        if (OPENNSL_FAILURE(rc)){
+            VLOG_ERR("Error reading egress entry %d: %s\n", egressid,
+                     opennsl_errmsg(rc));
+            return;
+        } else {
+           l3_egress_print(unit, egressid, &egress_object, ds);
+        }
+    } else {
+        rc = opennsl_l3_egress_traverse(unit, l3_egress_print, ds);
+        if (OPENNSL_FAILURE(rc)){
+            VLOG_ERR("Error reading egress table: %s\n", opennsl_errmsg(rc));
+            return;
+        }
+    }
+} /* ops_l3egress_dump */
+
+static int
+l3ecmp_egress_print(int unit, opennsl_l3_egress_ecmp_t *ecmp,
+                    int intf_count, opennsl_if_t *info, void *user_data)
+{
+    int idx;
+    struct ds *pds = (struct ds *)user_data;
+    ds_put_format(pds, "Multipath Egress Object %d\n", ecmp->ecmp_intf);
+    ds_put_format(pds, "Interfaces:");
+
+    for (idx = 0; idx < intf_count; idx++) {
+        ds_put_format(pds, " %d", info[idx]);
+        if (idx && (!(idx % 10))) {
+            ds_put_format(pds, "\n           ");
+        }
+    }
+
+    ds_put_format(pds, "\n");
+    return 0;
+} /*l3ecmp_egress_print */
+
+void
+ops_l3ecmp_egress_dump(struct ds *ds, int ecmpid)
+{
+    int unit = 0;
+    opennsl_error_t rc;
+    opennsl_l3_egress_ecmp_t ecmp_grp;
+    opennsl_l3_ecmp_member_t ecmp_member[MAX_NEXTHOPS_PER_ROUTE];
+    opennsl_if_t ecmp_intf[MAX_NEXTHOPS_PER_ROUTE];
+    int member_count = 0;
+
+    /* single multipath object */
+    if (ecmpid != -1) {
+        opennsl_l3_egress_ecmp_t_init(&ecmp_grp);
+        ecmp_grp.ecmp_intf = ecmpid;
+        rc = opennsl_l3_ecmp_get(unit, &ecmp_grp, MAX_NEXTHOPS_PER_ROUTE,
+                                 ecmp_member, &member_count);
+        if (OPENNSL_FAILURE(rc)){
+            VLOG_ERR("Error reading ecmp egress entry %d: %s\n", ecmpid,
+                     opennsl_errmsg(rc));
+            return;
+        } else {
+            for (int i= 0; i < member_count ; i++) {
+                ecmp_intf[i] = ecmp_member[i].egress_if;
+            }
+            l3ecmp_egress_print(unit, &ecmp_grp, member_count, ecmp_intf, ds);
+        }
+    } else {
+        rc = opennsl_l3_egress_ecmp_traverse(unit, l3ecmp_egress_print, ds);
+        if (OPENNSL_FAILURE(rc)){
+            VLOG_ERR("Error reading ecmp table: %s\n", opennsl_errmsg(rc));
+            return;
+        }
+    }
+} /* ops_l3ecmp_egress_dump */

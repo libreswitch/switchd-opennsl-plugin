@@ -104,4 +104,7 @@ extern void ops_l3intf_dump(struct ds *ds, int intfid);
 extern void ops_l3host_dump(struct ds *ds, int ipv6_enabled);
 extern void ops_l3route_dump(struct ds *ds, int ipv6_enabled);
 
+extern void ops_l3egress_dump(struct ds *ds, int egressid);
+extern void ops_l3ecmp_egress_dump(struct ds *ds, int ecmpid);
+
 #endif /* __OPS_ROUTING_H__ */

@@ -75,6 +75,8 @@ char cmd_hp_usage[] =
 "   l3v6host - display OpenSwitch l3 IPv6 host info.\n"
 "   l3route - display OpenSwitch l3 Routes.\n"
 "   l3v6route - display OpenSwitch l3 IPv6 Routes.\n"
+"   l3egress [<entry>] - display an egress object info.\n"
+"   l3ecmp [<entry>] - display an ecmp egress object info.\n"
 "   lag [<lagid>] - displays OpenSwitch LAG info.\n"
 "   help - displays this help text.\n"
 ;
@@ -268,6 +270,22 @@ bcm_plugin_debug(struct unixctl_conn *conn, int argc,
 
         } else if (!strcmp(ch, "l3v6route")) {
             ops_l3route_dump(&ds, TRUE);
+            goto done;
+
+        } else if (!strcmp(ch, "l3egress")) {
+            int egressid = -1;
+            if (NULL != (ch = NEXT_ARG())) {
+                egressid = atoi(ch);
+            }
+            ops_l3egress_dump(&ds, egressid);
+            goto done;
+
+        } else if (!strcmp(ch, "l3ecmp")) {
+            int ecmpid = -1;
+            if (NULL != (ch = NEXT_ARG())) {
+                ecmpid = atoi(ch);
+            }
+            ops_l3ecmp_egress_dump(&ds, ecmpid);
             goto done;
 
         } else if (!strcmp(ch, "lag")) {
