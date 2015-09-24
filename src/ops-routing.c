@@ -57,6 +57,7 @@ struct ops_route_table ops_rtable;
 int
 ops_l3_init(int unit)
 {
+    int hash_cfg = 0;
     opennsl_error_t rc = OPENNSL_E_NONE;
     opennsl_l3_egress_t egress_object;
 
@@ -137,13 +138,29 @@ ops_l3_init(int unit)
     }
 
     /* Enable IPv4 src ip, src port, dst ip, dst port hashing by default */
-    rc = opennsl_switch_control_set(unit, opennslSwitchHashIP4Field0,
-                                    OPENNSL_HASH_FIELD_IP4SRC_LO |
-                                    OPENNSL_HASH_FIELD_IP4SRC_HI |
-                                    OPENNSL_HASH_FIELD_SRCL4     |
-                                    OPENNSL_HASH_FIELD_IP4DST_LO |
-                                    OPENNSL_HASH_FIELD_IP4DST_HI |
-                                    OPENNSL_HASH_FIELD_DSTL4);
+    hash_cfg = OPENNSL_HASH_FIELD_IP4SRC_LO | OPENNSL_HASH_FIELD_IP4SRC_HI |
+               OPENNSL_HASH_FIELD_SRCL4 | OPENNSL_HASH_FIELD_IP4DST_LO |
+               OPENNSL_HASH_FIELD_IP4DST_HI | OPENNSL_HASH_FIELD_DSTL4;
+
+    rc = opennsl_switch_control_set(unit,
+                                    opennslSwitchHashIP4TcpUdpPortsEqualField0,
+                                    hash_cfg);
+    if (OPENNSL_FAILURE(rc)) {
+        VLOG_ERR("Failed to set opennslSwitchHashIP4TcpUdpPortsEqualField0: unit=%d rc=%s",
+                 unit, opennsl_errmsg(rc));
+        return 1;
+    }
+    rc = opennsl_switch_control_set(unit,
+                                    opennslSwitchHashIP4TcpUdpField0,
+                                    hash_cfg);
+    if (OPENNSL_FAILURE(rc)) {
+        VLOG_ERR("Failed to set opennslSwitchHashIP4TcpUdpPortsEqualField0: unit=%d rc=%s",
+                 unit, opennsl_errmsg(rc));
+        return 1;
+    }
+    rc = opennsl_switch_control_set(unit,
+                                    opennslSwitchHashIP4Field0,
+                                    hash_cfg);
     if (OPENNSL_FAILURE(rc)) {
         VLOG_ERR("Failed to set opennslSwitchHashIP4Field0: unit=%d rc=%s",
                  unit, opennsl_errmsg(rc));
@@ -151,15 +168,72 @@ ops_l3_init(int unit)
     }
 
     /* Enable IPv6 src ip, src port, dst ip, dst port hashing by default */
-    rc = opennsl_switch_control_set(unit, opennslSwitchHashIP6Field0,
-                                    OPENNSL_HASH_FIELD_IP6SRC_LO |
-                                    OPENNSL_HASH_FIELD_IP6SRC_HI |
-                                    OPENNSL_HASH_FIELD_SRCL4     |
-                                    OPENNSL_HASH_FIELD_IP6DST_LO |
-                                    OPENNSL_HASH_FIELD_IP6DST_HI |
-                                    OPENNSL_HASH_FIELD_DSTL4);
+    hash_cfg = OPENNSL_HASH_FIELD_IP6SRC_LO | OPENNSL_HASH_FIELD_IP6SRC_HI |
+               OPENNSL_HASH_FIELD_SRCL4 | OPENNSL_HASH_FIELD_IP6DST_LO |
+               OPENNSL_HASH_FIELD_IP6DST_HI | OPENNSL_HASH_FIELD_DSTL4;
+
+    rc = opennsl_switch_control_set(unit,
+                                    opennslSwitchHashIP6TcpUdpPortsEqualField0,
+                                    hash_cfg);
+    if (OPENNSL_FAILURE(rc)) {
+        VLOG_ERR("Failed to set opennslSwitchHashIP6TcpUdpPortsEqualField0: unit=%d rc=%s",
+                 unit, opennsl_errmsg(rc));
+        return 1;
+    }
+    rc = opennsl_switch_control_set(unit,
+                                    opennslSwitchHashIP6TcpUdpField0,
+                                    hash_cfg);
+    if (OPENNSL_FAILURE(rc)) {
+        VLOG_ERR("Failed to set opennslSwitchHashIP6TcpUdpPortsEqualField0: unit=%d rc=%s",
+                 unit, opennsl_errmsg(rc));
+        return 1;
+    }
+    rc = opennsl_switch_control_set(unit,
+                                    opennslSwitchHashIP6Field0,
+                                    hash_cfg);
     if (OPENNSL_FAILURE(rc)) {
         VLOG_ERR("Failed to set opennslSwitchHashIP6Field0: unit=%d rc=%s",
+                 unit, opennsl_errmsg(rc));
+        return 1;
+    }
+
+    /* FIXME : Generate the seed from the system MAC? */
+    rc = opennsl_switch_control_set(unit, opennslSwitchHashSeed0, 0x12345678);
+    if (OPENNSL_FAILURE(rc)) {
+        VLOG_ERR("Failed to set opennslSwitchHashSeed0: unit=%d rc=%s",
+                 unit, opennsl_errmsg(rc));
+        return 1;
+    }
+    rc = opennsl_switch_control_set(unit, opennslSwitchHashField0PreProcessEnable,
+                                    1);
+    if (OPENNSL_FAILURE(rc)) {
+        VLOG_ERR("Failed to set opennslSwitchHashField0PreProcessEnable: unit=%d rc=%s",
+                 unit, opennsl_errmsg(rc));
+        return 1;
+    }
+    rc = opennsl_switch_control_set(unit, opennslSwitchHashField0Config,
+                                    OPENNSL_HASH_FIELD_CONFIG_CRC16CCITT);
+    if (OPENNSL_FAILURE(rc)) {
+        VLOG_ERR("Failed to set opennslSwitchHashField0Config: unit=%d rc=%s",
+                 unit, opennsl_errmsg(rc));
+        return 1;
+    }
+    rc = opennsl_switch_control_set(unit, opennslSwitchHashField0Config1,
+                                    OPENNSL_HASH_FIELD_CONFIG_CRC16CCITT);
+    if (OPENNSL_FAILURE(rc)) {
+        VLOG_ERR("Failed to set opennslSwitchHashField0Config1: unit=%d rc=%s",
+                 unit, opennsl_errmsg(rc));
+        return 1;
+    }
+    rc = opennsl_switch_control_set(unit, opennslSwitchECMPHashSet0Offset, 0);
+    if (OPENNSL_FAILURE(rc)) {
+        VLOG_ERR("Failed to set opennslSwitchECMPHashSet0Offset: unit=%d rc=%s",
+                 unit, opennsl_errmsg(rc));
+        return 1;
+    }
+    rc = opennsl_switch_control_set(unit, opennslSwitchHashSelectControl, 0);
+    if (OPENNSL_FAILURE(rc)) {
+        VLOG_ERR("Failed to set opennslSwitchHashSelectControl: unit=%d rc=%s",
                  unit, opennsl_errmsg(rc));
         return 1;
     }
@@ -1250,12 +1324,49 @@ ops_routing_ecmp_hash_set(int hw_unit, unsigned int hash, bool enable)
         cur_hash_ip6 &= ~hash_v6;
     }
 
+    rc = opennsl_switch_control_set(hw_unit,
+                                    opennslSwitchHashIP4TcpUdpPortsEqualField0,
+                                    cur_hash_ip4);
+    if (OPENNSL_FAILURE(rc)) {
+        VLOG_ERR("Failed to set opennslSwitchHashIP4TcpUdpPortsEqualField0:"
+                 "unit=%d, hash=%x, rc=%s",
+                 hw_unit, cur_hash_ip4, opennsl_errmsg(rc));
+        return 1;
+    }
+    rc = opennsl_switch_control_set(hw_unit,
+                                    opennslSwitchHashIP4TcpUdpField0,
+                                    cur_hash_ip4);
+    if (OPENNSL_FAILURE(rc)) {
+        VLOG_ERR("Failed to set opennslSwitchHashIP4TcpUdpPortsEqualField0:"
+                 "unit=%d, hash=%x, rc=%s",
+                 hw_unit, cur_hash_ip4, opennsl_errmsg(rc));
+        return 1;
+    }
     rc = opennsl_switch_control_set(hw_unit, opennslSwitchHashIP4Field0,
                                     cur_hash_ip4);
     if (OPENNSL_FAILURE(rc)) {
         VLOG_ERR("Failed to set opennslSwitchHashIP4Field0 : unit=%d, hash=%x, rc=%s",
                  hw_unit, cur_hash_ip4, opennsl_errmsg(rc));
         return rc;
+    }
+
+    rc = opennsl_switch_control_set(hw_unit,
+                                    opennslSwitchHashIP6TcpUdpPortsEqualField0,
+                                    cur_hash_ip6);
+    if (OPENNSL_FAILURE(rc)) {
+        VLOG_ERR("Failed to set opennslSwitchHashIP6TcpUdpPortsEqualField0:"
+                 "unit=%d, hash=%x, rc=%s",
+                 hw_unit, cur_hash_ip6, opennsl_errmsg(rc));
+        return 1;
+    }
+    rc = opennsl_switch_control_set(hw_unit,
+                                    opennslSwitchHashIP6TcpUdpField0,
+                                    cur_hash_ip6);
+    if (OPENNSL_FAILURE(rc)) {
+        VLOG_ERR("Failed to set opennslSwitchHashIP6TcpUdpPortsEqualField0:"
+                 "unit=%d, hash=%x, rc=%s",
+                 hw_unit, cur_hash_ip6, opennsl_errmsg(rc));
+        return 1;
     }
     rc = opennsl_switch_control_set(hw_unit, opennslSwitchHashIP6Field0,
                                     cur_hash_ip6);
