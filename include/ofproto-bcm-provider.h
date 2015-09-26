@@ -44,6 +44,7 @@ struct bcmsdk_provider_group {
 };
 
 struct ofbundle {
+    bool enable;                /* Bundle enable/disable */
     struct hmap_node hmap_node; /* In struct ofproto's "bundles" hmap. */
     struct bcmsdk_provider_node *ofproto; /* Owning ofproto. */
     void *aux;                  /* Key supplied by ofproto's client. */

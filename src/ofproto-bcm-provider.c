@@ -963,6 +963,7 @@ bundle_set(struct ofproto *ofproto_, void *aux,
 
         bundle = xmalloc(sizeof *bundle);
 
+        bundle->enable = true;
         bundle->ofproto = ofproto;
         hmap_insert(&ofproto->bundles, &bundle->hmap_node,
                     hash_pointer(aux, 0));
@@ -1063,7 +1064,7 @@ bundle_set(struct ofproto *ofproto_, void *aux,
      * Skip this for bridge internal interface which will have same
      * name as bridge (ofproto->up.name)
      * */
-    if(!ofproto->vrf && s->n_slaves == 1 && strcmp(bundle->name, ofproto->up.name)) {
+    if (!ofproto->vrf && s->n_slaves == 1 && strcmp(bundle->name, ofproto->up.name)) {
         struct bcmsdk_provider_ofport_node *port;
         opennsl_vlan_t vlan_id;
         const char *type;
@@ -1073,11 +1074,32 @@ bundle_set(struct ofproto *ofproto_, void *aux,
         vlan_id = s->vlan;
 
         VLOG_DBG("bridge %s interface type %s vland id %d", ofproto->up.name, type, vlan_id);
-        if((strcmp(type, OVSREC_INTERFACE_TYPE_INTERNAL) == 0) && vlan_id &&
-           (bundle->vlan_knet_filter_ids[0] == 0)) {
-            VLOG_INFO("Creating KNET filters for vlan interface vlan%d", vlan_id);
-            bcmsdk_knet_vlan_interface_filter_create(ofproto->up.name, vlan_id,
-                                                     &bundle->vlan_knet_filter_ids[0]);
+        if ((strcmp(type, OVSREC_INTERFACE_TYPE_INTERNAL) == 0) && vlan_id) {
+            /* if vlan changed/removed or if port status is disabled */
+            if (bundle->vlan != vlan_id || !s->enable) {
+               /* Delete the KNET vlan filters if they were configured */
+               if (bundle->vlan_knet_filter_ids[0]) {
+                    bcmsdk_knet_filter_delete(NULL, bundle->hw_unit,
+                                              bundle->vlan_knet_filter_ids[0]);
+                }
+
+                if(bundle->vlan_knet_filter_ids[1]) {
+                    bcmsdk_knet_filter_delete(NULL, bundle->hw_unit,
+                                             bundle->vlan_knet_filter_ids[1]);
+                }
+
+                if (bundle->vlan_knet_filter_ids[2]) {
+                    bcmsdk_knet_filter_delete(NULL, bundle->hw_unit,
+                                              bundle->vlan_knet_filter_ids[2]);
+                }
+                memset(bundle->vlan_knet_filter_ids, 0, sizeof(bundle->vlan_knet_filter_ids));
+            }
+
+            if (bundle->vlan_knet_filter_ids[0] == 0 && s->enable) {
+                VLOG_INFO("Creating KNET filters for vlan interface vlan%d", vlan_id);
+                bcmsdk_knet_vlan_interface_filter_create(ofproto->up.name, vlan_id,
+                                                         &bundle->vlan_knet_filter_ids[0]);
+            }
             /* Configuration for internal vlan interface is done */
             goto done;
         }
@@ -1105,15 +1127,15 @@ bundle_set(struct ofproto *ofproto_, void *aux,
          * For regular l3 interfaces we will get from internal vlan id from
          * hw_config column
          */
-        if(strcmp(type, OVSREC_INTERFACE_TYPE_INTERNAL) == 0) {
+        if (strcmp(type, OVSREC_INTERFACE_TYPE_INTERNAL) == 0) {
             vlan_id = s->vlan;
         } else {
             vlan_id = smap_get_int(s->port_options[PORT_HW_CONFIG], "internal_vlan_id", 0);
         }
 
         if (bundle->l3_intf) {
-            /* if reserved vlan changed or removed */
-            if (bundle->l3_intf->l3a_vid != vlan_id) {
+            /* if reserved vlan changed/removed or if port status is disabled */
+            if (bundle->l3_intf->l3a_vid != vlan_id || !s->enable) {
                 ops_routing_disable_l3_interface(hw_unit, hw_port, bundle->l3_intf);
                 bundle->l3_intf = NULL;
                 bundle->hw_unit = 0;
@@ -1121,11 +1143,11 @@ bundle_set(struct ofproto *ofproto_, void *aux,
             }
         }
 
-        if (vlan_id && !bundle->l3_intf) {
+        if (vlan_id && !bundle->l3_intf && s->enable) {
 
             /* If interface type is not internal create l3 interface, else
              * create an l3 vlan interface on every hw_unit. */
-            if(strcmp(type, OVSREC_INTERFACE_TYPE_INTERNAL) != 0) {
+            if (strcmp(type, OVSREC_INTERFACE_TYPE_INTERNAL) != 0) {
                 bundle->l3_intf = ops_routing_enable_l3_interface(
                         hw_unit, hw_port, ofproto->vrf_id, vlan_id,
                         mac);
@@ -1398,6 +1420,8 @@ bundle_set(struct ofproto *ofproto_, void *aux,
     bcmsdk_destroy_pbmp(temp_pbm);
 
 done:
+    /* Save enable/dsiable on bundle */
+    bundle->enable = s->enable;
     /* Done with VLAN configuration.  Save the new information. */
     bundle->vlan_mode = s->vlan_mode;
     bundle->vlan = s->vlan;
