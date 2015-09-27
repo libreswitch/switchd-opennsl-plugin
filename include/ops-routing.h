@@ -57,6 +57,11 @@ struct ops_nexthop {
     int  l3_egress_id;
 };
 
+struct net_address {
+    struct hmap_node addr_node;
+    char *address;
+};
+
 extern int ops_l3_init(int);
 
 extern opennsl_l3_intf_t *ops_routing_enable_l3_interface(int hw_unit,
@@ -95,6 +100,10 @@ extern int ops_routing_route_entry_action(int hw_unit,
                                          opennsl_vrf_t vrf_id,
                                          enum ofproto_route_action action,
                                          struct ofproto_route *routep);
+
+extern int ops_routing_host_entry_action(int hw_unit, opennsl_vrf_t vrf_id,
+                                         enum ofproto_host_action action,
+                                         struct ofproto_l3_host *host_info);
 
 extern int ops_routing_ecmp_set(int hw_unit, bool enable);
 extern int ops_routing_ecmp_hash_set(int hw_unit, unsigned int hash,

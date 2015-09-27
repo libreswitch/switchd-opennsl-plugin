@@ -56,6 +56,7 @@ static struct bcmsdk_provider_ofport_node *get_ofp_port(
 static void available_vrf_ids_init(void);
 static size_t allocate_vrf_id(void);
 static void release_vrf_id(size_t);
+static void port_unconfigure_ips(struct ofbundle *bundle);
 
 /* vrf id avalability bitmap */
 static unsigned long *available_vrf_ids = NULL;
@@ -555,6 +556,9 @@ bundle_destroy(struct ofbundle *bundle)
 
     memset(bundle->vlan_knet_filter_ids, 0, sizeof(bundle->vlan_knet_filter_ids));
 
+    /* Unconfigure and free the l3 port/bundle ip related stuff */
+    port_unconfigure_ips(bundle);
+
     if (bundle->l3_intf) {
         ops_routing_disable_l3_interface(bundle->hw_unit,
                                         bundle->hw_port,
@@ -605,6 +609,325 @@ port_list_to_hw_pbm(struct ofproto *ofproto_, opennsl_pbmp_t *pbm,
         VLOG_DBG("member# %d port %s internal port# %d, hw_unit# %d, hw_id# %d",
                  i, netdev_get_name(ofport->netdev), ofp_port, hw_unit, hw_id);
     }
+}
+
+/* Host Functions */
+/* Function to configure local host ip */
+static int
+port_l3_host_add(struct ofproto *ofproto_, bool is_ipv6, char *ip_addr)
+{
+    struct bcmsdk_provider_node *ofproto = bcmsdk_provider_node_cast(ofproto_);
+    struct ofproto_l3_host host_info;
+
+    VLOG_DBG("ofproto_host_add called for ip %s", ip_addr);
+
+    /* Update the host info for ofproto action */
+    host_info.family = is_ipv6 ? OFPROTO_ROUTE_IPV6 : OFPROTO_ROUTE_IPV4;
+    host_info.ip_address = ip_addr;
+
+    /* Call Provider */
+    if (!ops_routing_host_entry_action(0, ofproto->vrf_id, OFPROTO_HOST_ADD,
+                                       &host_info) ) {
+        VLOG_DBG("Added host entry for %s", ip_addr);
+        return 0;
+    } else {
+        VLOG_ERR("!ops_routing_host_entry_action for add failed");
+        return 1;
+    }
+} /* port_l3_host_add */
+
+/* Function to unconfigure local host ip */
+static int
+port_l3_host_delete(struct ofproto *ofproto_, bool is_ipv6, char *ip_addr)
+{
+    struct bcmsdk_provider_node *ofproto = bcmsdk_provider_node_cast(ofproto_);
+    struct ofproto_l3_host host_info;
+
+    VLOG_DBG("ofproto_host_delete called for ip %s", ip_addr);
+
+    /* Update the host info for ofproto action */
+    host_info.family = is_ipv6 ? OFPROTO_ROUTE_IPV6 : OFPROTO_ROUTE_IPV4;
+    host_info.ip_address = ip_addr;
+
+    /* Call Provider */
+    if (!ops_routing_host_entry_action(0, ofproto->vrf_id, OFPROTO_HOST_DELETE,
+                                       &host_info) ) {
+        VLOG_DBG("Deleted host entry for %s", ip_addr);
+        return 0;
+    } else {
+        VLOG_ERR("!ops_routing_host_entry_action for delete failed");
+        return 1;
+    }
+} /* port_l3_host_delete */
+
+/* Function to unconfigure and free all port ip's */
+static void
+port_unconfigure_ips(struct ofbundle *bundle)
+{
+    struct ofproto *ofproto;
+    bool is_ipv6 = false;
+    struct net_address *addr, *next;
+
+    ofproto = &bundle->ofproto->up;
+
+    /* Unconfigure primary ipv4 address and free */
+    if (bundle->ip4_address) {
+        port_l3_host_delete(ofproto, is_ipv6, bundle->ip4_address);
+        free(bundle->ip4_address);
+    }
+
+    /* Unconfigure primary ipv6 address and free */
+    if (bundle->ip6_address) {
+        port_l3_host_delete(ofproto, is_ipv6, bundle->ip6_address);
+        free(bundle->ip6_address);
+    }
+
+    /* Unconfigure secondary ipv4 address and free the hash */
+    HMAP_FOR_EACH_SAFE (addr, next, addr_node, &bundle->secondary_ip4addr) {
+        port_l3_host_delete(ofproto, is_ipv6, addr->address);
+        hmap_remove(&bundle->secondary_ip4addr, &addr->addr_node);
+        free(addr->address);
+        free(addr);
+    }
+    hmap_destroy( &bundle->secondary_ip4addr);
+
+    /* Unconfigure secondary ipv6 address and free the hash */
+    is_ipv6 = true;
+    HMAP_FOR_EACH_SAFE (addr, next, addr_node, &bundle->secondary_ip6addr) {
+        port_l3_host_delete(ofproto, is_ipv6, addr->address);
+        hmap_remove(&bundle->secondary_ip6addr, &addr->addr_node);
+        free(addr->address);
+        free(addr);
+    }
+    hmap_destroy( &bundle->secondary_ip6addr);
+
+} /* port_unconfigure_ips */
+
+/*
+** Function to find if the ipv4 secondary address already exist in the hash.
+*/
+static struct net_address *
+port_ip4_addr_find(struct ofbundle *bundle, const char *address)
+{
+    struct net_address *addr;
+
+    HMAP_FOR_EACH_WITH_HASH (addr, addr_node, hash_string(address, 0),
+                             &bundle->secondary_ip4addr) {
+        if (!strcmp(addr->address, address)) {
+            return addr;
+        }
+    }
+
+    return NULL;
+} /* port_ip4_addr_find */
+
+/*
+** Function to find if the ipv6 secondary address already exist in the hash.
+*/
+static struct net_address *
+port_ip6_addr_find(struct ofbundle *bundle, const char *address)
+{
+    struct net_address *addr;
+
+    HMAP_FOR_EACH_WITH_HASH (addr, addr_node, hash_string(address, 0),
+                             &bundle->secondary_ip6addr) {
+        if (!strcmp(addr->address, address)) {
+            return addr;
+        }
+    }
+
+    return NULL;
+} /* port_ip6_addr_find */
+
+/*
+** Function to check for changes in secondary ipv4 configuration of a
+** given port
+*/
+static void
+port_config_secondary_ipv4_addr(struct ofproto *ofproto,
+                                struct ofbundle *bundle,
+                                const struct ofproto_bundle_settings *s)
+{
+    struct shash new_ip_list;
+    struct net_address *addr, *next;
+    struct shash_node *addr_node;
+    int i;
+    bool is_ipv6 = false;
+
+    shash_init(&new_ip_list);
+
+    /* Create hash of the current secondary ip's */
+    for (i = 0; i < s->n_ip4_address_secondary; i++) {
+       if(!shash_add_once(&new_ip_list, s->ip4_address_secondary[i],
+                           s->ip4_address_secondary[i])) {
+            VLOG_WARN("Duplicate address in secondary list %s\n",
+                      s->ip4_address_secondary[i]);
+        }
+    }
+
+    /* Compare current and old to delete any obselete one's */
+    HMAP_FOR_EACH_SAFE (addr, next, addr_node, &bundle->secondary_ip4addr) {
+        if (!shash_find_data(&new_ip_list, addr->address)) {
+            hmap_remove(&bundle->secondary_ip4addr, &addr->addr_node);
+            port_l3_host_delete(ofproto, is_ipv6, addr->address);
+            free(addr->address);
+            free(addr);
+        }
+    }
+
+    /* Add the newly added addresses to the list */
+    SHASH_FOR_EACH (addr_node, &new_ip_list) {
+        struct net_address *addr;
+        const char *address = addr_node->data;
+        if (!port_ip4_addr_find(bundle, address)) {
+            /*
+             * Add the new address to the list
+             */
+            addr = xzalloc(sizeof *addr);
+            addr->address = xstrdup(address);
+            hmap_insert(&bundle->secondary_ip4addr, &addr->addr_node,
+                        hash_string(addr->address, 0));
+            port_l3_host_add(ofproto, is_ipv6, addr->address);
+        }
+    }
+} /* port_config_secondary_ipv4_addr */
+
+/*
+** Function to check for changes in secondary ipv6 configuration of a
+** given port
+*/
+static void
+port_config_secondary_ipv6_addr(struct ofproto *ofproto,
+                                struct ofbundle *bundle,
+                                const struct ofproto_bundle_settings *s)
+{
+    struct shash new_ip6_list;
+    struct net_address *addr, *next;
+    struct shash_node *addr_node;
+    int i;
+    bool is_ipv6 = true;
+
+    shash_init(&new_ip6_list);
+
+    /* Create hash of the current secondary ip's */
+    for (i = 0; i < s->n_ip6_address_secondary; i++) {
+        if(!shash_add_once(&new_ip6_list, s->ip6_address_secondary[i],
+                           s->ip6_address_secondary[i])) {
+            VLOG_WARN("Duplicate address in secondary list %s\n",
+                      s->ip6_address_secondary[i]);
+        }
+    }
+
+    /* Compare current and old to delete any obselete one's */
+    HMAP_FOR_EACH_SAFE (addr, next, addr_node, &bundle->secondary_ip6addr) {
+        if (!shash_find_data(&new_ip6_list, addr->address)) {
+            hmap_remove(&bundle->secondary_ip6addr, &addr->addr_node);
+            port_l3_host_delete(ofproto, is_ipv6, addr->address);
+            free(addr->address);
+            free(addr);
+        }
+    }
+
+    /* Add the newly added addresses to the list */
+    SHASH_FOR_EACH (addr_node, &new_ip6_list) {
+        struct net_address *addr;
+        const char *address = addr_node->data;
+        if (!port_ip6_addr_find(bundle, address)) {
+            /*
+             * Add the new address to the list
+             */
+            addr = xzalloc(sizeof *addr);
+            addr->address = xstrdup(address);
+            hmap_insert(&bundle->secondary_ip6addr, &addr->addr_node,
+                        hash_string(addr->address, 0));
+            port_l3_host_add(ofproto, is_ipv6, addr->address);
+        }
+    }
+}
+
+/* Function to check for changes in ip configuration of a given port */
+static int
+port_ip_reconfigure(struct ofproto *ofproto, struct ofbundle *bundle,
+                    const struct ofproto_bundle_settings *s)
+{
+    bool is_ipv6 = false;
+
+    VLOG_DBG("In port_ip_reconfigure with ip_change val=0x%x", s->ip_change);
+    /* If primary ipv4 got added/deleted/modified */
+    if (s->ip_change & PORT_PRIMARY_IPv4_CHANGED) {
+        if (s->ip4_address) {
+            if (bundle->ip4_address) {
+                if (strcmp(bundle->ip4_address, s->ip4_address) != 0) {
+                    /* If current and earlier are different, delete old */
+                    port_l3_host_delete(ofproto, is_ipv6,
+                                        bundle->ip4_address);
+                    free(bundle->ip4_address);
+
+                    /* Add new */
+                    bundle->ip4_address = xstrdup(s->ip4_address);
+                    port_l3_host_add(ofproto, is_ipv6,
+                                     bundle->ip4_address);
+                }
+                /* else no change */
+            } else {
+                /* Earlier primary was not there, just add new */
+                bundle->ip4_address = xstrdup(s->ip4_address);
+                port_l3_host_add(ofproto, is_ipv6, bundle->ip4_address);
+            }
+        } else {
+            /* Primary got removed, earlier if it was there then remove it */
+            if (bundle->ip4_address != NULL) {
+                port_l3_host_delete(ofproto, is_ipv6, bundle->ip4_address);
+                free(bundle->ip4_address);
+                bundle->ip4_address = NULL;
+            }
+        }
+    }
+
+    /* If primary ipv6 got added/deleted/modified */
+    if (s->ip_change & PORT_PRIMARY_IPv6_CHANGED) {
+        is_ipv6 = true;
+        if (s->ip6_address) {
+            if (bundle->ip6_address) {
+                if (strcmp(bundle->ip6_address, s->ip6_address) !=0) {
+                    /* If current and earlier are different, delete old */
+                    port_l3_host_delete(ofproto, is_ipv6, bundle->ip6_address);
+                    free(bundle->ip6_address);
+
+                    /* Add new */
+                    bundle->ip6_address = xstrdup(s->ip6_address);
+                    port_l3_host_add(ofproto, is_ipv6, bundle->ip6_address);
+
+                }
+                /* else no change */
+            } else {
+
+                /* Earlier primary was not there, just add new */
+                bundle->ip6_address = xstrdup(s->ip6_address);
+                port_l3_host_add(ofproto, is_ipv6, bundle->ip6_address);
+            }
+        } else {
+            /* Primary got removed, earlier if it was there then remove it */
+            if (bundle->ip6_address != NULL) {
+                port_l3_host_delete(ofproto, is_ipv6, bundle->ip6_address);
+                free(bundle->ip6_address);
+                bundle->ip6_address = NULL;
+            }
+        }
+    }
+
+    /* If any secondary ipv4 addr added/deleted/modified */
+    if (s->ip_change & PORT_SECONDARY_IPv4_CHANGED) {
+        VLOG_DBG("ip4_address_secondary modified");
+        port_config_secondary_ipv4_addr(ofproto, bundle, s);
+    }
+
+    if (s->ip_change & PORT_SECONDARY_IPv6_CHANGED) {
+        VLOG_DBG("ip6_address_secondary modified");
+        port_config_secondary_ipv6_addr(ofproto, bundle, s);
+    }
+
+    return 0;
 }
 
 static int
@@ -659,6 +982,11 @@ bundle_set(struct ofproto *ofproto_, void *aux,
         bundle->lacp = NULL;
         bundle->bond = NULL;
         memset(bundle->vlan_knet_filter_ids, 0, sizeof(bundle->vlan_knet_filter_ids));
+
+        bundle->ip4_address = NULL;
+        bundle->ip6_address = NULL;
+        hmap_init(&bundle->secondary_ip4addr);
+        hmap_init(&bundle->secondary_ip6addr);
     }
 
     if (!bundle->name || strcmp(s->name, bundle->name)) {
@@ -816,8 +1144,12 @@ bundle_set(struct ofproto *ofproto_, void *aux,
         }
     }
 
+    /* Check for ip changes */
+    /* if ( (bundle->l3_intf) ) */
+    port_ip_reconfigure(ofproto_, bundle, s);
+
     /* Look for port configuration options
-     * OPS_TODO: - fill up stubs with actual actions */
+     * FIXME: - fill up stubs with actual actions */
     opt_arg = smap_get(s->port_options[PORT_OPT_VLAN], "vlan_options_p0");
     if (opt_arg != NULL) {
        VLOG_DBG("VLAN config options option_arg= %s", opt_arg);

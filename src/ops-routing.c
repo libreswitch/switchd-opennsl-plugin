@@ -668,7 +668,7 @@ ops_routing_delete_host_entry(int hw_unit, opennsl_port_t hw_port,
     opennsl_l3_host_t l3host;
     in_addr_t ipv4_dest_addr;
     char ipv6_dest_addr[sizeof(struct in6_addr)];
-    int flags = OPENNSL_L3_HOST_LOCAL;
+    int flags = 0;
 
 
     /* Delete an IP route / Host Entry */
@@ -728,7 +728,7 @@ ops_routing_get_host_hit(int hw_unit, opennsl_vrf_t vrf_id,
     opennsl_l3_host_t l3host;
     in_addr_t ipv4_dest_addr;
     char ipv6_dest_addr[sizeof(struct in6_addr)];
-    int flags = OPENNSL_L3_HOST_LOCAL;
+    int flags = 0;
 
     VLOG_DBG("In ops_routing_get_host_hit for ip %s", ip_addr);
     opennsl_l3_host_t_init(&l3host);
@@ -1230,7 +1230,7 @@ ops_routing_route_entry_action(int hw_unit,
     return rc;
 } /* ops_routing_route_entry_action */
 
-/* OPS_TODO : Remove once these macros are exposed by opennsl */
+/* FIXME : Remove once these macros are exposed by opennsl */
 #define opennslSwitchHashMultipath (135)
 #define OPENNSL_HASH_ZERO          0x00000001
 int
@@ -1378,6 +1378,83 @@ ops_routing_ecmp_hash_set(int hw_unit, unsigned int hash, bool enable)
 
     return OPENNSL_E_NONE;
 }
+
+/*
+** FIXME: Combine above neighbor l3_host_add/delete to use common
+** host action routine.
+*/
+/*
+** Add/Delete local host entries.
+*/
+int
+ops_routing_host_entry_action(int hw_unit, opennsl_vrf_t vrf_id,
+                              enum ofproto_host_action action,
+                              struct ofproto_l3_host *host_info)
+{
+    int rc = OPENNSL_E_NONE;
+    opennsl_l3_host_t l3host;
+    in_addr_t ipv4_addr;
+    struct in6_addr ipv6_addr;
+    uint8_t prefix_len;
+    int flags = OPENNSL_L3_HOST_LOCAL;
+
+    VLOG_DBG("%s: vrfid: %d, action: %d", __FUNCTION__, vrf_id, action);
+
+    if (!host_info) {
+        VLOG_ERR("Null host entry");
+        return EINVAL; /* Return error */
+    }
+
+    opennsl_l3_host_t_init(&l3host);
+    if (host_info->family == OFPROTO_ROUTE_IPV6) {
+        flags |= OPENNSL_L3_IP6;
+        ops_string_to_prefix(AF_INET6, host_info->ip_address, &ipv6_addr,
+                             &prefix_len);
+        memcpy(l3host.l3a_ip6_addr, &ipv6_addr, sizeof(struct in6_addr));
+    } else {
+        ops_string_to_prefix(AF_INET, host_info->ip_address, &ipv4_addr,
+                             &prefix_len);
+        l3host.l3a_ip_addr = ipv4_addr;
+    }
+
+    /* Fill the host info, and try to find first */
+    l3host.l3a_vrf = vrf_id;
+    l3host.l3a_flags = flags;
+    rc = opennsl_l3_host_find(hw_unit, &l3host);
+
+    switch (action) {
+    case OFPROTO_HOST_ADD:
+        if (rc == OPENNSL_E_NOT_FOUND) {
+            /* Use system wide dummy egress object id */
+            l3host.l3a_intf = local_nhid;
+            rc = opennsl_l3_host_add(hw_unit, &l3host);
+            if (rc != OPENNSL_E_NONE) {
+                VLOG_ERR ("opennsl_l3_host_add failed: 0x%x", rc);
+            }
+        } else {
+            VLOG_DBG ("Host entry exists: 0x%x", rc);
+        }
+        break;
+    case OFPROTO_HOST_DELETE:
+        if (rc != OPENNSL_E_NOT_FOUND) {
+            /* Use system wide dummy egress object id */
+            l3host.l3a_intf = local_nhid;
+            rc = opennsl_l3_host_delete(hw_unit, &l3host);
+            if (rc != OPENNSL_E_NONE) {
+                VLOG_ERR ("opennsl_l3_host_delete failed: 0x%x", rc);
+            }
+        } else {
+            VLOG_DBG ("Host entry doesn't exists: 0x%x", rc);
+        }
+        break;
+    default:
+        VLOG_ERR("Unknown l3 host action %d", action);
+        rc = EINVAL;
+        break;
+    }
+
+    return rc;
+} /* ops_routing_route_entry_action */
 
 static void
 l3_intf_print(struct ds *ds, int unit, int print_hdr,
@@ -1613,7 +1690,7 @@ ops_l3route_dump(struct ds *ds, int ipv6_enabled)
     last_entry = l3_hw_status.l3info_max_route;
     first_entry = 0;
     /*
-     * OPS_TODO: We need the l3info_used_route to display the number of
+     * FIXME: We need the l3info_used_route to display the number of
      * entries used
      */
 
