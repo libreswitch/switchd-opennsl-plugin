@@ -38,7 +38,7 @@
 #include "ops-vlan.h"
 #include "ops-knet.h"
 #include "platform-defines.h"
-#include "openhalon-dflt.h"
+#include "openswitch-dflt.h"
 
 
 VLOG_DEFINE_THIS_MODULE(ops_routing);

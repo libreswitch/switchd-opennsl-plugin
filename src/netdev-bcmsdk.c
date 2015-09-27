@@ -25,8 +25,8 @@
 #include <netdev-provider.h>
 #include <openvswitch/vlog.h>
 #include <openflow/openflow.h>
-#include <openhalon-idl.h>
-#include <openhalon-dflt.h>
+#include <openswitch-idl.h>
+#include <openswitch-dflt.h>
 
 #include <opennsl/port.h>
 
