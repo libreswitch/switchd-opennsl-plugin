@@ -108,6 +108,14 @@ ops_l3_init(int unit)
         return 1;
     }
 
+
+    rc = opennsl_switch_control_set(unit, opennslSwitchDhcpPktToCpu, 1);
+    if (OPENNSL_FAILURE(rc)) {
+        VLOG_ERR("Failed to set opennslSwitchDhcpPktToCpu: unit=%d rc=%s",
+                 unit, opennsl_errmsg(rc));
+        return 1;
+    }
+
     /* IPv6 ND packets */
     rc = opennsl_switch_control_set(unit, opennslSwitchNdPktToCpu, 1);
     if (OPENNSL_FAILURE(rc)) {
