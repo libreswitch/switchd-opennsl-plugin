@@ -33,7 +33,7 @@ def intervlan_knet_test(**kwargs):
     switch = kwargs.get('switch', None)
 
     systemMac = None
-    retStruct = switch.DeviceInteract(command="ovs-vsctl list open_vswitch")
+    retStruct = switch.DeviceInteract(command="ovs-vsctl list system")
     buf = retStruct.get('buffer')
 
     for curLine in buf.split('\n'):

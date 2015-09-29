@@ -88,8 +88,8 @@ ops_l3_init(int unit)
     rc = opennsl_l3_egress_create(unit, OPENNSL_L3_COPY_TO_CPU,
                                   &egress_object, &local_nhid);
 
-    if (rc != OPENNSL_E_NONE) {
-        VLOG_ERR("Error, create a local egress object, rc=%d", rc);
+    if (OPENNSL_FAILURE(rc)) {
+        VLOG_ERR("Error, create a local egress object, rc=%s", opennsl_errmsg(rc));
         return rc;
     }
 
@@ -636,9 +636,20 @@ ops_routing_add_host_entry(int hw_unit, opennsl_port_t hw_port,
         return 1; /* Return error */
     }
 
+    rc = opennsl_l3_egress_find(hw_unit, &egress_object, l3_egress_id);
+    if (rc == OPENNSL_E_NONE) {
+        /* An entry exists. Use OPENNSL_L3_REPLACE flag to replace it. */
+        flags = (OPENNSL_L3_REPLACE | OPENNSL_L3_WITH_ID);
+    } else if (rc != OPENNSL_E_NOT_FOUND) {
+        VLOG_ERR("Error, finding an egress entry: rc=%s", opennsl_errmsg(rc));
+    } else {
+        /* no entry found in egress table. */
+    }
+
     rc = opennsl_l3_egress_create(hw_unit, flags, &egress_object, l3_egress_id);
-    if (rc != OPENNSL_E_NONE) {
-        VLOG_ERR("Error, create egress object, out_port=%d", hw_port);
+    if (OPENNSL_FAILURE(rc)) {
+        VLOG_ERR("Error, create egress object, out_port=%d, rc=%s", hw_port,
+                 opennsl_errmsg(rc));
         return rc;
     }
 
@@ -674,8 +685,8 @@ ops_routing_add_host_entry(int hw_unit, opennsl_port_t hw_port,
     l3host.l3a_vrf = vrf_id;
     l3host.l3a_flags = flags;
     rc = opennsl_l3_host_add(hw_unit, &l3host);
-    if (rc != OPENNSL_E_NONE) {
-        VLOG_ERR ("opennsl_l3_host_add failed: %x", rc);
+    if (OPENNSL_FAILURE(rc)) {
+        VLOG_ERR ("opennsl_l3_host_add failed: rc=%s", opennsl_errmsg(rc));
         return rc;
     }
 
@@ -726,16 +737,16 @@ ops_routing_delete_host_entry(int hw_unit, opennsl_port_t hw_port,
     l3host.l3a_vrf = vrf_id;
     l3host.l3a_flags = flags;
     rc = opennsl_l3_host_delete(hw_unit, &l3host);
-    if (rc != OPENNSL_E_NONE) {
-        VLOG_ERR ("opennsl_l3_host_delete failed: %x", rc);
+    if (OPENNSL_FAILURE(rc)) {
+        VLOG_ERR ("opennsl_l3_host_delete failed: %s", opennsl_errmsg(rc));
         return rc;
     }
 
     /* Delete the egress object */
     VLOG_DBG("Deleting egress object for egress-id %d", *l3_egress_id);
     rc = opennsl_l3_egress_destroy(hw_unit, *l3_egress_id);
-    if (rc != OPENNSL_E_NONE) {
-       VLOG_ERR ("opennsl_egress_destroy failed: %x", rc);
+    if (OPENNSL_FAILURE(rc)) {
+       VLOG_ERR ("opennsl_egress_destroy failed: %s", opennsl_errmsg(rc));
         return rc;
     }
 
@@ -784,8 +795,8 @@ ops_routing_get_host_hit(int hw_unit, opennsl_vrf_t vrf_id,
     l3host.l3a_vrf = vrf_id;
     l3host.l3a_flags = flags;
     rc = opennsl_l3_host_find(hw_unit, &l3host);
-    if (rc != OPENNSL_E_NONE) {
-        VLOG_ERR ("opennsl_l3_host_find failed: %x", rc);
+    if (OPENNSL_FAILURE(rc)) {
+        VLOG_ERR ("opennsl_l3_host_find failed: %s", opennsl_errmsg(rc));
         return rc;
     } else {
         *hit_bit = (l3host.l3a_flags & OPENNSL_L3_HIT);
@@ -794,8 +805,8 @@ ops_routing_get_host_hit(int hw_unit, opennsl_vrf_t vrf_id,
             l3host.l3a_flags = flags | OPENNSL_L3_HIT_CLEAR;
             /* Reset the hit-bit */
             rc = opennsl_l3_host_find(hw_unit, &l3host);
-            if (rc != OPENNSL_E_NONE) {
-                VLOG_ERR ("Reset hit-bit failed: %x", rc);
+            if (OPENNSL_FAILURE(rc)) {
+                VLOG_ERR ("Reset hit-bit failed: %s", opennsl_errmsg(rc));
                 return rc;
             }
         }
@@ -936,7 +947,7 @@ ops_add_route_entry(int hw_unit, opennsl_vrf_t vrf_id,
 
     /* Return error other than found / not found */
     if ((rc != OPENNSL_E_NOT_FOUND) &&
-        (rc != OPENNSL_E_NONE)) {
+        (OPENNSL_FAILURE(rc))) {
         VLOG_ERR("Route lookup error: %s", opennsl_errmsg(rc));
         return rc;
     }
@@ -1014,7 +1025,7 @@ ops_add_route_entry(int hw_unit, opennsl_vrf_t vrf_id,
                          OPS_ROUTE_STATE_ECMP : OPS_ROUTE_STATE_NON_ECMP;
 
     rc = opennsl_l3_route_add(hw_unit, routep);
-    if (rc != OPENNSL_E_NONE) {
+    if (OPENNSL_FAILURE(rc)) {
         VLOG_ERR("Failed to %s route %s: %s",
                   add_route ? "add" : "update", of_routep->prefix,
                   opennsl_errmsg(rc));
@@ -1470,8 +1481,8 @@ ops_routing_host_entry_action(int hw_unit, opennsl_vrf_t vrf_id,
             /* Use system wide dummy egress object id */
             l3host.l3a_intf = local_nhid;
             rc = opennsl_l3_host_add(hw_unit, &l3host);
-            if (rc != OPENNSL_E_NONE) {
-                VLOG_ERR ("opennsl_l3_host_add failed: 0x%x", rc);
+            if (OPENNSL_FAILURE(rc)) {
+                VLOG_ERR ("opennsl_l3_host_add failed: %s", opennsl_errmsg(rc));
             }
         } else {
             VLOG_DBG ("Host entry exists: 0x%x", rc);
@@ -1482,8 +1493,8 @@ ops_routing_host_entry_action(int hw_unit, opennsl_vrf_t vrf_id,
             /* Use system wide dummy egress object id */
             l3host.l3a_intf = local_nhid;
             rc = opennsl_l3_host_delete(hw_unit, &l3host);
-            if (rc != OPENNSL_E_NONE) {
-                VLOG_ERR ("opennsl_l3_host_delete failed: 0x%x", rc);
+            if (OPENNSL_FAILURE(rc)) {
+                VLOG_ERR ("opennsl_l3_host_delete failed: %s", opennsl_errmsg(rc));
             }
         } else {
             VLOG_DBG ("Host entry doesn't exists: 0x%x", rc);
@@ -1565,27 +1576,33 @@ ops_l3_mac_move_add(int   unit,
        return;
    }
 
-   /* Using egress id get egress object from ASIC */
+   opennsl_l3_egress_t_init(&egress_object);
+
+   /* Using egress id, get egress object from ASIC */
    rc = opennsl_l3_egress_get(unit, egress_id_node->egress_object_id, &egress_object);
 
-   if (rc != OPENNSL_E_NONE) {
-       VLOG_ERR("Egress object not found in ASIC for given vlan/mac. rc=%d "
-                 "unit=%d, key=%s, vlan=%d, mac=" ETH_ADDR_FMT ", egr-id: %d", rc,
-                 unit, egress_id_key, l2addr->vid, ETH_ADDR_ARGS(l2addr->mac),
-                 egress_id_node->egress_object_id);
+   if (OPENNSL_FAILURE(rc)) {
+       VLOG_ERR("Egress object not found in ASIC for given vlan/mac. rc=%s "
+                 "unit=%d, key=%s, vlan=%d, mac=" ETH_ADDR_FMT ", egr-id: %d",
+                 opennsl_errmsg(rc), unit, egress_id_key, l2addr->vid,
+                 ETH_ADDR_ARGS(l2addr->mac), egress_id_node->egress_object_id);
 
        goto done;
    }
 
-
-   egress_object.flags    |= (OPENNSL_L3_REPLACE | OPENNSL_L3_WITH_ID);
+   egress_object.flags    |= (OPENNSL_L3_REPLACE|OPENNSL_L3_WITH_ID);
    egress_object.port     = l2addr->port;  /* new port */
    /* L3 intf will remain unchanged */
 
+   VLOG_DBG("Input: unit=%d, flags=0x%x, port=%d, vlan=%d, mac=" ETH_ADDR_FMT
+             " egr-id=%d, intf=%d", unit, egress_object.flags, egress_object.port,
+             egress_object.vlan, ETH_ADDR_ARGS(egress_object.mac_addr),
+             egress_id_node->egress_object_id, egress_object.intf);
+
    rc = opennsl_l3_egress_create(unit, egress_object.flags, &egress_object,
-                                   &(egress_object.intf));
-   if (rc != OPENNSL_E_NONE) {
-       VLOG_ERR("Failed creation of egress object: rc=%d, unit=%d", rc, unit);
+                                   &(egress_id_node->egress_object_id));
+   if (OPENNSL_FAILURE(rc)) {
+       VLOG_ERR("Failed creation of egress object: rc=%s, unit=%d", opennsl_errmsg(rc), unit);
        goto done;
    }
 
@@ -1625,9 +1642,9 @@ ops_l3_mac_move_delete(int   unit,
 
    /* egress_id is the id of row containing egress_object in ASIC */
    opennsl_l3_egress_find(unit, &egress_object, &egress_object_id);
-   if (rc != OPENNSL_E_NONE) {
-       VLOG_ERR("Failed retrieving egress object id: rc=%d, unit=%d, vlan=%d, "
-                "mac=" ETH_ADDR_FMT, rc, unit, l2addr->vid,
+   if (OPENNSL_FAILURE(rc)) {
+       VLOG_ERR("Failed retrieving egress object id: rc=%s, unit=%d, vlan=%d, "
+                "mac=" ETH_ADDR_FMT, opennsl_errmsg(rc), unit, l2addr->vid,
                 ETH_ADDR_ARGS(l2addr->mac));
 
        return;
