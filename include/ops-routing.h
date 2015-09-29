@@ -28,7 +28,10 @@
 #include <ofproto/ofproto.h>
 
 #define IPV4_PREFIX_LEN     32
-#define IPV6_PREFIX_LEN     64
+#define IPV6_PREFIX_LEN     128
+
+#define IPV4_BUFFER_LEN     32
+#define IPV6_BUFFER_LEN     64
 
 #define OPS_ROUTE_HASH_MAXSIZE 64
 

@@ -1202,12 +1202,22 @@ ops_routing_route_entry_action(int hw_unit,
 
     switch (routep->family) {
     case OFPROTO_ROUTE_IPV4:
-        ops_string_to_prefix(AF_INET, routep->prefix, &ipv4_addr, &prefix_len);
+        rc = ops_string_to_prefix(AF_INET, routep->prefix, &ipv4_addr,
+                                  &prefix_len);
+        if (rc) {
+            VLOG_DBG("Invalid IPv4/Prefix");
+            return rc; /* Return error */
+        }
         route.l3a_subnet = ipv4_addr;
         route.l3a_ip_mask = opennsl_ip_mask_create(prefix_len);
         break;
     case OFPROTO_ROUTE_IPV6:
-        ops_string_to_prefix(AF_INET6, routep->prefix, &ipv6_addr, &prefix_len);
+        rc = ops_string_to_prefix(AF_INET6, routep->prefix, &ipv6_addr,
+                                  &prefix_len);
+        if (rc) {
+            VLOG_DBG("Invalid IPv6/Prefix");
+            return rc; /* Return error */
+        }
         route.l3a_flags |= OPENNSL_L3_IP6;
         memcpy(route.l3a_ip6_net, &ipv6_addr, sizeof(struct in6_addr));
         opennsl_ip6_mask_create(route.l3a_ip6_mask, prefix_len);
@@ -1424,12 +1434,20 @@ ops_routing_host_entry_action(int hw_unit, opennsl_vrf_t vrf_id,
     opennsl_l3_host_t_init(&l3host);
     if (host_info->family == OFPROTO_ROUTE_IPV6) {
         flags |= OPENNSL_L3_IP6;
-        ops_string_to_prefix(AF_INET6, host_info->ip_address, &ipv6_addr,
-                             &prefix_len);
+        rc = ops_string_to_prefix(AF_INET6, host_info->ip_address, &ipv6_addr,
+                                  &prefix_len);
+        if (rc) {
+            VLOG_DBG("Invalid IPv6/Prefix");
+            return rc; /* Return error */
+        }
         memcpy(l3host.l3a_ip6_addr, &ipv6_addr, sizeof(struct in6_addr));
     } else {
-        ops_string_to_prefix(AF_INET, host_info->ip_address, &ipv4_addr,
-                             &prefix_len);
+        rc = ops_string_to_prefix(AF_INET, host_info->ip_address, &ipv4_addr,
+                                  &prefix_len);
+        if (rc) {
+            VLOG_DBG("Invalid IPv4/Prefix");
+            return rc; /* Return error */
+        }
         l3host.l3a_ip_addr = ipv4_addr;
     }
 
@@ -1724,7 +1742,7 @@ int ops_host_print(int unit, int index, opennsl_l3_host_t *info,
     port = info->l3a_port_tgid;
 
     if (info->l3a_flags & OPENNSL_L3_IP6) {
-        char ip_str[IPV6_PREFIX_LEN];
+        char ip_str[IPV6_BUFFER_LEN];
         sprintf(ip_str, "%04x:%04x:%04x:%04x:%04x:%04x:%04x:%04x",
             (((uint16)info->l3a_ip6_addr[0] << 8) | info->l3a_ip6_addr[1]),
             (((uint16)info->l3a_ip6_addr[2] << 8) | info->l3a_ip6_addr[3]),
@@ -1739,7 +1757,7 @@ int ops_host_print(int unit, int index, opennsl_l3_host_t *info,
                 info->l3a_vrf, ip_str, info->l3a_intf,
                 port, trunk, hit);
     } else {
-        char ip_str[IPV4_PREFIX_LEN];
+        char ip_str[IPV4_BUFFER_LEN];
         sprintf(ip_str, "%d.%d.%d.%d",
             (info->l3a_ip_addr >> 24) & 0xff, (info->l3a_ip_addr >> 16) & 0xff,
             (info->l3a_ip_addr >> 8) & 0xff, info->l3a_ip_addr & 0xff);
@@ -1797,8 +1815,8 @@ int ops_route_print(int unit, int index, opennsl_l3_route_t *info,
     ecmp_str = (info->l3a_flags & OPENNSL_L3_MULTIPATH) ? "(ECMP)" : "";
 
     if (info->l3a_flags & OPENNSL_L3_IP6) {
-        char subnet_str[IPV6_PREFIX_LEN];
-        char subnet_mask[IPV6_PREFIX_LEN];
+        char subnet_str[IPV6_BUFFER_LEN];
+        char subnet_mask[IPV6_BUFFER_LEN];
         sprintf(subnet_str, "%04x:%04x:%04x:%04x:%04x:%04x:%04x:%04x",
             (((uint16)info->l3a_ip6_net[0] << 8) | info->l3a_ip6_net[1]),
             (((uint16)info->l3a_ip6_net[2] << 8) | info->l3a_ip6_net[3]),
@@ -1822,8 +1840,8 @@ int ops_route_print(int unit, int index, opennsl_l3_route_t *info,
                       info->l3a_vrf, subnet_str, subnet_mask, info->l3a_intf,
                       hit, ecmp_str);
     } else {
-        char subnet_str[IPV4_PREFIX_LEN];
-        char subnet_mask[IPV4_PREFIX_LEN];
+        char subnet_str[IPV4_BUFFER_LEN];
+        char subnet_mask[IPV4_BUFFER_LEN];
         sprintf(subnet_str, "%d.%d.%d.%d",
             (info->l3a_subnet >> 24) & 0xff, (info->l3a_subnet >> 16) & 0xff,
             (info->l3a_subnet >> 8) & 0xff, info->l3a_subnet & 0xff);
