@@ -51,7 +51,7 @@ typedef struct realm_helper {
 
 #define OPENNSL_RV_ERROR_CHECK(_rv, fmt, args...)     \
         if ((_rv) != OPENNSL_E_NONE) {   \
-            VLOG_ERR("Opennsl error (%s:%d %d) "fmt, __FILE__,    \
+            VLOG_DBG("Opennsl error (%s:%d %d) "fmt, __FILE__,    \
                      __LINE__, _rv, ##args);     \
             return;     \
         }
@@ -63,10 +63,12 @@ static int trigger_user_data[MAX_SWITCH_UNITS];
 /* Checks the input parameters are valid */
 #define INPUT_PARAM_VALIDATE(_param)                   \
         if ((_param) == INVALID) {   \
-            VLOG_ERR("%s:%d invalid parameter  ",  \
+            VLOG_DBG("%s:%d invalid parameter  ",  \
                      __FUNCTION__, __LINE__); \
             return;                              \
         }
+
+#define MAX_STATS get_max_stats()
 
 /* Opennsl Mapping functions */
 #define BCM_API_SWITCH_CONTROL_GET(_unit, _control_type, _arg_ptr)      \
@@ -94,22 +96,9 @@ static int trigger_user_data[MAX_SWITCH_UNITS];
 #define BCM_API_COSQ_BST_STAT_SYNC(_unit, _bid)                          \
         opennsl_cosq_bst_stat_sync((_unit), (_bid))
 
-static inline unsigned int get_max_stats_id(void);
-
-#define MAX_STATID get_max_stats_id()
-
+static inline unsigned int get_max_stats(void);
+static inline int get_realm_index(int statid, char *str);
 static const realm_helper_t *get_all_realm_list(void);
-
-#define BUFMON_STATS_HANDLER(_stat_id, _type, _counter)     \
-        if ((_stat_id) < MAX_STATID) {   \
-            const realm_helper_t *realm_list = get_all_realm_list();  \
-            realm_list[_stat_id].bufmon_counter_handler((_stat_id),  \
-                                                        (_type),  \
-                                                        (_counter));   \
-            VLOG_DBG("%s counter value %" PRId64 " ",      \
-                     (_counter)->name, (_counter)->counter_value);     \
-            return;                              \
-        }
 
 static void
 device_data_stats(int statid, counter_operations_t type,
@@ -152,7 +141,7 @@ ingress_port_priority_group_stats(int statid, counter_operations_t type,
 
     rv = opennsl_port_gport_get(counter->hw_unit_id, port, &gport);
 
-    OPENNSL_RV_ERROR_CHECK(rv, " %d %d", port, pg);
+    OPENNSL_RV_ERROR_CHECK(rv, " %d %d %d", counter->hw_unit_id, port, pg);
 
     if (type == GET_COUNTER_VALUE) {
         rv = BCM_API_BST_STAT_GET(counter->hw_unit_id, gport, pg - 1,
@@ -233,7 +222,6 @@ ingress_service_pool_stats(int statid, counter_operations_t type,
 static void
 egress_service_pool_stats(int statid, counter_operations_t type,
                           bufmon_counter_info_t *counter)
-
 {
     int sp;
     opennsl_error_t rv = OPENNSL_E_NONE;
@@ -261,7 +249,42 @@ static void
 egress_unicast_stats(int statid, counter_operations_t type,
                      bufmon_counter_info_t *counter)
 {
-    int queue;
+    int queue, port;
+    opennsl_gport_t gport;
+    opennsl_error_t rv = OPENNSL_E_NONE;
+    opennsl_cosq_bst_profile_t profile;
+
+    queue = smap_get_int(&counter->counter_vendor_specific_info,
+                         "queue", INVALID);
+    INPUT_PARAM_VALIDATE(queue);
+
+    port = queue / 8 +  1;
+    queue = queue % 8;
+
+    rv = opennsl_port_gport_get(counter->hw_unit_id, port, &gport);
+
+    if (rv != OPENNSL_E_NONE)
+      return;
+
+    if (type == GET_COUNTER_VALUE) {
+        rv = BCM_API_BST_STAT_GET(counter->hw_unit_id, gport, queue - 1,
+                                  statid, 0, &counter->counter_value);
+    } else if (type == SET_COUNTER_THRESHOLD
+               && counter->trigger_threshold) {
+        profile.byte = counter->trigger_threshold;
+        rv = BCM_API_BST_PROFILE_SET(counter->hw_unit_id, gport, queue - 1,
+                                     statid, &profile);
+    }
+
+    OPENNSL_RV_ERROR_CHECK(rv, " %d %d", port, queue);
+}/* egress_unicast_stats */
+
+static void
+egress_multicast_stats(int statid, counter_operations_t type,
+                       bufmon_counter_info_t *counter)
+{
+    int queue, port;
+    opennsl_gport_t gport;
     opennsl_error_t rv = OPENNSL_E_NONE;
     opennsl_cosq_bst_profile_t profile;
 
@@ -270,23 +293,95 @@ egress_unicast_stats(int statid, counter_operations_t type,
 
     INPUT_PARAM_VALIDATE(queue);
 
+    port = queue / 8 +  1;
+    queue = queue % 8;
+
+    rv = opennsl_port_gport_get(counter->hw_unit_id, port, &gport);
+
+    if (rv != OPENNSL_E_NONE)
+      return;
+
     if (type == GET_COUNTER_VALUE) {
-        rv = BCM_API_BST_STAT_GET(counter->hw_unit_id, 0, queue - 1,
+        rv = BCM_API_BST_STAT_GET(counter->hw_unit_id, gport, queue - 1,
                                   statid, 0, &counter->counter_value);
     } else if (type == SET_COUNTER_THRESHOLD
                && counter->trigger_threshold) {
         profile.byte = counter->trigger_threshold;
-        rv = BCM_API_BST_PROFILE_SET(counter->hw_unit_id, 0, queue - 1,
+        rv = BCM_API_BST_PROFILE_SET(counter->hw_unit_id, gport, queue - 1,
                                      statid, &profile);
     }
 
     OPENNSL_RV_ERROR_CHECK(rv, " %d", queue);
-}/* egress_unicast_stats */
+}/* egress_multicast_stats */
 
 static void
-egress_multicast_stats(int statid, counter_operations_t type,
-                       bufmon_counter_info_t *counter)
+egress_port_service_pool_stats (int statid, counter_operations_t type,
+                                bufmon_counter_info_t *counter)
+{
+    int sp, port;
+    opennsl_error_t rv = OPENNSL_E_NONE;
+    opennsl_gport_t gport;
+    opennsl_cosq_bst_profile_t profile;
 
+    port = smap_get_int(&counter->counter_vendor_specific_info,
+                        "port", INVALID);
+
+    INPUT_PARAM_VALIDATE(port);
+
+    sp = smap_get_int(&counter->counter_vendor_specific_info,
+                         "service-pool", INVALID);
+
+    INPUT_PARAM_VALIDATE(sp);
+
+    rv = opennsl_port_gport_get(counter->hw_unit_id, port, &gport);
+
+    OPENNSL_RV_ERROR_CHECK(rv, " %d %d", port, gport);
+
+    if (type == GET_COUNTER_VALUE) {
+        rv = BCM_API_BST_STAT_GET(counter->hw_unit_id, gport, sp - 1,
+                                  statid, 0, &counter->counter_value);
+    } else if (type == SET_COUNTER_THRESHOLD
+               && counter->trigger_threshold) {
+        profile.byte = counter->trigger_threshold;
+        rv = BCM_API_BST_PROFILE_SET(counter->hw_unit_id, gport, sp - 1,
+                                     statid, &profile);
+    }
+
+    OPENNSL_RV_ERROR_CHECK(rv, " %d", sp);
+}/* egress_port_service_pool_stats */
+
+static void
+egress_cpu_stats (int statid, counter_operations_t type,
+                  bufmon_counter_info_t *counter)
+{
+    int queue;
+    opennsl_error_t rv = OPENNSL_E_NONE;
+    opennsl_gport_t gport;
+    opennsl_cosq_bst_profile_t profile;
+
+    queue = smap_get_int(&counter->counter_vendor_specific_info,
+                         "queue", INVALID);
+
+    INPUT_PARAM_VALIDATE(queue);
+
+    rv = opennsl_port_gport_get(counter->hw_unit_id, 0, &gport);
+
+    if (type == GET_COUNTER_VALUE) {
+        rv = BCM_API_BST_STAT_GET(counter->hw_unit_id, gport, queue - 1,
+                                  statid, 0, &counter->counter_value);
+    } else if (type == SET_COUNTER_THRESHOLD
+               && counter->trigger_threshold) {
+        profile.byte = counter->trigger_threshold;
+        rv = BCM_API_BST_PROFILE_SET(counter->hw_unit_id, gport, queue - 1,
+                                     statid, &profile);
+    }
+
+    OPENNSL_RV_ERROR_CHECK(rv, " %d", queue);
+}/* egress_cpu_stats */
+
+static void
+egress_rqe_queue_stats (int statid, counter_operations_t type,
+                        bufmon_counter_info_t *counter)
 {
     int queue;
     opennsl_error_t rv = OPENNSL_E_NONE;
@@ -308,7 +403,33 @@ egress_multicast_stats(int statid, counter_operations_t type,
     }
 
     OPENNSL_RV_ERROR_CHECK(rv, " %d", queue);
-}/* egress_multicast_stats */
+}/* egress_rqe_queue_stats */
+
+static void
+egress_unicast_queue_group_stats (int statid, counter_operations_t type,
+                              bufmon_counter_info_t *counter)
+{
+    int queue;
+    opennsl_error_t rv = OPENNSL_E_NONE;
+    opennsl_cosq_bst_profile_t profile;
+
+    queue = smap_get_int(&counter->counter_vendor_specific_info,
+                         "queue", INVALID);
+
+    INPUT_PARAM_VALIDATE(queue);
+
+    if (type == GET_COUNTER_VALUE) {
+        rv = BCM_API_BST_STAT_GET(counter->hw_unit_id, 0, queue - 1,
+                                  statid, 0, &counter->counter_value);
+    } else if (type == SET_COUNTER_THRESHOLD
+               && counter->trigger_threshold) {
+        profile.byte = counter->trigger_threshold;
+        rv = BCM_API_BST_PROFILE_SET(counter->hw_unit_id, 0, queue - 1,
+                                     statid, &profile);
+    }
+
+    OPENNSL_RV_ERROR_CHECK(rv, " %d", queue);
+}/* egress_rqe_queue_stats */
 
 static int
 get_realm_stat_id(char *str)
@@ -316,7 +437,7 @@ get_realm_stat_id(char *str)
     unsigned int i = 0;
     const realm_helper_t *realm_list = get_all_realm_list();
 
-    for (i = 0; i < MAX_STATID; i++) {
+    for (i = 0; i < MAX_STATS; i++) {
         if (NULL != strstr(str, realm_list[i].realm)) {
             return realm_list[i].statid;
         }
@@ -324,6 +445,22 @@ get_realm_stat_id(char *str)
 
     return INVALID;
 }/* get_realm_stat_id */
+
+static inline int
+get_realm_index(int statid, char *str)
+{
+    unsigned int i = 0;
+    const realm_helper_t *realm_list = get_all_realm_list();
+
+    for (i = 0; i < MAX_STATS; i++) {
+        if (NULL != strstr(str, realm_list[i].realm)
+            && statid == realm_list[i].statid) {
+            return i;
+        }
+    }
+
+    return INVALID;
+}/* get_realm_index */
 
 void
 realm_sync_all(void)
@@ -333,7 +470,7 @@ realm_sync_all(void)
     const realm_helper_t *realm_list = get_all_realm_list();
 
     for (hw_unit = 0; hw_unit <= MAX_SWITCH_UNIT_ID; hw_unit++) {
-        for (i = 0; i < MAX_STATID; i++) {
+        for (i = 0; i < MAX_STATS; i++) {
             BCM_API_COSQ_BST_STAT_SYNC(hw_unit, realm_list[i].statid);
         }
     }
@@ -344,6 +481,8 @@ handle_bufmon_counter_mgmt(bufmon_counter_info_t *counter,
                            counter_operations_t type)
 {
     int statid = 0;
+    const realm_helper_t *realm_list = get_all_realm_list();
+    int index = INVALID;
 
     if (!counter->name) {
         return ;
@@ -353,8 +492,18 @@ handle_bufmon_counter_mgmt(bufmon_counter_info_t *counter,
 
     INPUT_PARAM_VALIDATE(statid);
 
+    index = get_realm_index(statid, counter->name);
+
+    INPUT_PARAM_VALIDATE(index);
+
     /* Call the bufmon handler specific to realm */
-    BUFMON_STATS_HANDLER(statid, type, counter);
+    if ((index) < MAX_STATS) {
+        realm_list[index].bufmon_counter_handler(statid, type, counter);
+        VLOG_DBG("%s counter value %" PRId64 " ",
+                 (counter)->name, (counter)->counter_value);
+    }
+
+    return;
 }/* handle_bufmon_counter_mgmt */
 
 void
@@ -428,10 +577,13 @@ bst_switch_event_callback (int asic, opennsl_switch_event_t event,
     bool valid_trigger = false;
     const realm_helper_t *realm_list = get_all_realm_list();
 
+    /* Disable tracking mode to avoid spurious triggers from HW */
+    bst_switch_control_set(opennslSwitchBstEnable, 0);
+
     /* Call the switchd Callback registered with plugin */
     if (event == OPENNSL_SWITCH_EVENT_MMU_BST_TRIGGER) {
         /* Validate BID */
-        for (i = 0; i < MAX_STATID; i++) {
+        for (i = 0; i < MAX_STATS; i++) {
             if (realm_list[i].statid == bid) {
                 valid_trigger = true;
             }
@@ -477,11 +629,31 @@ const realm_helper_t realm_list[] = {
 
     /* BST Tracing resource for multicast */
     { "egress-mc-queue/mc-buffer-count",
-      opennslBstStatIdMcast, egress_multicast_stats}
+      opennslBstStatIdMcast, egress_multicast_stats},
+
+    /* BST Tracing resource for Egress Port Service Pool Resource */
+    { "egress-port-service-pool/uc-share-buffer-count",
+      opennslBstStatIdEgrUCastPortShared, egress_port_service_pool_stats},
+
+    /* BST Tracing resource for Egress Port Service Pool Resource */
+    { "egress-port-service-pool/um-share-buffer-count",
+      opennslBstStatIdEgrPortShared, egress_port_service_pool_stats},
+
+    /* BST Tracing resource for CPU queue stats */
+    { "egress-cpu-queue/cpu-buffer-count",
+      opennslBstStatIdMcast, egress_cpu_stats},
+
+    /* BST Tracing resource for RQE Queue stats */
+    { "egress-rqe-queue/rqe-buffer-count",
+      opennslBstStatIdRQEQueue, egress_rqe_queue_stats},
+
+    /* BST Tracing resource for Unicast Queue Group stats*/
+    { "egress-uc-queue-group/uc-buffer-count",
+      opennslBstStatIdUcastGroup, egress_unicast_queue_group_stats}
 };
 
 static inline unsigned int
-get_max_stats_id(void)
+get_max_stats(void)
 {
     return sizeof(realm_list) / sizeof(realm_helper_t);
 }
