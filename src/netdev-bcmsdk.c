@@ -949,9 +949,80 @@ static const struct netdev_class bcmsdk_internal_class = {
     NULL,                       /* rxq_drain */
 };
 
+static const struct netdev_class bcmsdk_l3_loopback_class = {
+    "loopback",
+    NULL,                       /* init */
+    NULL,                       /* run */
+    NULL,                       /* wait */
+
+    netdev_bcmsdk_alloc,
+    netdev_bcmsdk_construct,
+    netdev_bcmsdk_destruct,
+    netdev_bcmsdk_dealloc,
+    NULL,                       /* get_config */
+    NULL,                       /* set_config */
+    NULL,                       /* set_hw_intf_info */
+    NULL,                       /* set_hw_intf_config */
+    NULL,                       /* get_tunnel_config */
+    NULL,                       /* build header */
+    NULL,                       /* push header */
+    NULL,                       /* pop header */
+    NULL,                       /* get_numa_id */
+    NULL,                       /* set_multiq */
+
+    NULL,                       /* send */
+    NULL,                       /* send_wait */
+
+    netdev_bcmsdk_set_etheraddr,
+    netdev_bcmsdk_get_etheraddr,
+    NULL,                       /* get_mtu */
+    NULL,                       /* set_mtu */
+    NULL,                       /* get_ifindex */
+    NULL,                       /* get_carrier */
+    NULL,                       /* get_carrier_resets */
+    NULL,                       /* get_miimon */
+    NULL,                       /* get_stats */
+
+    NULL,                       /* get_features */
+    NULL,                       /* set_advertisements */
+
+    NULL,                       /* set_policing */
+    NULL,                       /* get_qos_types */
+    NULL,                       /* get_qos_capabilities */
+    NULL,                       /* get_qos */
+    NULL,                       /* set_qos */
+    NULL,                       /* get_queue */
+    NULL,                       /* set_queue */
+    NULL,                       /* delete_queue */
+    NULL,                       /* get_queue_stats */
+    NULL,                       /* queue_dump_start */
+    NULL,                       /* queue_dump_next */
+    NULL,                       /* queue_dump_done */
+    NULL,                       /* dump_queue_stats */
+
+    NULL,                       /* get_in4 */
+    NULL,                       /* set_in4 */
+    NULL,                       /* get_in6 */
+    NULL,                       /* add_router */
+    NULL,                       /* get_next_hop */
+    NULL,                       /* get_status */
+    NULL,                       /* arp_lookup */
+
+    netdev_internal_bcmsdk_update_flags,
+
+    NULL,                       /* rxq_alloc */
+    NULL,                       /* rxq_construct */
+    NULL,                       /* rxq_destruct */
+    NULL,                       /* rxq_dealloc */
+    NULL,                       /* rxq_recv */
+    NULL,                       /* rxq_wait */
+    NULL,                       /* rxq_drain */
+};
+
 void
 netdev_bcmsdk_register(void)
 {
     netdev_register_provider(&bcmsdk_class);
     netdev_register_provider(&bcmsdk_internal_class);
+    netdev_register_provider(&bcmsdk_l3_loopback_class);
 }

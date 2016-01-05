@@ -148,10 +148,13 @@ del(const char *type OVS_UNUSED, const char *name OVS_UNUSED)
 static const char *
 port_open_type(const char *datapath_type OVS_UNUSED, const char *port_type)
 {
-    if(strcmp(port_type, OVSREC_INTERFACE_TYPE_INTERNAL) == 0) {
+    if( (strcmp(port_type, OVSREC_INTERFACE_TYPE_INTERNAL) == 0) ||
+        (strcmp(port_type, OVSREC_INTERFACE_TYPE_LOOPBACK) == 0) ) {
         return port_type;
     }
-    return "system";
+    else {
+        return "system";
+    }
 }
 
 /* Basic life-cycle. */
@@ -943,6 +946,7 @@ bundle_set(struct ofproto *ofproto_, void *aux,
     bool trunk_all_vlans = false;
     struct bcmsdk_provider_ofport_node *port;
     struct ofbundle *bundle;
+    const char *type = NULL;
     bool ok;
 
     VLOG_DBG("%s: entry, ofproto_=%p, aux=%p, s=%p",
@@ -1057,6 +1061,15 @@ bundle_set(struct ofproto *ofproto_, void *aux,
 
     VLOG_INFO("s->n_slaves: %zu\n", s->n_slaves);
 
+    /* For l3-loopback interfaces, just configure ips */
+    port = get_ofp_port(bundle->ofproto, s->slaves[0]);
+    type = netdev_get_type(port->up.netdev);
+    if ((strcmp(type, OVSREC_INTERFACE_TYPE_LOOPBACK) == 0)) {
+        port_ip_reconfigure(ofproto_, bundle, s);
+        VLOG_DBG("Done with l3 loopback configurations");
+        goto done;
+    }
+
     /*
      * Configure  KNET filter for vlan interfaces in bridge
      * Vlan ports will have a single interface of type
@@ -1064,16 +1077,18 @@ bundle_set(struct ofproto *ofproto_, void *aux,
      * Skip this for bridge internal interface which will have same
      * name as bridge (ofproto->up.name)
      * */
-    if (!ofproto->vrf && s->n_slaves == 1 && strcmp(bundle->name, ofproto->up.name)) {
+    if (!ofproto->vrf && s->n_slaves == 1 &&
+        strcmp(bundle->name, ofproto->up.name)) {
+
         struct bcmsdk_provider_ofport_node *port;
         opennsl_vlan_t vlan_id;
-        const char *type;
 
         port = get_ofp_port(bundle->ofproto, s->slaves[0]);
         type = netdev_get_type(port->up.netdev);
         vlan_id = s->vlan;
 
-        VLOG_DBG("bridge %s interface type %s vland id %d", ofproto->up.name, type, vlan_id);
+        VLOG_DBG("bridge %s interface type %s vland id %d",
+                  ofproto->up.name, type, vlan_id);
         if ((strcmp(type, OVSREC_INTERFACE_TYPE_INTERNAL) == 0) && vlan_id) {
             /* if vlan changed/removed or if port status is disabled */
             if (bundle->vlan != vlan_id || !s->enable) {
@@ -1092,13 +1107,16 @@ bundle_set(struct ofproto *ofproto_, void *aux,
                     bcmsdk_knet_filter_delete(NULL, bundle->hw_unit,
                                               bundle->vlan_knet_filter_ids[2]);
                 }
-                memset(bundle->vlan_knet_filter_ids, 0, sizeof(bundle->vlan_knet_filter_ids));
+                memset(bundle->vlan_knet_filter_ids, 0,
+                       sizeof(bundle->vlan_knet_filter_ids));
             }
 
             if (bundle->vlan_knet_filter_ids[0] == 0 && s->enable) {
-                VLOG_INFO("Creating KNET filters for vlan interface vlan%d", vlan_id);
-                bcmsdk_knet_vlan_interface_filter_create(ofproto->up.name, vlan_id,
-                                                         &bundle->vlan_knet_filter_ids[0]);
+                VLOG_INFO("Creating KNET filters for vlan interface vlan%d",
+                           vlan_id);
+                bcmsdk_knet_vlan_interface_filter_create(ofproto->up.name,
+                                           vlan_id,
+                                           &bundle->vlan_knet_filter_ids[0]);
             }
             /* Configuration for internal vlan interface is done */
             goto done;
@@ -1113,7 +1131,6 @@ bundle_set(struct ofproto *ofproto_, void *aux,
         int hw_unit, hw_port;
         opennsl_vlan_t vlan_id;
         uint8_t mac[ETH_ADDR_LEN];
-        const char *type = NULL;
 
         port = get_ofp_port(bundle->ofproto, s->slaves[0]);
         if (!port) {
@@ -1130,13 +1147,15 @@ bundle_set(struct ofproto *ofproto_, void *aux,
         if (strcmp(type, OVSREC_INTERFACE_TYPE_INTERNAL) == 0) {
             vlan_id = s->vlan;
         } else {
-            vlan_id = smap_get_int(s->port_options[PORT_HW_CONFIG], "internal_vlan_id", 0);
+            vlan_id = smap_get_int(s->port_options[PORT_HW_CONFIG],
+                                   "internal_vlan_id", 0);
         }
 
         if (bundle->l3_intf) {
             /* if reserved vlan changed/removed or if port status is disabled */
             if (bundle->l3_intf->l3a_vid != vlan_id || !s->enable) {
-                ops_routing_disable_l3_interface(hw_unit, hw_port, bundle->l3_intf);
+                ops_routing_disable_l3_interface(hw_unit, hw_port,
+                                                 bundle->l3_intf);
                 bundle->l3_intf = NULL;
                 bundle->hw_unit = 0;
                 bundle->hw_port = -1;
