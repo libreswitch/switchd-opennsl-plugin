@@ -30,5 +30,8 @@ extern void netdev_bcmsdk_get_hw_info(struct netdev *netdev,
                                       int *hw_unit, int *hw_id, uint8_t *mac);
 extern void netdev_bcmsdk_link_state_callback(int hw_unit, int hw_id,
                                               int link_status);
-
+extern void
+netdev_bcmsdk_get_subintf_vlan(struct netdev *netdev, opennsl_vlan_t *vlan);
+extern void handle_bcmsdk_knet_l3_port_filters(struct netdev *netdev_, opennsl_vlan_t vlan_id, bool enable);
+extern void handle_bcmsdk_knet_subinterface_filters(struct netdev *netdev_, bool enable);
 #endif /* netdev-bcmsdk.h */

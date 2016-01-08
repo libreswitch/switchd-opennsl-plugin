@@ -31,15 +31,20 @@ extern int ops_vlan_init(int hw_unit);
 extern int bcmsdk_create_vlan(int vid, bool internal);
 extern int bcmsdk_destroy_vlan(int vid, bool internal);
 
-extern int bcmsdk_add_access_ports(int vid, opennsl_pbmp_t *pbm, bool internal);
-extern int bcmsdk_del_access_ports(int vid, opennsl_pbmp_t *pbm, bool internal);
+extern int bcmsdk_add_access_ports(int vid, opennsl_pbmp_t *pbm);
+extern int bcmsdk_del_access_ports(int vid, opennsl_pbmp_t *pbm);
 extern void bcmsdk_add_trunk_ports(int vid, opennsl_pbmp_t *pbm);
 extern void bcmsdk_del_trunk_ports(int vid, opennsl_pbmp_t *pbm);
 extern void bcmsdk_add_native_tagged_ports(int vid, opennsl_pbmp_t *pbm);
 extern void bcmsdk_del_native_tagged_ports(int vid, opennsl_pbmp_t *pbm);
-extern void bcmsdk_add_native_untagged_ports(int vid, opennsl_pbmp_t *pbm);
-extern void bcmsdk_del_native_untagged_ports(int vid, opennsl_pbmp_t *pbm);
+extern void bcmsdk_add_native_untagged_ports(int vid, opennsl_pbmp_t *pbm, bool internal);
+extern void bcmsdk_del_native_untagged_ports(int vid, opennsl_pbmp_t *pbm, bool internal);
+extern void bcmsdk_add_subinterface_ports(int vid, opennsl_pbmp_t *pbm);
+extern void bcmsdk_del_subinterface_ports(int vid, opennsl_pbmp_t *pbm);
 
 extern void vlan_reconfig_on_link_change(int unit, opennsl_port_t hw_port, int link_is_up);
+extern bool is_vlan_membership_empty(int vid);
+extern bool is_user_created_vlan(int vid);
+extern void set_created_by_user(int vid, bool status);
 
 #endif /* __OPS_VLAN_H__ */

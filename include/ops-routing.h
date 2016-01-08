@@ -84,11 +84,20 @@ extern opennsl_l3_intf_t *ops_routing_enable_l3_interface(int hw_unit,
                                                          opennsl_port_t hw_port,
                                                          opennsl_vrf_t vrf_id,
                                                          opennsl_vlan_t vlan_id,
-                                                         unsigned char *mac);
+                                                         unsigned char *mac,
+                                                         struct netdev *netdev);
+extern opennsl_l3_intf_t *
+ops_routing_enable_l3_subinterface(int hw_unit, opennsl_port_t hw_port,
+                                 opennsl_vrf_t vrf_id, opennsl_vlan_t vlan_id,
+                                 unsigned char *mac, struct netdev *netdev);
 
 extern void ops_routing_disable_l3_interface(int hw_unit,
                                             opennsl_port_t hw_port,
-                                            opennsl_l3_intf_t *l3_intf);
+                                            opennsl_l3_intf_t *l3_intf,
+                                            struct netdev *netdev);
+
+extern void ops_routing_disable_l3_subinterface(int hw_unit, opennsl_port_t hw_port,
+                                  opennsl_l3_intf_t *l3_intf, struct netdev *netdev);
 
 extern opennsl_l3_intf_t * ops_routing_enable_l3_vlan_interface(int hw_unit,
                                                                opennsl_vrf_t vrf_id,

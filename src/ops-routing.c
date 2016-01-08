@@ -39,6 +39,7 @@
 #include "ops-knet.h"
 #include "platform-defines.h"
 #include "openswitch-dflt.h"
+#include "netdev-bcmsdk.h"
 
 VLOG_DEFINE_THIS_MODULE(ops_routing);
 
@@ -271,7 +272,7 @@ ops_l3_init(int unit)
 opennsl_l3_intf_t *
 ops_routing_enable_l3_interface(int hw_unit, opennsl_port_t hw_port,
                                 opennsl_vrf_t vrf_id, opennsl_vlan_t vlan_id,
-                                unsigned char *mac)
+                                unsigned char *mac, struct netdev *netdev)
 {
     opennsl_error_t rc = OPENNSL_E_NONE;
     opennsl_pbmp_t pbmp;
@@ -288,12 +289,9 @@ ops_routing_enable_l3_interface(int hw_unit, opennsl_port_t hw_port,
 
     OPENNSL_PBMP_CLEAR(pbmp);
     OPENNSL_PBMP_PORT_ADD(pbmp, hw_port);
-    rc = bcmsdk_add_access_ports(vlan_id, &pbmp, true);
-    if (rc < 0) {
-        VLOG_ERR("Failed at bcmsdk_add_access_ports: unit=%d port=%d vlan=%d rc=%d",
-                 hw_unit, hw_port, vlan_id, rc);
-        goto failed_adding_vlan;
-    }
+    /* Add as native untagged as we would not want to restrict all
+       tagged packets if a port is configured to the specific vlan */
+    bcmsdk_add_native_untagged_ports(vlan_id, &pbmp, true);
 
     /* Create L3 interface */
     l3_intf = (opennsl_l3_intf_t *)xmalloc(sizeof(opennsl_l3_intf_t));
@@ -320,6 +318,7 @@ ops_routing_enable_l3_interface(int hw_unit, opennsl_port_t hw_port,
     SW_L3_DBG("Enabled L3 on unit=%d port=%d vlan=%d vrf=%d",
             hw_unit, hw_port, vlan_id, vrf_id);
 
+    handle_bcmsdk_knet_l3_port_filters(netdev, vlan_id, true);
     return l3_intf;
 
 failed_l3_intf_create:
@@ -328,14 +327,86 @@ failed_l3_intf_create:
 failed_allocating_l3_intf:
     OPENNSL_PBMP_CLEAR(pbmp);
     OPENNSL_PBMP_PORT_ADD(pbmp, hw_port);
-    rc = bcmsdk_del_access_ports(vlan_id, &pbmp, true);
+    bcmsdk_del_native_untagged_ports(vlan_id, &pbmp, true);
+
+    rc = bcmsdk_destroy_vlan(vlan_id, true);
     if (rc < 0) {
-        VLOG_ERR("Failed at bcmsdk_del_access_ports: unit=%d port=%d rc=%d",
-                 hw_unit, hw_port, rc);
+        VLOG_ERR("Failed at bcmsdk_destroy_vlan: unit=%d port=%d vlan=%d rc=%d",
+                 hw_unit, hw_port, vlan_id, rc);
     }
 
-failed_adding_vlan:
-    rc = bcmsdk_destroy_vlan(vlan_id, true);
+failed_vlan_creation:
+    return NULL;
+}
+
+opennsl_l3_intf_t *
+ops_routing_enable_l3_subinterface(int hw_unit, opennsl_port_t hw_port,
+                                opennsl_vrf_t vrf_id, opennsl_vlan_t vlan_id,
+                                unsigned char *mac, struct netdev *netdev)
+{
+    opennsl_error_t rc = OPENNSL_E_NONE;
+    opennsl_pbmp_t pbmp;
+    opennsl_l3_intf_t *l3_intf;
+
+    VLOG_DBG("in function ops_routing_enable_l3_subinterface\n");
+    /* VLAN config */
+    rc = bcmsdk_create_vlan(vlan_id, false);
+    if (rc < 0) {
+        VLOG_ERR("Failed at bcmsdk_create_vlan: unit=%d port=%d vlan=%d rc=%d",
+                 hw_unit, hw_port, vlan_id, rc);
+        goto failed_vlan_creation;
+    }
+
+
+    OPENNSL_PBMP_CLEAR(pbmp);
+    OPENNSL_PBMP_PORT_ADD(pbmp, hw_port);
+    VLOG_DBG("Adding hw_port = %d to trunk\n", hw_port);
+    bcmsdk_add_trunk_ports(vlan_id, &pbmp);
+
+    VLOG_DBG("Adding hw_port = %d to subinterface\n", hw_port);
+    bcmsdk_add_subinterface_ports(vlan_id, &pbmp);
+
+    /* Create L3 interface */
+    l3_intf = (opennsl_l3_intf_t *)xmalloc(sizeof(opennsl_l3_intf_t));
+    if (!l3_intf) {
+        VLOG_ERR("Failed allocating opennsl_l3_intf_t: unit=%d port=%d vlan=%d rc=%d",
+                 hw_unit, hw_port, vlan_id, rc);
+        goto failed_allocating_l3_intf;
+    }
+
+    opennsl_l3_intf_t_init(l3_intf);
+    l3_intf->l3a_vrf = vrf_id;
+    l3_intf->l3a_intf_id = vlan_id;
+    l3_intf->l3a_flags = OPENNSL_L3_ADD_TO_ARL | OPENNSL_L3_WITH_ID;
+    memcpy(l3_intf->l3a_mac_addr, mac, ETH_ALEN);
+    l3_intf->l3a_vid = vlan_id;
+
+    VLOG_DBG("opennsl l3 create() for subinterface\n");
+    rc = opennsl_l3_intf_create(hw_unit, l3_intf);
+    if (OPENNSL_FAILURE(rc)) {
+        VLOG_ERR("Failed at opennsl_l3_intf_create: unit=%d port=%d vlan=%d vrf=%d rc=%s",
+                 hw_unit, hw_port, vlan_id, vrf_id, opennsl_errmsg(rc));
+        goto failed_l3_intf_create;
+    }
+
+    SW_L3_DBG("Enabled L3 on unit=%d port=%d vlan=%d vrf=%d",
+            hw_unit, hw_port, vlan_id, vrf_id);
+
+    VLOG_DBG("Create knet filter\n");
+    handle_bcmsdk_knet_subinterface_filters(netdev, true);
+
+    return l3_intf;
+
+failed_l3_intf_create:
+    free(l3_intf);
+
+failed_allocating_l3_intf:
+    OPENNSL_PBMP_CLEAR(pbmp);
+    OPENNSL_PBMP_PORT_ADD(pbmp, hw_port);
+    bcmsdk_del_trunk_ports(vlan_id, &pbmp);
+    bcmsdk_del_subinterface_ports(vlan_id, &pbmp);
+
+    rc = bcmsdk_destroy_vlan(vlan_id, false);
     if (rc < 0) {
         VLOG_ERR("Failed at bcmsdk_destroy_vlan: unit=%d port=%d vlan=%d rc=%d",
                  hw_unit, hw_port, vlan_id, rc);
@@ -347,13 +418,12 @@ failed_vlan_creation:
 
 void
 ops_routing_disable_l3_interface(int hw_unit, opennsl_port_t hw_port,
-                                 opennsl_l3_intf_t *l3_intf)
+                                 opennsl_l3_intf_t *l3_intf, struct netdev *netdev)
 {
     opennsl_error_t rc = OPENNSL_E_NONE;
     opennsl_vlan_t vlan_id = l3_intf->l3a_vid;
     opennsl_vrf_t vrf_id = l3_intf->l3a_vrf;
     opennsl_pbmp_t pbmp;
-
 
     rc = opennsl_l3_intf_delete(hw_unit, l3_intf);
     if (OPENNSL_FAILURE(rc)) {
@@ -364,11 +434,7 @@ ops_routing_disable_l3_interface(int hw_unit, opennsl_port_t hw_port,
     /* Reset VLAN on port back to default and destroy the VLAN */
     OPENNSL_PBMP_CLEAR(pbmp);
     OPENNSL_PBMP_PORT_ADD(pbmp, hw_port);
-    rc = bcmsdk_del_access_ports(vlan_id, &pbmp, true);
-    if (rc < 0) {
-        VLOG_ERR("Failed at bcmsdk_del_access_ports: unit=%d port=%d rc=%d",
-                 hw_unit, hw_port, rc);
-    }
+    bcmsdk_del_native_untagged_ports(vlan_id, &pbmp, true);
 
     rc = bcmsdk_destroy_vlan(vlan_id, true);
     if (rc < 0) {
@@ -377,6 +443,47 @@ ops_routing_disable_l3_interface(int hw_unit, opennsl_port_t hw_port,
     }
 
     SW_L3_DBG("Disabled L3 on unit=%d port=%d vrf=%d", hw_unit, hw_port, vrf_id);
+
+    VLOG_DBG("Delete l3 port knet filter\n");
+    handle_bcmsdk_knet_l3_port_filters(netdev, vlan_id, false);
+}
+
+void
+ops_routing_disable_l3_subinterface(int hw_unit, opennsl_port_t hw_port,
+                                 opennsl_l3_intf_t *l3_intf, struct netdev *netdev)
+{
+    opennsl_error_t rc = OPENNSL_E_NONE;
+    opennsl_vlan_t vlan_id = l3_intf->l3a_vid;
+    opennsl_vrf_t vrf_id = l3_intf->l3a_vrf;
+    opennsl_pbmp_t pbmp;
+
+    VLOG_DBG("In function ops_routing_disable_l3_subinterface\n");
+    rc = opennsl_l3_intf_delete(hw_unit, l3_intf);
+    if (OPENNSL_FAILURE(rc)) {
+        VLOG_ERR("Failed at opennsl_l3_intf_delete: unit=%d port=%d vlan=%d vrf=%d rc=%s",
+                 hw_unit, hw_port, vlan_id, vrf_id, opennsl_errmsg(rc));
+    }
+
+    /* Reset VLAN on port back to default and destroy the VLAN */
+    OPENNSL_PBMP_CLEAR(pbmp);
+    OPENNSL_PBMP_PORT_ADD(pbmp, hw_port);
+    bcmsdk_del_trunk_ports(vlan_id, &pbmp);
+
+    bcmsdk_del_subinterface_ports(vlan_id, &pbmp);
+
+    if (is_vlan_membership_empty(vlan_id) && !is_user_created_vlan(vlan_id)) {
+        VLOG_DBG("Vlan %d is empty\n", vlan_id);
+        rc = bcmsdk_destroy_vlan(vlan_id, false);
+        if (rc < 0) {
+            VLOG_ERR("Failed at bcmsdk_destroy_vlan: unit=%d port=%d vlan=%d rc=%d",
+                    hw_unit, hw_port, vlan_id, rc);
+        }
+    }
+
+    SW_L3_DBG("Disabled L3 on unit=%d port=%d vrf=%d", hw_unit, hw_port, vrf_id);
+
+    VLOG_DBG("Delete subinterface knet filter\n");
+    handle_bcmsdk_knet_subinterface_filters(netdev, false);
 }
 
 opennsl_l3_intf_t *

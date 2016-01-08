@@ -24,6 +24,19 @@
 #include <netinet/ether.h>
 #include <opennsl/types.h>
 
+/* BCM PRIORITY
+ * The order in which knet filters are arranged.
+ * BPDU filter - to send all bpdu packets to kernel port
+ * L3 port filter - to send all packets with matching internal vlan
+ *                  to kernel port matching the incoming port. The
+ *                  filter will strip the internal vlan.
+ * Subinterface filter - to send all packet from in port to
+ *                       corresponding out port. Created when subinterface
+ *                       is created.
+ * Default filter is bridge normal - this filter is installed at start
+ *                                   and is never deleted. All packets
+ *                                   are sent to bridge normal port.
+ */
 /* BCM KNET filter priorities.
  * Filters with priority 0 are applied only on RX channel 0.
  * Filters with priority 1 are applied only on RX channel 1.
@@ -32,8 +45,11 @@
 enum knet_filter_prio_e
 {
     KNET_FILTER_PRIO_HIGHEST = 2,
-    KNET_FILTER_PRIO_VLAN = 5,
+    KNET_FILTER_PRIO_BPDU = 5,
     KNET_FILTER_PRIO_PORT,
+    KNET_FILTER_PRIO_VLAN,
+    KNET_FILTER_PRIO_SUBINTF,
+    KNET_FILTER_PRIO_BRIDGE_NORMAL,
     KNET_FILTER_PRIO_LOWEST = 255
 };
 
@@ -56,11 +72,14 @@ extern int bcmsdk_knet_if_delete(char *name, int unit, int knet_if_id);
 extern void bcmsdk_knet_filter_delete(char *name, int unit, int knet_filter_id);
 
 extern int bcmsdk_knet_if_delete_by_name(char* name, int hw_unit);
-extern void bcmsdk_knet_port_filter_create(char *name, int hw_unit, opennsl_port_t hw_port,
+extern void bcmsdk_knet_l3_port_filter_create(int hw_unit, int vid, opennsl_port_t hw_port,
+                               int knet_if_id, int *knet_filter_id);
+extern void bcmsdk_knet_subinterface_filter_create(int hw_unit, opennsl_port_t hw_port,
+                               int knet_if_id, int *knet_filter_id);
+extern void bcmsdk_knet_port_bpdu_filter_create(char *name, int hw_unit, opennsl_port_t hw_port,
                                            int knet_if_id, int *knet_filter_id);
-extern void bcmsdk_knet_vlan_interface_filter_create(char *name,  opennsl_vlan_t vid,
-                                                     int *knet_filter_id);
-
+extern void bcmsdk_knet_bridge_normal_filter_create(char *knet_dst_if_name,
+        int *knet_filter_id);
 extern void ops_knet_dump(struct ds *ds, knet_debug_type_t debug_type);
 
 #endif /* __OPS_KNET_H__ */

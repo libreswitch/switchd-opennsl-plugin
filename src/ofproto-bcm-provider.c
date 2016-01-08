@@ -149,7 +149,8 @@ static const char *
 port_open_type(const char *datapath_type OVS_UNUSED, const char *port_type)
 {
     if( (strcmp(port_type, OVSREC_INTERFACE_TYPE_INTERNAL) == 0) ||
-        (strcmp(port_type, OVSREC_INTERFACE_TYPE_LOOPBACK) == 0) ) {
+        (strcmp(port_type, OVSREC_INTERFACE_TYPE_LOOPBACK) == 0) ||
+        (strcmp(port_type, OVSREC_INTERFACE_TYPE_VLANSUBINT) == 0)) {
         return port_type;
     }
     else {
@@ -366,7 +367,7 @@ config_all_vlans(enum port_vlan_mode vlan_mode, int vlan,
     switch (vlan_mode) {
     case PORT_VLAN_ACCESS:
         if (vlan != -1) {
-            bcmsdk_add_access_ports(vlan, pbm, false);
+            bcmsdk_add_access_ports(vlan, pbm);
         }
         break;
 
@@ -384,7 +385,7 @@ config_all_vlans(enum port_vlan_mode vlan_mode, int vlan,
 
     case PORT_VLAN_NATIVE_UNTAGGED:
         if (vlan != -1) {
-            bcmsdk_add_native_untagged_ports(vlan, pbm);
+            bcmsdk_add_native_untagged_ports(vlan, pbm, false);
         }
 
         add_trunked_vlans(trunks, pbm);
@@ -412,7 +413,7 @@ unconfig_all_vlans(enum port_vlan_mode vlan_mode, int vlan,
     switch (vlan_mode) {
     case PORT_VLAN_ACCESS:
         if (vlan != -1) {
-            bcmsdk_del_access_ports(vlan, pbm, false);
+            bcmsdk_del_access_ports(vlan, pbm);
         }
         break;
 
@@ -430,7 +431,7 @@ unconfig_all_vlans(enum port_vlan_mode vlan_mode, int vlan,
 
     case PORT_VLAN_NATIVE_UNTAGGED:
         if (vlan != -1) {
-            bcmsdk_del_native_untagged_ports(vlan, pbm);
+            bcmsdk_del_native_untagged_ports(vlan, pbm, false);
         }
 
         del_trunked_vlans(trunks, pbm);
@@ -535,43 +536,46 @@ static void
 bundle_destroy(struct ofbundle *bundle)
 {
     struct bcmsdk_provider_node *ofproto = bundle->ofproto;;
-    struct bcmsdk_provider_ofport_node *port, *next_port;
+    struct bcmsdk_provider_ofport_node *port = NULL, *next_port;
+    const char *type;
 
     if (!bundle) {
         return;
     }
 
-    /* Delete the KNET vlan filters if they were configured */
-    if(bundle->vlan_knet_filter_ids[0]) {
-        bcmsdk_knet_filter_delete(NULL, bundle->hw_unit,
-                                  bundle->vlan_knet_filter_ids[0]);
+    LIST_FOR_EACH_SAFE (port, next_port, bundle_node, &bundle->ports) {
+
+        VLOG_DBG("port_t->up.ofp_port = %d\n", port->up.ofp_port);
+        type = netdev_get_type(port->up.netdev);
+
+        port_unconfigure_ips(bundle);
+        if (strcmp(type, OVSREC_INTERFACE_TYPE_SYSTEM) == 0) {
+
+            VLOG_DBG("destroy the l3 interface\n");
+            if (bundle->l3_intf) {
+                ops_routing_disable_l3_interface(bundle->hw_unit,
+                        bundle->hw_port,
+                        bundle->l3_intf,
+                        port->up.netdev);
+                bundle->l3_intf = NULL;
+            }
+
+            /* Unconfigure any existing VLAN in h/w. */
+            unconfig_all_vlans(bundle->vlan_mode, bundle->vlan,
+                    bundle->trunks, bundle->pbm);
+        } else if (strcmp(type, OVSREC_INTERFACE_TYPE_VLANSUBINT) == 0) {
+            VLOG_DBG("destroy the subinterface\n");
+            ops_routing_disable_l3_subinterface(bundle->hw_unit,
+                    bundle->hw_port,
+                    bundle->l3_intf,
+                    port->up.netdev);
+
+        } else if (strcmp(type, OVSREC_INTERFACE_TYPE_INTERNAL) == 0) {
+            VLOG_DBG("destroy the internal interface\n");
+            opennsl_l3_intf_delete(bundle->hw_unit, bundle->l3_intf);
+        }
+        bundle_del_port(port);
     }
-
-    if(bundle->vlan_knet_filter_ids[1]) {
-        bcmsdk_knet_filter_delete(NULL, bundle->hw_unit,
-                                  bundle->vlan_knet_filter_ids[1]);
-    }
-
-    if(bundle->vlan_knet_filter_ids[2]) {
-        bcmsdk_knet_filter_delete(NULL, bundle->hw_unit,
-                                  bundle->vlan_knet_filter_ids[2]);
-    }
-
-    memset(bundle->vlan_knet_filter_ids, 0, sizeof(bundle->vlan_knet_filter_ids));
-
-    /* Unconfigure and free the l3 port/bundle ip related stuff */
-    port_unconfigure_ips(bundle);
-
-    if (bundle->l3_intf) {
-        ops_routing_disable_l3_interface(bundle->hw_unit,
-                                        bundle->hw_port,
-                                        bundle->l3_intf);
-        bundle->l3_intf = NULL;
-    }
-
-    /* Unconfigure any existing VLAN in h/w. */
-    unconfig_all_vlans(bundle->vlan_mode, bundle->vlan,
-                       bundle->trunks, bundle->pbm);
 
     VLOG_DBG("%s: Deallocate bond_hw_handle# %d for port %s",
              __FUNCTION__, bundle->bond_hw_handle, bundle->name);
@@ -579,11 +583,8 @@ bundle_destroy(struct ofbundle *bundle)
     if (bundle->bond_hw_handle != -1) {
         bcmsdk_destroy_lag(bundle->bond_hw_handle);
     }
-    ofproto = bundle->ofproto;
 
-    LIST_FOR_EACH_SAFE (port, next_port, bundle_node, &bundle->ports) {
-        bundle_del_port(port);
-    }
+    ofproto = bundle->ofproto;
 
     hmap_remove(&ofproto->bundles, &bundle->hmap_node);
     bitmap_free(bundle->trunks);
@@ -956,7 +957,7 @@ bundle_set(struct ofproto *ofproto_, void *aux,
 
     if (s == NULL) {
         if (bundle != NULL) {
-            VLOG_DBG("  deleting bundle %s", bundle->name);
+            VLOG_DBG("deleting bundle %s", bundle->name);
             bundle_destroy(bundle);
         }
         return 0;
@@ -986,7 +987,6 @@ bundle_set(struct ofproto *ofproto_, void *aux,
         bundle->bond_hw_handle = -1;
         bundle->lacp = NULL;
         bundle->bond = NULL;
-        memset(bundle->vlan_knet_filter_ids, 0, sizeof(bundle->vlan_knet_filter_ids));
 
         bundle->ip4_address = NULL;
         bundle->ip6_address = NULL;
@@ -999,7 +999,7 @@ bundle_set(struct ofproto *ofproto_, void *aux,
         bundle->name = xstrdup(s->name);
     }
 
-    VLOG_DBG("%s: bundle->name=%s, bundle->bond_hw_handle=%d, "
+    VLOG_INFO("%s: bundle->name=%s, bundle->bond_hw_handle=%d, "
              "n_slaves=%d, s->bond=%p, "
              "s->hw_bond_should_exist=%d, "
              "s->bond_handle_alloc_only=%d",
@@ -1059,7 +1059,7 @@ bundle_set(struct ofproto *ofproto_, void *aux,
         return 0;
     }
 
-    VLOG_INFO("s->n_slaves: %zu\n", s->n_slaves);
+    VLOG_DBG("s->n_slaves: %zu\n", s->n_slaves);
 
     /* For l3-loopback interfaces, just configure ips */
     port = get_ofp_port(bundle->ofproto, s->slaves[0]);
@@ -1068,59 +1068,6 @@ bundle_set(struct ofproto *ofproto_, void *aux,
         port_ip_reconfigure(ofproto_, bundle, s);
         VLOG_DBG("Done with l3 loopback configurations");
         goto done;
-    }
-
-    /*
-     * Configure  KNET filter for vlan interfaces in bridge
-     * Vlan ports will have a single interface of type
-     * internal and have vlan_id set.
-     * Skip this for bridge internal interface which will have same
-     * name as bridge (ofproto->up.name)
-     * */
-    if (!ofproto->vrf && s->n_slaves == 1 &&
-        strcmp(bundle->name, ofproto->up.name)) {
-
-        struct bcmsdk_provider_ofport_node *port;
-        opennsl_vlan_t vlan_id;
-
-        port = get_ofp_port(bundle->ofproto, s->slaves[0]);
-        type = netdev_get_type(port->up.netdev);
-        vlan_id = s->vlan;
-
-        VLOG_DBG("bridge %s interface type %s vland id %d",
-                  ofproto->up.name, type, vlan_id);
-        if ((strcmp(type, OVSREC_INTERFACE_TYPE_INTERNAL) == 0) && vlan_id) {
-            /* if vlan changed/removed or if port status is disabled */
-            if (bundle->vlan != vlan_id || !s->enable) {
-               /* Delete the KNET vlan filters if they were configured */
-               if (bundle->vlan_knet_filter_ids[0]) {
-                    bcmsdk_knet_filter_delete(NULL, bundle->hw_unit,
-                                              bundle->vlan_knet_filter_ids[0]);
-                }
-
-                if(bundle->vlan_knet_filter_ids[1]) {
-                    bcmsdk_knet_filter_delete(NULL, bundle->hw_unit,
-                                             bundle->vlan_knet_filter_ids[1]);
-                }
-
-                if (bundle->vlan_knet_filter_ids[2]) {
-                    bcmsdk_knet_filter_delete(NULL, bundle->hw_unit,
-                                              bundle->vlan_knet_filter_ids[2]);
-                }
-                memset(bundle->vlan_knet_filter_ids, 0,
-                       sizeof(bundle->vlan_knet_filter_ids));
-            }
-
-            if (bundle->vlan_knet_filter_ids[0] == 0 && s->enable) {
-                VLOG_INFO("Creating KNET filters for vlan interface vlan%d",
-                           vlan_id);
-                bcmsdk_knet_vlan_interface_filter_create(ofproto->up.name,
-                                           vlan_id,
-                                           &bundle->vlan_knet_filter_ids[0]);
-            }
-            /* Configuration for internal vlan interface is done */
-            goto done;
-        }
     }
 
     /* for now, we don't support L3 on top of LAG */
@@ -1134,11 +1081,13 @@ bundle_set(struct ofproto *ofproto_, void *aux,
 
         port = get_ofp_port(bundle->ofproto, s->slaves[0]);
         if (!port) {
-            VLOG_ERR("slave is not in the ports");
+            VLOG_ERR("slave is not in the ports\n");
         }
 
         type = netdev_get_type(port->up.netdev);
+        VLOG_DBG("type = %s\n", type);
         netdev_bcmsdk_get_hw_info(port->up.netdev, &hw_unit, &hw_port, mac);
+        VLOG_DBG("Got all important info hw_unit = %d, hw_port = %d\n", hw_unit, hw_port);
 
         /* For internal vlan interfaces, we get vlanid from tag column
          * For regular l3 interfaces we will get from internal vlan id from
@@ -1146,6 +1095,10 @@ bundle_set(struct ofproto *ofproto_, void *aux,
          */
         if (strcmp(type, OVSREC_INTERFACE_TYPE_INTERNAL) == 0) {
             vlan_id = s->vlan;
+        } else if (strcmp(type, OVSREC_INTERFACE_TYPE_VLANSUBINT) == 0) {
+            VLOG_DBG("get subinterface vlan");
+            netdev_bcmsdk_get_subintf_vlan(port->up.netdev, &vlan_id);
+            VLOG_DBG("subinterface vlan = %d\n", vlan_id);
         } else {
             vlan_id = smap_get_int(s->port_options[PORT_HW_CONFIG],
                                    "internal_vlan_id", 0);
@@ -1154,8 +1107,20 @@ bundle_set(struct ofproto *ofproto_, void *aux,
         if (bundle->l3_intf) {
             /* if reserved vlan changed/removed or if port status is disabled */
             if (bundle->l3_intf->l3a_vid != vlan_id || !s->enable) {
-                ops_routing_disable_l3_interface(hw_unit, hw_port,
-                                                 bundle->l3_intf);
+                VLOG_DBG("call disable s-enable = %d or vid(%d) != vlan_id(%d)\n",
+                           s->enable, bundle->l3_intf->l3a_vid, vlan_id);
+                if (strcmp(type, OVSREC_INTERFACE_TYPE_VLANSUBINT) == 0) {
+                    VLOG_DBG("disable l3 subinterface");
+                    ops_routing_disable_l3_subinterface(hw_unit, hw_port,
+                                                        bundle->l3_intf,
+                                                        port->up.netdev);
+                } else if (strcmp(type, OVSREC_INTERFACE_TYPE_SYSTEM) == 0) {
+                    ops_routing_disable_l3_interface(hw_unit, hw_port,
+                                                     bundle->l3_intf,
+                                                     port->up.netdev);
+                } else if (strcmp(type, OVSREC_INTERFACE_TYPE_INTERNAL) == 0) {
+                    opennsl_l3_intf_delete(hw_unit, bundle->l3_intf);
+                }
                 bundle->l3_intf = NULL;
                 bundle->hw_unit = 0;
                 bundle->hw_port = -1;
@@ -1166,15 +1131,26 @@ bundle_set(struct ofproto *ofproto_, void *aux,
 
             /* If interface type is not internal create l3 interface, else
              * create an l3 vlan interface on every hw_unit. */
-            if (strcmp(type, OVSREC_INTERFACE_TYPE_INTERNAL) != 0) {
+            if (strcmp(type, OVSREC_INTERFACE_TYPE_SYSTEM) == 0) {
+                VLOG_DBG("enable system l3 interfaces\n");
                 bundle->l3_intf = ops_routing_enable_l3_interface(
                         hw_unit, hw_port, ofproto->vrf_id, vlan_id,
-                        mac);
+                        mac, port->up.netdev);
                 if (bundle->l3_intf) {
                     bundle->hw_unit = hw_unit;
                     bundle->hw_port = hw_port;
                 }
-            } else {
+            } else if (strcmp(type, OVSREC_INTERFACE_TYPE_VLANSUBINT) == 0) {
+                VLOG_DBG("enable subinetrface l3\n");
+                int unit = 0;
+                bundle->l3_intf = ops_routing_enable_l3_subinterface(
+                        unit, hw_port, ofproto->vrf_id, vlan_id,
+                        mac, port->up.netdev);
+                if (bundle->l3_intf) {
+                    bundle->hw_unit = hw_unit;
+                    bundle->hw_port = hw_port;
+                }
+            } else if (strcmp(type, OVSREC_INTERFACE_TYPE_INTERNAL) == 0) {
                 int unit = 0;
                 for (unit = 0; unit <= MAX_SWITCH_UNIT_ID; unit++) {
                     bundle->l3_intf = ops_routing_enable_l3_vlan_interface(
@@ -1255,6 +1231,7 @@ bundle_set(struct ofproto *ofproto_, void *aux,
      * and s->trunks is NULL, that means the bundle is implicitly trunking
      * all VLANs.  Use the global bitmap of all VLANs.
      */
+    VLOG_DBG("vlan mode = %d\n", s->vlan_mode);
     if (s->vlan_mode != PORT_VLAN_ACCESS) {
         if (s->trunks != NULL) {
             new_trunks = s->trunks;
@@ -1305,7 +1282,7 @@ bundle_set(struct ofproto *ofproto_, void *aux,
             if (bundle->vlan_mode == PORT_VLAN_ACCESS) {
                 /* Was ACCESS type, becoming one of the TRUNK types. */
                 if (bundle->vlan != -1) {
-                    bcmsdk_del_access_ports(bundle->vlan, temp_pbm, false);
+                    bcmsdk_del_access_ports(bundle->vlan, temp_pbm);
                 }
 
                 /* Add all new trunk VLANs. */
@@ -1323,7 +1300,7 @@ bundle_set(struct ofproto *ofproto_, void *aux,
 
                 /* Add new access VLAN. */
                 if (s->vlan != -1) {
-                    bcmsdk_add_access_ports(s->vlan, temp_pbm, false);
+                    bcmsdk_add_access_ports(s->vlan, temp_pbm);
                 }
 
                 /* Should have nothing else to do... */
@@ -1348,7 +1325,7 @@ bundle_set(struct ofproto *ofproto_, void *aux,
                     break;
                 case PORT_VLAN_NATIVE_UNTAGGED:
                     if (bundle->vlan != -1) {
-                        bcmsdk_del_native_untagged_ports(bundle->vlan, temp_pbm);
+                        bcmsdk_del_native_untagged_ports(bundle->vlan, temp_pbm, false);
 
                         /* If the native VLAN we just unconfigured is also listed
                          * explicitly as part of the trunks, need to add it back. */
@@ -1372,7 +1349,7 @@ bundle_set(struct ofproto *ofproto_, void *aux,
                     break;
                 case PORT_VLAN_NATIVE_UNTAGGED:
                     if (s->vlan != -1) {
-                        bcmsdk_add_native_untagged_ports(s->vlan, temp_pbm);
+                        bcmsdk_add_native_untagged_ports(s->vlan, temp_pbm, false);
                     }
                     break;
                 case PORT_VLAN_ACCESS:
@@ -1387,10 +1364,10 @@ bundle_set(struct ofproto *ofproto_, void *aux,
             switch (bundle->vlan_mode) {
             case PORT_VLAN_ACCESS:
                 if (bundle->vlan != -1) {
-                    bcmsdk_del_access_ports(bundle->vlan, temp_pbm, false);
+                    bcmsdk_del_access_ports(bundle->vlan, temp_pbm);
                 }
                 if (s->vlan != -1) {
-                    bcmsdk_add_access_ports(s->vlan, temp_pbm, false);
+                    bcmsdk_add_access_ports(s->vlan, temp_pbm);
                 }
                 /* For ACCESS ports, nothing more to do. */
                 goto done;
@@ -1410,7 +1387,7 @@ bundle_set(struct ofproto *ofproto_, void *aux,
                 break;
             case PORT_VLAN_NATIVE_UNTAGGED:
                 if (bundle->vlan != -1) {
-                    bcmsdk_del_native_untagged_ports(bundle->vlan, temp_pbm);
+                    bcmsdk_del_native_untagged_ports(bundle->vlan, temp_pbm, false);
                     /* If the native VLAN we just unconfigured is also listed
                      * explicitly as part of the trunks, need to add it back. */
                     if (bitmap_is_set(bundle->trunks, bundle->vlan)) {
@@ -1418,7 +1395,7 @@ bundle_set(struct ofproto *ofproto_, void *aux,
                     }
                 }
                 if (s->vlan != -1) {
-                    bcmsdk_add_native_untagged_ports(bundle->vlan, temp_pbm);
+                    bcmsdk_add_native_untagged_ports(bundle->vlan, temp_pbm, false);
                 }
                 break;
             case PORT_VLAN_TRUNK:
@@ -1501,6 +1478,7 @@ set_vlan(struct ofproto *ofproto, int vid, bool add)
     if (add) {
         /* Create VLAN first. */
         bcmsdk_create_vlan(vid, false);
+        set_created_by_user(vid, 1);
 
         /* Add this VLAN to any port that's implicitly trunking all VLANs. */
         HMAP_FOR_EACH (bundle, hmap_node, &bcm_ofproto->bundles) {
@@ -1518,6 +1496,7 @@ set_vlan(struct ofproto *ofproto, int vid, bool add)
                 bcmsdk_del_trunk_ports(vid, bundle->pbm);
             }
         }
+        set_created_by_user(vid, 0);
 
         /* Delete VLAN. */
         bcmsdk_destroy_vlan(vid, false);
