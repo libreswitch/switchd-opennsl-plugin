@@ -14,7 +14,7 @@
 # WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 # License for the specific language governing permissions and limitations
 # under the License.
-
+'''
 import pytest
 from opstestfw import *
 from opstestfw.switch.CLI import *
@@ -22,6 +22,7 @@ from opstestfw.switch.OVS import *
 
 # Topology definition
 topoDict = {"topoExecution": 1000,
+            "topoType": "physical",
             "topoTarget": "dut01",
             "topoDevices": "dut01 wrkston01",
             "topoLinks": "lnk01:dut01:wrkston01",
@@ -798,3 +799,4 @@ class Test_subinterface_creation:
         dut01Obj = self.topoObj.deviceObjGet(device="dut01")
         wrkston01Obj = self.topoObj.deviceObjGet(device="wrkston01")
         subinterface_creation(switch=dut01Obj, host1=wrkston01Obj)
+'''
