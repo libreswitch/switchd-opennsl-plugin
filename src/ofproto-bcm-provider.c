@@ -565,16 +565,21 @@ bundle_destroy(struct ofbundle *bundle)
                     bundle->trunks, bundle->pbm);
         } else if (strcmp(type, OVSREC_INTERFACE_TYPE_VLANSUBINT) == 0) {
             VLOG_DBG("destroy the subinterface\n");
-            ops_routing_disable_l3_subinterface(bundle->hw_unit,
-                    bundle->hw_port,
-                    bundle->l3_intf,
-                    port->up.netdev);
+            if (bundle->l3_intf) {
+                ops_routing_disable_l3_subinterface(bundle->hw_unit,
+                        bundle->hw_port,
+                        bundle->l3_intf,
+                        port->up.netdev);
+                bundle->l3_intf = NULL;
+            }
 
         } else if (strcmp(type, OVSREC_INTERFACE_TYPE_INTERNAL) == 0) {
             VLOG_DBG("destroy the internal interface\n");
-            opennsl_l3_intf_delete(bundle->hw_unit, bundle->l3_intf);
+            if (bundle->l3_intf) {
+                opennsl_l3_intf_delete(bundle->hw_unit, bundle->l3_intf);
+                bundle->l3_intf = NULL;
+            }
         }
-        bundle_del_port(port);
     }
 
     VLOG_DBG("%s: Deallocate bond_hw_handle# %d for port %s",
@@ -585,6 +590,10 @@ bundle_destroy(struct ofbundle *bundle)
     }
 
     ofproto = bundle->ofproto;
+
+    LIST_FOR_EACH_SAFE (port, next_port, bundle_node, &bundle->ports) {
+        bundle_del_port(port);
+    }
 
     hmap_remove(&ofproto->bundles, &bundle->hmap_node);
     bitmap_free(bundle->trunks);
