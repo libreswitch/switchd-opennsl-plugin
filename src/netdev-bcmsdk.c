@@ -253,13 +253,14 @@ netdev_bcmsdk_set_config(struct netdev *netdev_, const struct smap *args)
     struct netdev_bcmsdk *parent_netdev = NULL;
     int rc = 0;
 
-    VLOG_INFO("netdev set_config for interface %s\n", netdev->up.name);
+    VLOG_DBG("netdev set_config for interface %s\n", netdev->up.name);
 
     ovs_mutex_lock(&netdev->mutex);
     const char *parent_intf_name = smap_get(args, "parent_intf_name");
-    const char *vlanid = smap_get(args, "vlan_id");
+    const char *vlanid = smap_get(args, "vlan");
 
-    VLOG_DBG("netdev set_config get info from  parent interface %s", parent_intf_name);
+    VLOG_DBG("netdev set_config gets info for parent interface %s, and vlan = %s",
+              parent_intf_name, vlanid);
     if (parent_intf_name) {
         parent = netdev_from_name(parent_intf_name);
         if (parent != NULL) {
