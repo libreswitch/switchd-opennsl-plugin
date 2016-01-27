@@ -21,6 +21,7 @@
      * [Buffer monitoring](#buffer-monitoring)
      * [L3 loopback interface](#l3-loopback-interface)
      * [L3 subinterface](#l3-subinterface)
+     * [L3 interface statistics](#l3-interface-statistics)
    * [References](#references)
 
 ## Overview
@@ -190,6 +191,9 @@ Following are the actions done on subinterface vlan config change:
 - Create a new VLAN and update the trunk and the subinterface bitmap with a parent port bit, if the VLAN does not exist.
 
 If a VLAN is deleted without deleting the subinterface, the VLAN is not deleted from the ASIC, and the parent port bit is left set in the trunk bitmap and subinterface bitmap.
+
+### L3 interface statistics
+For L3 interface statistics, Field Processor(FP) packet qualification rules are programmed to count unicast and multicast IPv4 and IPv6 packet types. These FPs are programed when an L3 interface is created and removed when an L3 interface is removed. These FP's have statistics objects associated with them which are periodically polled to get the number of L3 packets and bytes.
 
 
 ## References
