@@ -1,4 +1,4 @@
-/* Copyright (C) 2015 Hewlett Packard Enterprise Development LP
+/* Copyright (C) 2015. 2016 Hewlett Packard Enterprise Development LP
  * All Rights Reserved.
 
  * Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -1671,13 +1671,13 @@ ops_l3_mac_move_add(int   unit,
 
    memset(egress_id_key, 0, sizeof(egress_id_key));
    snprintf(egress_id_key, 24, "%d:" ETH_ADDR_FMT, l2addr->vid,
-                               ETH_ADDR_ARGS(l2addr->mac));
+                               ETH_ADDR_BYTES_ARGS(l2addr->mac));
 
    egress_id_node = ops_egress_id_lookup(egress_id_key);
    if (egress_id_node == NULL) {
        VLOG_INFO("Egress object id NOT found in process cache, possibly "
                  "deleted: unit=%d, key=%s, vlan=%d, mac=" ETH_ADDR_FMT,
-                 unit, egress_id_key, l2addr->vid, ETH_ADDR_ARGS(l2addr->mac));
+                 unit, egress_id_key, l2addr->vid, ETH_ADDR_BYTES_ARGS(l2addr->mac));
 
        /* Unexpected condition. This shouldn't happen. */
        return;
@@ -1692,7 +1692,7 @@ ops_l3_mac_move_add(int   unit,
        VLOG_ERR("Egress object not found in ASIC for given vlan/mac. rc=%s "
                  "unit=%d, key=%s, vlan=%d, mac=" ETH_ADDR_FMT ", egr-id: %d",
                  opennsl_errmsg(rc), unit, egress_id_key, l2addr->vid,
-                 ETH_ADDR_ARGS(l2addr->mac), egress_id_node->egress_object_id);
+                 ETH_ADDR_BYTES_ARGS(l2addr->mac), egress_id_node->egress_object_id);
 
        goto done;
    }
@@ -1703,7 +1703,7 @@ ops_l3_mac_move_add(int   unit,
 
    VLOG_DBG("Input: unit=%d, flags=0x%x, port=%d, vlan=%d, mac=" ETH_ADDR_FMT
              " egr-id=%d, intf=%d", unit, egress_object.flags, egress_object.port,
-             egress_object.vlan, ETH_ADDR_ARGS(egress_object.mac_addr),
+             egress_object.vlan, ETH_ADDR_BYTES_ARGS(egress_object.mac_addr),
              egress_id_node->egress_object_id, egress_object.intf);
 
    rc = opennsl_l3_egress_create(unit, egress_object.flags, &egress_object,
@@ -1737,7 +1737,7 @@ ops_l3_mac_move_delete(int   unit,
 
    memset(egress_id_key, 0, sizeof(egress_id_key));
    snprintf(egress_id_key, 24, "%d:" ETH_ADDR_FMT, l2addr->vid,
-                               ETH_ADDR_ARGS(l2addr->mac));
+                               ETH_ADDR_BYTES_ARGS(l2addr->mac));
 
    /* Create an egress object with old/deleted port and save in hashmap */
 
@@ -1752,7 +1752,7 @@ ops_l3_mac_move_delete(int   unit,
    if (OPENNSL_FAILURE(rc)) {
        VLOG_ERR("Failed retrieving egress object id: rc=%s, unit=%d, vlan=%d, "
                 "mac=" ETH_ADDR_FMT, opennsl_errmsg(rc), unit, l2addr->vid,
-                ETH_ADDR_ARGS(l2addr->mac));
+                ETH_ADDR_BYTES_ARGS(l2addr->mac));
 
        return;
    }
