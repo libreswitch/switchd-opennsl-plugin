@@ -42,6 +42,11 @@ enum ops_route_state {
     OPS_ROUTE_STATE_ECMP
 };
 
+enum ecmp_res_dynamic_size {
+    ECMP_DYN_SIZE_ZERO = 0,
+    ECMP_DYN_SIZE_512  = 512
+};
+
 struct ops_route {
     struct hmap_node node;          /* all_routes */
     int vrf;
