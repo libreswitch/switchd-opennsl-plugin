@@ -10,6 +10,15 @@
 	- [Test Result Criteria](#test-result-criteria)
 		- [Test Pass Criteria](#test-pass-criteria)
 		- [Test Fail Criteria](#test-fail-criteria)
+- [ECMP resilient test cases](#ecmp-resilient-test-cases)
+        - [Objective](#objective-1)
+        - [Requirements](#requirements-1)
+        - [Setup](#setup-1)
+                - [Topology Diagram](#topology-diagram-1)
+        - [Description](#description-1)
+        - [Test Result Criteria](#test-result-criteria-1)
+                - [Test Pass Criteria](#test-pass-criteria-1)
+                - [Test Fail Criteria](#test-fail-criteria-1)
 
 ## Test loopback creation and deletion
 ### Objective
@@ -41,3 +50,32 @@ Verify creating a loopback interface, and assigning an IP address to it. Also ve
 The first ping passes and the second ping fails.
 #### Test Fail Criteria
 The first ping fails and the second ping passes.
+
+## ECMP resilient test cases
+### Objective
+The ECMP resiliency is toggled and all the l3 ecmp egress objects must reflect the appropriate state.
+
+### Requirements
+ - RTL setup with physical switch
+
+### Setup
+#### Topology Diagram
+```
+[switch1] <==> [switch2]
+```
+
+### Description
+1. Configure three interfaces with IP addresses between switch1 and switch2.
+2. Configure static routes with three different nexthops ie the 3 links between switch1 and switch2.
+3. Check for the 'ovs-appctl' command to see if ECMP resiliency is set.
+4. Disable the ECMP resiliency, and check the ovs-appctl command to see if ecmp resiliency is unset.
+
+### Test Result Criteria
+#### Test Pass Criteria
+   If ECMP resiliency is enabled for all l3ecmp objects in default state.
+   if ECMP resiliency is disabled when disabled through configuration.
+   Dynamic Size is 512 when resiliency is enabled and 0 when disabled.
+   All l3 ecmp egress objects should adhere to the above criteria.
+
+#### Test Fail Criteria
+   When resiliency flag in the l3 ecmp egress object is false when enabled, or set to true when disabled.

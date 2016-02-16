@@ -145,7 +145,7 @@ The vlan_mode field has four possible values:
 This functionality is handled in the ofproto layer.
 
 ### Layer3 routing
-The switchd plugin supports layer3 routing for IPv4 and IPv6 protocols. The ops-switchd daemon learns route/nexthop from the OVSDB and pushes it down to the switchd plugin. Plugin intern calls the opennsl API to populate the host, the longest prefix match (LPM), and the ECMP table in the ASIC. ECMP hashing currently supports 16-bit CRC-CCITT. By default hashing tuple is source ip, destination ip, source port, and destination port. Tuple element can be included/excuded in the hash calculation through CLI.
+The switchd plugin supports layer3 routing for IPv4 and IPv6 protocols. The ops-switchd daemon learns route/nexthop from the OVSDB and pushes it down to the switchd plugin. Plugin intern calls the opennsl API to populate the host, the longest prefix match (LPM), and the ECMP table in the ASIC. ECMP hashing currently supports 16-bit CRC-CCITT. By default hashing tuple is source ip, destination ip, source port, and destination port. Tuple element can be included/excuded in the hash calculation through CLI. ECMP resiliency is enabled by default where the dynamic mode and size are set to true and 512 respectively. Resiliency can be enabled or disabled through CLI.
 
 Layer3 functionality is handled in the ofproto layer.
 
