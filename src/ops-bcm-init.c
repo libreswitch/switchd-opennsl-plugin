@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Hewlett-Packard Development Company, L.P.
+ * Copyright (C) 2015-2016 Hewlett-Packard Development Company, L.P.
  * All Rights Reserved.
  *
  *   Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -33,6 +33,7 @@
 #include "ops-routing.h"
 #include "ops-vlan.h"
 #include "ops-debug.h"
+#include "ops-stg.h"
 
 VLOG_DEFINE_THIS_MODULE(ops_bcm_init);
 
@@ -104,6 +105,12 @@ ops_bcm_appl_init(void)
         rc = ops_l3_init(unit);
         if (rc) {
             VLOG_ERR("L3 subsystem init failed");
+            return 1;
+        }
+
+        rc = ops_stg_init(unit);
+        if (rc) {
+            VLOG_ERR("STG subsystem init failed");
             return 1;
         }
     }

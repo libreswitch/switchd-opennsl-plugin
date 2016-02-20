@@ -36,11 +36,6 @@
 
 VLOG_DEFINE_THIS_MODULE(ops_vlan);
 
-#define OPS_VLAN_MIN       0
-#define OPS_VLAN_MAX       4095
-#define OPS_VLAN_COUNT     (OPS_VLAN_MAX - OPS_VLAN_MIN + 1)
-#define OPS_VLAN_VALID(v)  ((v)>OPS_VLAN_MIN && (v)<OPS_VLAN_MAX)
-
 typedef struct ops_vlan_data {
 
     int vid;

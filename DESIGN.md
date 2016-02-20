@@ -30,6 +30,7 @@
                 - [Egress traffic](#egress-traffic)
                 - [CoPP classes](#copp-classes)
                 - [Policer mode](#policer-mode)
+        - [Spanning Tree Group](#spanning-tree-group)
 - [References](#references)
 
 ## Overview
@@ -209,6 +210,7 @@ Creating layer 3 lag:
 - Add members to the internal VLAN bitmap created for LAG.
 - Add members to the layer 3 LAG bundle.
 - Create knet filters for send packets to their corresponding linux interface for each member added.
+
 - Update IP address for LAG.
 - If the interface added to LAG is already a layer 3 interface, destroy the bundle for that interface before adding to LAG.
 - Update LAG ID in the egress object which is used by the nexthop table.
@@ -333,6 +335,31 @@ To support a new CoPP class:
 
 #### Policer mode
 A color blind tri-color single rate policer is used for CoPP. The committed rate is set as the rate limit numbers shown in the preceeding table. The committed burst size is currently configured to the same value as the rate limit. Packets marked red are dropped.
+
+### Spanning Tree Group(STG)
+The switchd-opennsl plugin supports spanning tree group creation/deletion/update. The ops-switchd daemon learns spanning tree instance updates(instance creation, vlan to instance mapping, instance-port states) from the OVSDB and pushes it down to the switchd opennsl plugin. Plugin intern calls the opennsl API to populate the STG table in the ASIC.
+
+
+Following are the actions done on spanning tree instance creation:
+- Create a STG entry in ASIC if it does not already exist.
+- update the internal cache.
+
+Following are the actions done on spanning tree instance deletion:
+- Delete the STG entry in ASIC if it already exists.
+- update the internal cache.
+
+Following are the actions done on spanning tree instance to vlan add:
+- update the VLAN table entry with STG_ID associated to vlan.
+- update the internal cache
+
+Following are the actions done on spanning tree instance to vlan delete:
+- update the VLAN table entry with default STG_ID.
+- update the internal cache
+
+Following are the actions done on spanning tree instance port state update:
+- update the port state in STG entry with the given port state.
+- valid port states are Disabled(2'b00), Blocking(2'b01), Learning(2'b10), Forwarding(2'b11)
+- update the internal cache
 
 ## References
 [OpenvSwitch Porting Guide](http://git.openvswitch.org/cgi-bin/gitweb.cgi?p=openvswitch;a=blob;f=PORTING)

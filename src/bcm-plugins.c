@@ -26,6 +26,7 @@
 #include "qos.h"
 #include "plugin-extensions.h"
 #include "asic-plugin.h"
+#include "ops-stg.h"
 
 #define init libovs_bcm_plugin_LTX_init
 #define run libovs_bcm_plugin_LTX_run
@@ -39,9 +40,13 @@ VLOG_DEFINE_THIS_MODULE(bcm_plugin);
 
 struct asic_plugin_interface opennsl_interface ={
     /* The new functions that need to be exported, can be declared here*/
-    .set_port_qos_cfg = &set_port_qos_cfg,
-    .set_cos_map = &set_cos_map,
-    .set_dscp_map = &set_dscp_map,
+    .create_stg = &create_stg,
+    .delete_stg = &delete_stg,
+    .add_stg_vlan = &add_stg_vlan,
+    .remove_stg_vlan = &remove_stg_vlan,
+    .set_stg_port_state = &set_stg_port_state,
+    .get_stg_port_state = &get_stg_port_state,
+    .get_stg_default = &get_stg_default,
 };
 
 /* To avoid compiler warning... */

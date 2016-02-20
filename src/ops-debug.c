@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Hewlett-Packard Development Company, L.P.
+ * Copyright (C) 2015-2016 Hewlett-Packard Development Company, L.P.
  * All Rights Reserved.
  *
  *   Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -43,6 +43,7 @@
 #include "ops-knet.h"
 #include "ofproto-bcm-provider.h"
 #include "ops-port.h"
+#include "ops-stg.h"
 
 VLOG_DEFINE_THIS_MODULE(ops_debug);
 
@@ -230,6 +231,15 @@ bcm_plugin_debug(struct unixctl_conn *conn, int argc,
                 vid = atoi(ch);
             }
             ops_vlan_dump(&ds, vid);
+            goto done;
+
+        } else if (!strcmp(ch, "stg")) {
+            int stgid = -1;
+
+            if (NULL != (ch = NEXT_ARG())) {
+                stgid = atoi(ch);
+            }
+            ops_stg_dump(&ds, stgid);
             goto done;
 
         } else if (!strcmp(ch, "knet")) {

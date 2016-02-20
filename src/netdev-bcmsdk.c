@@ -858,6 +858,43 @@ netdev_bcmsdk_link_state_callback(int hw_unit, int hw_id, int link_status)
     // Wakeup poll_block() function.
     seq_change(connectivity_seq_get());
 }
+
+static struct netdev_bcmsdk *
+netdev_find_name(const char *name)
+{
+    struct netdev_bcmsdk *netdev = NULL;
+    bool found = false;
+
+    ovs_mutex_lock(&bcmsdk_list_mutex);
+    LIST_FOR_EACH(netdev, list_node, &bcmsdk_list) {
+        if (strcmp(netdev->up.name, name) == 0) {
+            found = true;
+            break;
+        }
+    }
+    ovs_mutex_unlock(&bcmsdk_list_mutex);
+    return (found == true) ? netdev : NULL;
+}
+
+bool netdev_hw_id_from_name(const char *name, int *hw_unit, int *hw_id)
+{
+    struct netdev_bcmsdk *netdev = NULL;
+
+    if (!name || !hw_unit || !hw_id) {
+        return false;
+    }
+
+    netdev = netdev_find_name(name);
+
+    if (netdev) {
+        *hw_unit = netdev->hw_unit;
+        *hw_id = netdev->hw_id;
+        return true;
+    }
+    else {
+        return false;
+    }
+}
 
 /* Helper functions. */
 

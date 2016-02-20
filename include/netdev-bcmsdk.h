@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Hewlett-Packard Development Company, L.P.
+ * Copyright (C) 2015-2016 Hewlett-Packard Development Company, L.P.
  * All Rights Reserved.
  *
  *   Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -34,4 +34,5 @@ extern void
 netdev_bcmsdk_get_subintf_vlan(struct netdev *netdev, opennsl_vlan_t *vlan);
 extern void handle_bcmsdk_knet_l3_port_filters(struct netdev *netdev_, opennsl_vlan_t vlan_id, bool enable);
 extern void handle_bcmsdk_knet_subinterface_filters(struct netdev *netdev_, bool enable);
+extern bool netdev_hw_id_from_name(const char *name, int *hw_unit, int *hw_id);
 #endif /* netdev-bcmsdk.h */
