@@ -372,7 +372,7 @@ bcmsdk_set_enable_state(int hw_unit, opennsl_port_t hw_port, int enable)
 
     rc = opennsl_port_enable_set(hw_unit, hw_port, enable);
     if (OPENNSL_FAILURE(rc)) {
-        VLOG_ERR("Failed to get port enable state for %d, rc=%s",
+        VLOG_ERR("Failed to set port enable state for %d, rc=%s",
                  hw_port, opennsl_errmsg(rc));
     }
 

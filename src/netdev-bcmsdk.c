@@ -251,54 +251,31 @@ netdev_bcmsdk_set_config(struct netdev *netdev_, const struct smap *args)
     struct netdev_bcmsdk *netdev = netdev_bcmsdk_cast(netdev_);
     struct netdev *parent = NULL;
     struct netdev_bcmsdk *parent_netdev = NULL;
-    int rc = 0;
-
-    VLOG_DBG("netdev set_config for interface %s\n", netdev->up.name);
+    const char *parent_intf_name = NULL;
+    int vlanid = 0;
 
     ovs_mutex_lock(&netdev->mutex);
-    const char *parent_intf_name = smap_get(args, "parent_intf_name");
-    const char *vlanid = smap_get(args, "vlan");
+    parent_intf_name = smap_get(args, "parent_intf_name");
+    vlanid = smap_get_int(args, "vlan", 0);
 
-    VLOG_DBG("netdev set_config gets info for parent interface %s, and vlan = %s",
-              parent_intf_name, vlanid);
-    if (parent_intf_name) {
+    if (parent_intf_name != NULL) {
+        VLOG_DBG("netdev set_config gets info for parent interface %s, and vlan = %d",
+                parent_intf_name, vlanid);
         parent = netdev_from_name(parent_intf_name);
         if (parent != NULL) {
             parent_netdev = netdev_bcmsdk_cast(parent);
-            if (parent_netdev) {
+            if (parent_netdev != NULL) {
                 netdev->hw_id = parent_netdev->hw_id;
+                netdev->hw_unit = parent_netdev->hw_unit;
                 memcpy(netdev->hwaddr, parent_netdev->hwaddr, ETH_ALEN);
-                if (vlanid) {
-                    netdev->subintf_vlan_id = atoi(vlanid);
-                } else {
-                    netdev->subintf_vlan_id = 0;
-                }
+                netdev->subintf_vlan_id = vlanid;
                 netdev->knet_if_id = parent_netdev->knet_if_id;
-            } else {
-                VLOG_ERR("Unable to cast parent port. "
-                        "intf_name=%s parent_name=%s",
-                        netdev->up.name, parent_intf_name);
-                goto error;
             }
-        } else {
-            VLOG_ERR("Unable to find the netdev for the parent port. "
-                    "intf_name=%s parent_name=%s",
-                    netdev->up.name, parent_intf_name);
-            goto error;
         }
-    } else {
-        VLOG_ERR("Unable to get valid parent port. "
-                "intf_name=%s", netdev->up.name);
-        goto error;
     }
 
     ovs_mutex_unlock(&netdev->mutex);
     return 0;
-error:
-    ovs_mutex_unlock(&netdev->mutex);
-
-    rc = -EINVAL;
-    return rc;
 }
 
 static int
@@ -1192,7 +1169,7 @@ static const struct netdev_class bcmsdk_subintf_class = {
     NULL,                       /* get_status */
     NULL,                       /* arp_lookup */
 
-    netdev_internal_bcmsdk_update_flags,
+    netdev_bcmsdk_update_flags,
 
     NULL,                       /* rxq_alloc */
     NULL,                       /* rxq_construct */
