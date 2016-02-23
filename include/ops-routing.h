@@ -77,6 +77,12 @@ struct ops_mac_move_egress_id {
     int     egress_object_id;
 };
 
+struct ops_switch_mac_info {
+    struct hmap_node node;
+    char *mac;
+    int station_id;
+};
+
 /* Hashmap of egress object ID's. Only used for mac-moves.
  * key = vlan_id + mac_addr
  * val = ID of the row in Egress table (in ASIC) for given vlan_id and mac_addr.
