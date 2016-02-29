@@ -1122,7 +1122,7 @@ static const struct netdev_class bcmsdk_subintf_class = {
     netdev_bcmsdk_dealloc,
     NULL,                       /* get_config */
     netdev_bcmsdk_set_config,   /* set_config */
-    NULL,
+    netdev_internal_bcmsdk_set_hw_intf_info,
     NULL,
     NULL,                       /* get_tunnel_config */
     NULL,                       /* build header */
@@ -1169,7 +1169,7 @@ static const struct netdev_class bcmsdk_subintf_class = {
     NULL,                       /* get_status */
     NULL,                       /* arp_lookup */
 
-    netdev_bcmsdk_update_flags,
+    netdev_internal_bcmsdk_update_flags,
 
     NULL,                       /* rxq_alloc */
     NULL,                       /* rxq_construct */
