@@ -19,11 +19,13 @@
 
 #include <openvswitch/vlog.h>
 #include <netdev-provider.h>
-
 #include "bcm.h"
 #include "bufmon-bcm-provider.h"
 #include "netdev-bcmsdk.h"
 #include "ofproto-bcm-provider.h"
+#include "qos.h"
+#include "plugin-extensions.h"
+#include "asic-plugin.h"
 
 #define init libovs_bcm_plugin_LTX_init
 #define run libovs_bcm_plugin_LTX_run
@@ -35,11 +37,28 @@
 
 VLOG_DEFINE_THIS_MODULE(bcm_plugin);
 
+struct asic_plugin_interface opennsl_interface ={
+    /* The new functions that need to be exported, can be declared here*/
+    .set_port_qos_cfg = &set_port_qos_cfg,
+    .set_cos_map = &set_cos_map,
+    .set_dscp_map = &set_dscp_map,
+};
+
 /* To avoid compiler warning... */
 static void netdev_change_seq_changed(const struct netdev *) __attribute__((__unused__));
 
 void
 init(void) {
+
+    struct plugin_extension_interface opennsl_extension;
+    opennsl_extension.plugin_name = ASIC_PLUGIN_INTERFACE_NAME;
+    opennsl_extension.major = ASIC_PLUGIN_INTERFACE_MAJOR;
+    opennsl_extension.minor = ASIC_PLUGIN_INTERFACE_MINOR;
+    opennsl_extension.plugin_interface = (void *)&opennsl_interface;
+
+    register_plugin_extension(&opennsl_extension);
+    VLOG_INFO("The %s asic plugin interface was registered", ASIC_PLUGIN_INTERFACE_NAME);
+
     ovs_bcm_init();
 }
 

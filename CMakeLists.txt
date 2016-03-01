@@ -35,6 +35,7 @@ set (SOURCES ${SRC_DIR}/bcm.c
              ${SRC_DIR}/ops-routing.c
              ${SRC_DIR}/netdev-bcmsdk.c
              ${SRC_DIR}/ofproto-bcm-provider.c
+             ${SRC_DIR}/qos.c
     )
 
 # Define and locate needed libraries and includes
