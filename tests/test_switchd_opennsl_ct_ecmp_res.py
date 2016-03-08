@@ -53,7 +53,17 @@ def ecmp_resilient_config_creation(**kwargs):
         mask=24,
         config=True)
     retCode = retStruct.returnCode()
-    assert retCode == 0, "Failed to configure an ipv4 address on intf 1i on switch 1"
+    assert retCode == 0, "Failed to configure an ipv4 address on intf 1 on switch 1"
+
+    LogOutput('info', "Configuring ipv6 address 1010::2/120 on interface 1")
+    retStruct = InterfaceIpConfig(
+        deviceObj=switch01,
+        interface=switch01.linkPortMapping['lnk01'],
+        addr="1010::2",
+        mask=120,
+        config=True)
+    retCode = retStruct.returnCode()
+    assert retCode == 0, "Failed to configure an ipv6 address on intf 1 on switch 1"
 
     # Enabling interface 2 on switch1
     LogOutput('info', "Enabling interface2 on switch01")
@@ -74,6 +84,16 @@ def ecmp_resilient_config_creation(**kwargs):
     retCode = retStruct.returnCode()
     assert retCode == 0, "Failed to configure an ipv4 address on intf 2 on switch 1"
 
+    LogOutput('info', "Configuring ipv6 address 1020::2/120 on interface 2")
+    retStruct = InterfaceIpConfig(
+        deviceObj=switch01,
+        interface=switch01.linkPortMapping['lnk02'],
+        addr="1020::2",
+        mask=120,
+        config=True)
+    retCode = retStruct.returnCode()
+    assert retCode == 0, "Failed to configure an ipv6 address on intf 2 on switch 1"
+
     # Enabling interface 3 on switch1
     LogOutput('info', "Enabling interface3 on switch01")
     retStruct = InterfaceEnable(
@@ -83,7 +103,7 @@ def ecmp_resilient_config_creation(**kwargs):
     retCode = retStruct.returnCode()
     assert retCode == 0, "Unable to enable interface2 on switch1"
 
-    LogOutput('info', "Configuring ipv4 address 3.0.0.1 on interface 3 switch 2")
+    LogOutput('info', "Configuring ipv4 address 3.0.0.1 on interface 3 switch 1")
     retStruct = InterfaceIpConfig(
         deviceObj=switch01,
         interface=switch01.linkPortMapping['lnk03'],
@@ -92,6 +112,16 @@ def ecmp_resilient_config_creation(**kwargs):
         config=True)
     retCode = retStruct.returnCode()
     assert retCode == 0, "Failed to configure an ipv4 address on intf 3 on switch 1"
+
+    LogOutput('info', "Configuring ipv6 address 1030::2/120 on interface 3")
+    retStruct = InterfaceIpConfig(
+        deviceObj=switch01,
+        interface=switch01.linkPortMapping['lnk03'],
+        addr="1030::2",
+        mask=120,
+        config=True)
+    retCode = retStruct.returnCode()
+    assert retCode == 0, "Failed to configure an ipv6 address on intf 3 on switch 1"
 
     # Enabling interfaces on switch2
     # Enabling interface 1 on switch2
@@ -113,6 +143,16 @@ def ecmp_resilient_config_creation(**kwargs):
     retCode = retStruct.returnCode()
     assert retCode == 0, "Failed to configure an ipv4 address on intf 1 on switch 2"
 
+    LogOutput('info', "Configuring ipv6 address 1010::1/120 on interface 1")
+    retStruct = InterfaceIpConfig(
+        deviceObj=switch02,
+        interface=switch02.linkPortMapping['lnk01'],
+        addr="1010::1",
+        mask=120,
+        config=True)
+    retCode = retStruct.returnCode()
+    assert retCode == 0, "Failed to configure an ipv6 address on intf 1 on switch 2"
+
     # Enabling interface 2 on switch2
     LogOutput('info', "Enabling interface2 on switch02")
     retStruct = InterfaceEnable(
@@ -131,6 +171,16 @@ def ecmp_resilient_config_creation(**kwargs):
         config=True)
     retCode = retStruct.returnCode()
     assert retCode == 0, "Failed to configure an ipv4 address on intf 2"
+
+    LogOutput('info', "Configuring ipv6 address 1020::1/120 on interface 2")
+    retStruct = InterfaceIpConfig(
+        deviceObj=switch02,
+        interface=switch02.linkPortMapping['lnk02'],
+        addr="1020::1",
+        mask=120,
+        config=True)
+    retCode = retStruct.returnCode()
+    assert retCode == 0, "Failed to configure an ipv6 address on intf 2 on switch 2"
 
     # Enabling interface 3 on switch2
     LogOutput('info', "Enabling interface2 on switch02")
@@ -151,6 +201,16 @@ def ecmp_resilient_config_creation(**kwargs):
     retCode = retStruct.returnCode()
     assert retCode == 0, "Failed to configure an ipv4 address on intf 3"
 
+    LogOutput('info', "Configuring ipv6 address 1030::1/120 on interface 2")
+    retStruct = InterfaceIpConfig(
+        deviceObj=switch02,
+        interface=switch02.linkPortMapping['lnk03'],
+        addr="1030::1",
+        mask=120,
+        config=True)
+    retCode = retStruct.returnCode()
+    assert retCode == 0, "Failed to configure an ipv6 address on intf 3 on switch 2"
+
     # Enabling static routes on switch1
     retStruct = switch01.DeviceInteract(command="ip route 70.0.0.0/24 1.0.0.1")
     retCode   = retStruct['returnCode']
@@ -163,6 +223,19 @@ def ecmp_resilient_config_creation(**kwargs):
     retStruct = switch01.DeviceInteract(command="ip route 70.0.0.0/24 3.0.0.1")
     retCode   = retStruct['returnCode']
     assert retCode==0, "Failed to perform ip route 70.0.0.0/24 3.0.0.1"
+
+    # Enabling static IPv6 routes on switch1
+    retStruct = switch01.DeviceInteract(command="ipv6 route 1090::/120 1030::1")
+    retCode   = retStruct['returnCode']
+    assert retCode==0, "Failed to perform ipv6 route 1090::/120 1030::1"
+
+    retStruct = switch01.DeviceInteract(command="ipv6 route 1090::/120 1020::1")
+    retCode   = retStruct['returnCode']
+    assert retCode==0, "Failed to perform ipv6 route 1090::/120 1020::1"
+
+    retStruct = switch01.DeviceInteract(command="ipv6 route 1090::/120 1040::1")
+    retCode   = retStruct['returnCode']
+    assert retCode==0, "Failed to perform ipv6 route 1090::/120 1010::1"
 
 def ecmp_resilient_check_status(switch, is_enabled):
 

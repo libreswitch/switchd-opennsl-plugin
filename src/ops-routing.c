@@ -1122,7 +1122,11 @@ ops_create_or_update_ecmp_object(int hw_unit, struct ops_route *routep,
 
     if (update){
         opennsl_l3_egress_ecmp_t_init(&ecmp_grp);
-        ecmp_grp.flags = (OPENNSL_L3_REPLACE | OPENNSL_L3_WITH_ID);
+        if (ecmp_resilient_flag) {
+            ecmp_grp.flags = (OPENNSL_L3_ECMP_RH_REPLACE | OPENNSL_L3_WITH_ID);
+        } else {
+            ecmp_grp.flags = (OPENNSL_L3_REPLACE | OPENNSL_L3_WITH_ID);
+        }
         ecmp_grp.ecmp_intf = *ecmp_intfp;
         ops_update_ecmp_resilient(&ecmp_grp);
         rc = opennsl_l3_egress_ecmp_create(hw_unit, &ecmp_grp, nh_count,
@@ -2288,7 +2292,9 @@ ops_update_l3ecmp_egress_resilient(int unit, opennsl_l3_egress_ecmp_t *ecmp,
 
     /*updating the egress object based on whether
      * the ecmp resilient flag is set or reset */
-
+    VLOG_DBG(" ECMP dynamic mode %d , interface count %d,dynamic size :%u"
+            "ecmp_resilient_flag:%d \n", ecmp->dynamic_mode, intf_count,
+             ecmp->dynamic_size, ecmp_resilient_flag);
     rc = opennsl_l3_egress_ecmp_create(unit , ecmp, intf_count, egress_obj);
 
     if (OPENNSL_FAILURE(rc)){
