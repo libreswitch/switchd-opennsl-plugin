@@ -181,6 +181,7 @@ def lag_tcpudp_hash_test(**kwargs):
 
     lag_tcpudp_hash_check_status(switch1)
 
+@pytest.mark.skipif(True, reason="Disabling old tests")
 class Test_lag_tcpudp_hash_ct:
 
     def setup_class(cls):

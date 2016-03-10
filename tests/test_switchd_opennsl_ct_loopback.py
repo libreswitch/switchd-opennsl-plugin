@@ -237,6 +237,7 @@ def loopback_creation(**kwargs):
 
 
 @pytest.mark.timeout(1000)
+@pytest.mark.skipif(True, reason="Disabling old tests")
 class Test_loopback_creation:
 
     def setup_class(cls):

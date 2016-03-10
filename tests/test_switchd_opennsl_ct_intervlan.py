@@ -137,6 +137,7 @@ def intervlan_admin_and_link_state_test(**kwargs):
     assert count==2, 'Failed to bring down the interface vlan20'
     LogOutput('info', "Admin and link states are verified as 'down' successfully")
 
+@pytest.mark.skipif(True, reason="Disabling old tests")
 class Test_intervlan_ct:
 
     def setup_class(cls):

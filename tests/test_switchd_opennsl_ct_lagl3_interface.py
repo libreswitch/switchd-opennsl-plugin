@@ -36,6 +36,7 @@ from opstestfw.switch.CLI import (
 )
 
 from opstestfw.testEnviron import LogOutput, testEnviron
+import pytest
 
 
 # Topology definition
@@ -333,6 +334,7 @@ def verify_lag_membership(**kwargs):
     LogOutput('info', "Verified: LAG is destroyed and ports are deleted in bitmap for lag")
     LogOutput('info', "Verified: As the member ports are removed from the LAG it is destroyed")
 
+@pytest.mark.skipif(True, reason="Disabling old tests")
 class Test_verifylagl3membership:
     """Test Configuration Class for Fastpath Ping.
 

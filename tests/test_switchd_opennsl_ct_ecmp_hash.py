@@ -92,6 +92,7 @@ def ecmp_hash_test(**kwargs):
     ecmp_hash_check_status(switch, False, True)
 
 
+@pytest.mark.skipif(True, reason="Disabling old tests")
 class Test_ecmp_hash_ct:
 
     def setup_class(cls):

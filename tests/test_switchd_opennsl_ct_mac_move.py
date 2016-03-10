@@ -445,6 +445,7 @@ def mac_move(**kwargs):
 
 
 @pytest.mark.timeout(1000)
+@pytest.mark.skipif(True, reason="Disabling old tests")
 class Test_mac_move:
 
     def setup_class(cls):

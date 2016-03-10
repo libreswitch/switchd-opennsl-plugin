@@ -784,6 +784,7 @@ def subinterface_creation(**kwargs):
     LogOutput('info', "Verified: subinterface deletion would delete the vlan")
 
 @pytest.mark.timeout(1000)
+@pytest.mark.skipif(True, reason="Disabling old tests")
 class Test_subinterface_creation:
 
     def setup_class(cls):

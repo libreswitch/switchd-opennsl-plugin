@@ -281,6 +281,7 @@ def ecmp_resilient_test(**kwargs):
     ecmp_resilient_check_status(switch, True)
 
 
+@pytest.mark.skipif(True, reason="Disabling old tests")
 class Test_ecmp_resilient_ct:
 
     def setup_class(cls):
