@@ -123,7 +123,8 @@ extern int ops_routing_add_host_entry(int hw_unit, opennsl_port_t hw_port,
                                      char *ip_addr, char *next_hop_mac_addr,
                                      opennsl_if_t l3_intf_id,
                                      opennsl_if_t *l3_egress_id,
-                                     opennsl_vlan_t vlan_id);
+                                     opennsl_vlan_t vlan_id,
+                                     int trunk_id);
 extern int ops_routing_delete_host_entry(int hw_unit, opennsl_port_t hw_port,
                                         opennsl_vrf_t vrf_id,
                                         bool is_ipv6_addr, char *ip_addr,

@@ -673,18 +673,21 @@ bcmsdk_destroy_vlan(int vid, bool internal)
             if (OPENNSL_PBMP_NOT_NULL(bcm_pbm)) {
                 hw_del_ports_from_vlan(unit, bcm_pbm, bcm_pbm, vid, 1);
                 OPENNSL_PBMP_CLEAR(vlanp->hw_access_ports[unit]);
+                OPENNSL_PBMP_CLEAR(vlanp->cfg_access_ports[unit]);
             }
 
             bcm_pbm = vlanp->hw_trunk_ports[unit];
             if (OPENNSL_PBMP_NOT_NULL(bcm_pbm)) {
                 hw_del_ports_from_vlan(unit, bcm_pbm, g_empty_pbm, vid, 0);
                 OPENNSL_PBMP_CLEAR(vlanp->hw_trunk_ports[unit]);
+                OPENNSL_PBMP_CLEAR(vlanp->cfg_trunk_ports[unit]);
             }
 
             bcm_pbm = vlanp->hw_native_tag_ports[unit];
             if (OPENNSL_PBMP_NOT_NULL(bcm_pbm)) {
                 hw_del_ports_from_vlan(unit, bcm_pbm, g_empty_pbm, vid, 0);
                 OPENNSL_PBMP_CLEAR(vlanp->hw_native_tag_ports[unit]);
+                OPENNSL_PBMP_CLEAR(vlanp->cfg_native_tag_ports[unit]);
 
                 // Clear native VLAN on the ports.
                 native_vlan_clear(unit, bcm_pbm, 0);
@@ -694,6 +697,7 @@ bcmsdk_destroy_vlan(int vid, bool internal)
             if (OPENNSL_PBMP_NOT_NULL(bcm_pbm)) {
                 hw_del_ports_from_vlan(unit, bcm_pbm, bcm_pbm, vid, 0);
                 OPENNSL_PBMP_CLEAR(vlanp->hw_native_untag_ports[unit]);
+                OPENNSL_PBMP_CLEAR(vlanp->cfg_native_untag_ports[unit]);
             }
 
             bcm_pbm = vlanp->hw_subinterface_ports[unit];

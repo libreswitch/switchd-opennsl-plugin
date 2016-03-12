@@ -19,6 +19,15 @@
         - [Test Result Criteria](#test-result-criteria-1)
                 - [Test Pass Criteria](#test-pass-criteria-1)
                 - [Test Fail Criteria](#test-fail-criteria-1)
+- [Test L3 LAG creation and deletion](#test-l3-lag-creation-and-deletion)
+	- [Objective](#objective)
+	- [Requirements](#requirements)
+	- [Setup](#setup)
+		- [Topology Diagram](#topology-diagram)
+	- [Description](#description)
+	- [Test Result Criteria](#test-result-criteria)
+		- [Test Pass Criteria](#test-pass-criteria)
+		- [Test Fail Criteria](#test-fail-criteria)
 
 ## Test loopback creation and deletion
 ### Objective
@@ -79,3 +88,46 @@ The ECMP resiliency is toggled and all the l3 ecmp egress objects must reflect t
 
 #### Test Fail Criteria
    When resiliency flag in the l3 ecmp egress object is false when enabled, or set to true when disabled.
+
+## Test L3 LAG creation and deletion
+### Objective
+Verify LAG L3 interface add/deletes members, add/deletes knet filters and creates LAG in the hardware.
+
+### Requirements
+ - RTL setup with physical switch
+
+### Setup
+#### Topology Diagram
+```
+[switch1] <==> [switch2]
+```
+
+### Description
+1. Enable two interfaces between switch1 and switch2.
+2. Configure L3 LAG and add these interfaces as members.
+3. Using 'ovs-appctl' test if:
+    a. internal vlan is created.
+    b. if the internal vlan has the members in its bitmap.
+    c. if the lag has the members in its bitmap.
+4. Shutdown interface 1, and repeat test in step 3.
+5. Shutdown interface 2, and repeat test in step 3.
+6. Enable both interfaces.
+7. Remove interface 1 from LAG, and repeat test in step 3.
+8. Remove interface 2 from LAG, and repeat test in step 3.
+
+### Test Result Criteria
+#### Test Pass Criteria
+   Internal VLAN should be created with members in the bitmap.
+   LAG should be created with members in the bitmap.
+   When both interfaces are 'shutdown' the lag should exist but the bitmap should be all zeros.
+   When both interfaces are 'shutdown' the VLAN should be deleted.
+   When both interfaces are removed from the lag, LAG should be destroyed.
+   When both interfaces are removed from LAG the VLAN should be deleted.
+
+#### Test Fail Criteria
+   Internal VLAN does not exists with members in the bitmap after LAG creation.
+   LAG not created with members in the bitmap.
+   When both interfaces are 'shutdown' the lag does not exist or the bitmap show non-zero.
+   When both interfaces are 'shutdown' the VLAN does not get deleted.
+   When both interfaces are removed from the lag, LAG exists.
+   When both interfaces are removed from LAG the VLAN does not get deleted.
