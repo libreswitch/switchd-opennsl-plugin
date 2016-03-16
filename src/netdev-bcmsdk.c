@@ -97,6 +97,9 @@ struct netdev_bcmsdk {
     struct ops_port_info *split_parent_portp;
 
     opennsl_vlan_t subintf_vlan_id;
+
+    /* Currently being used only by type "internal" interfaces */
+    int link_state;
 };
 
 static int netdev_bcmsdk_construct(struct netdev *);
@@ -205,6 +208,7 @@ netdev_bcmsdk_construct(struct netdev *netdev_)
     netdev->is_split_subport = false;
     netdev->split_parent_portp = NULL;
     netdev->subintf_vlan_id = 0;
+    netdev->link_state = 0;
 
     ovs_mutex_unlock(&netdev->mutex);
 
@@ -967,6 +971,41 @@ error:
     return rc;
 }
 
+static int
+netdev_internal_bcmsdk_set_hw_intf_config(struct netdev *netdev_, const struct smap *args)
+{
+    struct netdev_bcmsdk *netdev = netdev_bcmsdk_cast(netdev_);
+    const char *hw_enable = smap_get(args, INTERFACE_HW_INTF_CONFIG_MAP_ENABLE);
+
+    VLOG_DBG("netdev set_hw_intf_config called for interface %s", netdev->up.name);
+    ovs_mutex_lock(&netdev->mutex);
+
+    /* If interface is enabled */
+    if (STR_EQ(hw_enable, INTERFACE_HW_INTF_CONFIG_MAP_ENABLE_TRUE)) {
+        netdev->flags |= NETDEV_UP;
+        netdev->link_state = 1;
+    } else {
+        netdev->flags &= ~NETDEV_UP;
+        netdev->link_state = 0;
+    }
+
+    netdev_change_seq_changed(netdev_);
+
+    ovs_mutex_unlock(&netdev->mutex);
+    return 0;
+}
+
+static int
+netdev_internal_bcmsdk_get_carrier(const struct netdev *netdev_, bool *carrier)
+{
+    struct netdev_bcmsdk *netdev = netdev_bcmsdk_cast(netdev_);
+
+    ovs_mutex_lock(&netdev->mutex);
+    *carrier = netdev->link_state;
+    ovs_mutex_unlock(&netdev->mutex);
+
+    return 0;
+}
 
 static int
 netdev_internal_bcmsdk_update_flags(struct netdev *netdev_,
@@ -974,8 +1013,19 @@ netdev_internal_bcmsdk_update_flags(struct netdev *netdev_,
                                     enum netdev_flags on,
                                     enum netdev_flags *old_flagsp)
 {
-    /* XXX: Not yet supported for internal interfaces */
-    return EOPNOTSUPP;
+    /*  We ignore the incoming flags as the underlying hardware responsible to
+     *  change the status of the flags is absent. Thus, we set new flags to
+     *  preconfigured values. */
+    struct netdev_bcmsdk *netdev = netdev_bcmsdk_cast(netdev_);
+    if ((off | on) & ~NETDEV_UP) {
+        return EOPNOTSUPP;
+    }
+
+    ovs_mutex_lock(&netdev->mutex);
+    *old_flagsp = netdev->flags;
+    ovs_mutex_unlock(&netdev->mutex);
+
+    return 0;
 }
 
 static const struct netdev_class bcmsdk_internal_class = {
@@ -991,7 +1041,7 @@ static const struct netdev_class bcmsdk_internal_class = {
     NULL,                       /* get_config */
     NULL,                       /* set_config */
     netdev_internal_bcmsdk_set_hw_intf_info,
-    NULL,
+    netdev_internal_bcmsdk_set_hw_intf_config,
     NULL,                       /* get_tunnel_config */
     NULL,                       /* build header */
     NULL,                       /* push header */
@@ -1007,7 +1057,7 @@ static const struct netdev_class bcmsdk_internal_class = {
     NULL,                       /* get_mtu */
     NULL,                       /* set_mtu */
     NULL,                       /* get_ifindex */
-    NULL,                       /* get_carrier */
+    netdev_internal_bcmsdk_get_carrier,
     NULL,                       /* get_carrier_resets */
     NULL,                       /* get_miimon */
     NULL,                       /* get_stats */
