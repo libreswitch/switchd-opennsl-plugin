@@ -1,6 +1,6 @@
 #!/usr/bin/python
 
-# (c) Copyright 2015 Hewlett Packard Enterprise Development LP
+# (c) Copyright 2015-2016 Hewlett Packard Enterprise Development LP
 #
 #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -90,6 +90,53 @@ def intervlan_knet_test(**kwargs):
     assert systemMac not in buf, 'Failed to enable l3 on port 1'
     LogOutput('info', "Interface vlan10 interface deleted successfully")
 
+def intervlan_admin_and_link_state_test(**kwargs):
+
+    switch = kwargs.get('switch', None)
+    count = 0
+
+    LogOutput('info', "\nConfigure interface vlan20 and bring it 'up'")
+    retStruct = InterfaceIpConfig(deviceObj=switch, vlan=20, addr="20.0.0.1",
+                                  mask=24, config=True)
+    retCode = retStruct.returnCode()
+    assert retCode == 0, 'Failed to configure vlan interface'
+
+    retStruct = InterfaceEnable(deviceObj=switch, enable=True, vlan=20)
+    retCode = retStruct.returnCode()
+    assert retCode == 0, 'Failed to bring up the vlan interface'
+
+    LogOutput('info', "Get the admin and link states for interface vlan20")
+    cmd_get = "ovs-vsctl get interface vlan20 admin_state link_state"
+    retStruct = switch.DeviceInteract(command=cmd_get)
+    retCode = retStruct['returnCode']
+    assert retCode == 0, 'Failed to execute the ovs-vsctl command, cmd = %s' % cmd_get
+
+    buf = retStruct.get('buffer').splitlines()
+    for line in buf:
+        if "up" in line:
+            count += 1
+    assert count==2, 'Failed to bring up the interface vlan20'
+    LogOutput('info', "Admin and link states are verified as 'up' successfully")
+
+    LogOutput('info', "Bring interface vlan20 down")
+    retStruct = InterfaceEnable(deviceObj=switch, enable=False, vlan=20)
+    retCode = retStruct.returnCode()
+    assert retCode == 0, 'Failed to bring down the vlan interface'
+
+    count = 0
+    LogOutput('info', "Get the admin and link states for interface vlan20")
+    cmd_get = "ovs-vsctl get interface vlan20 admin_state link_state"
+    retStruct = switch.DeviceInteract(command=cmd_get)
+    retCode = retStruct['returnCode']
+    assert retCode == 0, 'Failed to execute the ovs-vsctl command, cmd = %s' % cmd_get
+
+    buf = retStruct.get('buffer').splitlines()
+    for line in buf:
+        if "down" in line:
+            count += 1
+    assert count==2, 'Failed to bring down the interface vlan20'
+    LogOutput('info', "Admin and link states are verified as 'down' successfully")
+
 class Test_intervlan_ct:
 
     def setup_class(cls):
@@ -103,8 +150,8 @@ class Test_intervlan_ct:
 
     def test_intervlan_ct(self):
         dut01Obj = self.topoObj.deviceObjGet(device="dut01")
-        retValue = intervlan_knet_test(switch=dut01Obj)
-        if retValue != 0:
-            assert "Test failed"
-        else:
-            LogOutput('info', "\n### Test Passed ###\n")
+        intervlan_knet_test(switch=dut01Obj)
+
+    def test_intervlan_admin_and_link_state_test(self):
+        dut01Obj = self.topoObj.deviceObjGet(device="dut01")
+        intervlan_admin_and_link_state_test(switch=dut01Obj)
