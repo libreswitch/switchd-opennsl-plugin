@@ -838,7 +838,7 @@ bcmsdk_add_trunk_ports(int vid, opennsl_pbmp_t *pbm)
     }
 
     for (unit = 0; unit <= MAX_SWITCH_UNIT_ID; unit++) {
-        opennsl_pbmp_t bcm_pbm;
+        opennsl_pbmp_t bcm_pbm, temp_bcm_pbm;
 
         // Save trunk port membership info.
         bcm_pbm = pbm[unit];
@@ -851,8 +851,13 @@ bcmsdk_add_trunk_ports(int vid, opennsl_pbmp_t *pbm)
         // in h/w, go ahead and configure it.
         VLOG_DBG("vlanp->hw_created = %d\n", vlanp->hw_created);
         if (vlanp->hw_created && OPENNSL_PBMP_NOT_NULL(bcm_pbm)) {
+            OPENNSL_PBMP_CLEAR(temp_bcm_pbm);
+            OPENNSL_PBMP_OR(temp_bcm_pbm, vlanp->hw_native_untag_ports[unit]);
+            OPENNSL_PBMP_AND(temp_bcm_pbm, bcm_pbm);
             // Add the ports as tagged members of the VLAN.
-            hw_add_ports_to_vlan(unit, bcm_pbm, g_empty_pbm, vid, 0);
+            if(OPENNSL_PBMP_IS_NULL(temp_bcm_pbm)) {
+                hw_add_ports_to_vlan(unit, bcm_pbm, g_empty_pbm, vid, 0);
+            }
             OPENNSL_PBMP_OR(vlanp->hw_trunk_ports[unit], bcm_pbm);
         }
     }
@@ -955,7 +960,7 @@ bcmsdk_del_trunk_ports(int vid, opennsl_pbmp_t *pbm)
         ops_vlan_data_t *vlanp = ops_vlans[vid];
 
         for (unit = 0; unit <= MAX_SWITCH_UNIT_ID; unit++) {
-            opennsl_pbmp_t bcm_pbm;
+            opennsl_pbmp_t bcm_pbm, temp_bcm_pbm;
 
             // Update trunk port membership info.
             bcm_pbm = pbm[unit];
@@ -965,7 +970,12 @@ bcmsdk_del_trunk_ports(int vid, opennsl_pbmp_t *pbm)
             // configured in h/w.
             OPENNSL_PBMP_AND(bcm_pbm, vlanp->hw_trunk_ports[unit]);
             if (OPENNSL_PBMP_NOT_NULL(bcm_pbm)) {
-                hw_del_ports_from_vlan(unit, bcm_pbm, g_empty_pbm, vid, 0);
+                OPENNSL_PBMP_CLEAR(temp_bcm_pbm);
+                OPENNSL_PBMP_OR(temp_bcm_pbm, vlanp->hw_native_untag_ports[unit]);
+                OPENNSL_PBMP_AND(temp_bcm_pbm, bcm_pbm);
+                if(OPENNSL_PBMP_IS_NULL(temp_bcm_pbm)) {
+                    hw_del_ports_from_vlan(unit, bcm_pbm, g_empty_pbm, vid, 0);
+                }
                 OPENNSL_PBMP_REMOVE(vlanp->hw_trunk_ports[unit], bcm_pbm);
             }
         }
