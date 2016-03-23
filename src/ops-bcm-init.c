@@ -120,7 +120,7 @@ ops_switch_main(int argc, char *argv[])
     VLOG_INFO("Initializing OpenNSL driver.");
 
     /* Initialize the system. */
-    rv = opennsl_driver_init();
+    rv = opennsl_driver_init(NULL);
 
     if (rv != OPENNSL_E_NONE) {
         VLOG_ERR("Failed to initialize the system.  rc=%s",
