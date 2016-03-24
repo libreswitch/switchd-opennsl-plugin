@@ -1,4 +1,4 @@
-# Copyright (C) 2015-2016 Hewlett-Packard Development Company, L.P.
+# (C) Copyright 2015-2016 Hewlett Packard Enterprise Development Company, L.P.
 # All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -32,6 +32,7 @@ set (SOURCES ${SRC_DIR}/bcm.c
              ${SRC_DIR}/ops-port.c
              ${SRC_DIR}/ops-stats.c
              ${SRC_DIR}/ops-vlan.c
+             ${SRC_DIR}/ops-sflow.c
              ${SRC_DIR}/ops-routing.c
              ${SRC_DIR}/ops-stg.c
              ${SRC_DIR}/netdev-bcmsdk.c

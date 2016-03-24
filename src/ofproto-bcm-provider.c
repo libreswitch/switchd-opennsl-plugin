@@ -35,6 +35,7 @@
 #include "ops-lag.h"
 #include "ops-routing.h"
 #include "ops-knet.h"
+#include "ops-sflow.h"
 #include "netdev-bcmsdk.h"
 #include "platform-defines.h"
 #include "ofproto-bcm-provider.h"
@@ -257,6 +258,10 @@ destruct(struct ofproto *ofproto_ OVS_UNUSED)
 static int
 run(struct ofproto *ofproto_ OVS_UNUSED)
 {
+    struct bcmsdk_provider_node *ofproto = bcmsdk_provider_node_cast(ofproto_);
+
+    ops_sflow_run(ofproto);
+
     return 0;
 }
 
@@ -1043,11 +1048,13 @@ bundle_set(struct ofproto *ofproto_, void *aux,
     VLOG_DBG("%s: bundle->name=%s, bundle->bond_hw_handle=%d, "
              "n_slaves=%d, s->bond=%p, "
              "s->hw_bond_should_exist=%d, "
-             "s->bond_handle_alloc_only=%d",
+             "s->bond_handle_alloc_only=%d, "
+             "bundle->hw_port=%d",
              __FUNCTION__, bundle->name, bundle->bond_hw_handle,
              (int) s->n_slaves, s->bond,
              s->hw_bond_should_exist,
-             s->bond_handle_alloc_only);
+             s->bond_handle_alloc_only,
+             bundle->hw_port);
 
     /* Allocate Broadcom hw port bitmap. */
     all_pbm = bcmsdk_alloc_pbmp();
@@ -1185,6 +1192,23 @@ bundle_set(struct ofproto *ofproto_, void *aux,
     opt_arg = smap_get(s->port_options[PORT_OPT_BOND], "bond_options_p0");
     if (opt_arg != NULL) {
        VLOG_DBG("%s BOND config options option_arg= %s", __FUNCTION__,opt_arg);
+    }
+
+    /* sFlow config on port */
+    opt_arg = smap_get(s->port_options[PORT_OTHER_CONFIG],
+                       PORT_OTHER_CONFIG_SFLOW_PER_INTERFACE_KEY_STR);
+    if (opt_arg == NULL) {
+        VLOG_DBG("sflow not configured on port: %s", bundle->name);
+    }
+    /* if sFlow settings present on port, download it to ASIC */
+    else {
+        int hw_unit, hw_port;
+        LIST_FOR_EACH_SAFE(port, next_port, bundle_node, &bundle->ports) {
+            netdev_bcmsdk_get_hw_info(port->up.netdev,
+                                      &hw_unit, &hw_port, NULL);
+            ops_sflow_set_per_interface(hw_unit, hw_port,
+                                        strcmp(opt_arg, "false"));
+        }
     }
 
     /* Go through the list of physical interfaces (slaves) that
@@ -1694,6 +1718,7 @@ port_add(struct ofproto *ofproto_, struct netdev *netdev)
     const char *devname = netdev_get_name(netdev);
 
     sset_add(&ofproto->ports, devname);
+    ops_sflow_add_port(netdev);
     return 0;
 }
 
@@ -2010,6 +2035,96 @@ delete_l3_host_entry(const struct ofproto *ofproto_, void *aux,
     return rc;
 } /* delete_l3_host_entry */
 
+static int
+set_sflow(struct ofproto *ofproto_,
+          const struct ofproto_sflow_options *oso)
+{
+    uint32_t rate;
+    struct bcmsdk_provider_node *ofproto = bcmsdk_provider_node_cast(ofproto_);
+
+    if (oso == NULL) { /* disable sflow */
+        VLOG_DBG("%s : Input sflow options are NULL (maybe sflow (or collectors) is "
+                "not configured or disabled)", ofproto->up.name);
+
+        ops_sflow_agent_disable(ofproto);
+
+        if (sflow_options) {
+            free(sflow_options);
+            sflow_options = NULL;
+        }
+        return 0;
+    }
+
+    /* No targets/collectors, sFlow Agent can't exist. */
+    if (sset_is_empty(&oso->targets)) {
+        VLOG_DBG("sflow targets not set. Disable sFlow Agent.");
+
+        ops_sflow_agent_disable(ofproto);
+
+        /* if 'sflow_options' have any targets, clear them. */
+        if (sflow_options) {
+            sset_clear(&sflow_options->targets);
+        }
+        return 0;
+    }
+
+    /* Sampling rate not configured in CLI. Can't create sFlow Agent. This
+     * scenario is only possible at initiation. Once sFlow Agent is created,
+     * it will always have a sampling rate (a default rate, at least). */
+    if (oso->sampling_rate == 0) {
+        VLOG_DBG("sflow sampling_rate not set. Cannot create sFlow Agent.");
+        return 0;
+    }
+
+    /* sFlow Agent create, for first time. */
+    if (sflow_options == NULL) {
+        VLOG_DBG("sflow: Initialize sFlow agent with input options.");
+        ops_sflow_agent_enable(ofproto, oso);
+        return 0;
+    } else if (ops_sflow_options_equal(oso, sflow_options)) {
+        /* polling interval change checked later for each port. */
+        ops_sflow_set_polling_interval(ofproto, sflow_options->polling_interval);
+        VLOG_DBG("sflow: options are unchanged.");
+        return 0;
+    }
+
+    /* sFlow Agent exists. It's options has changed, update Agent. */
+
+    VLOG_DBG("sflow config: sampling: %d, num_targets: %zd, hdr len: %d,"
+             "agent dev: %s, agent ip: %s, polling : %d",
+            oso->sampling_rate, sset_count(&oso->targets), oso->header_len,
+            oso->agent_device ? oso->agent_device : "NULL",
+            oso->agent_ip ? oso->agent_ip : "NULL", oso->polling_interval);
+
+    /* Sampling rate has changed. */
+    rate = oso->sampling_rate;
+    if (sflow_options->sampling_rate != rate) {
+        sflow_options->sampling_rate = rate;
+        ops_sflow_set_sampling_rate(0, 0, rate, rate);
+        VLOG_DBG("sflow: sampling rate %d applied on sFlow Agent", rate);
+    }
+
+    /* source IP for sFlow agent */
+    sflow_options->agent_ip[0] = '\0';
+    if (oso->agent_ip) {
+        strncpy(sflow_options->agent_ip, oso->agent_ip, INET6_ADDRSTRLEN);
+    }
+    ops_sflow_agent_ip(oso->agent_ip);
+
+    if (!sset_equals(&oso->targets, &sflow_options->targets)) {
+        /* collectors has changed. destroy and create again. */
+        sset_destroy(&sflow_options->targets);
+        sset_clone(&sflow_options->targets, &oso->targets);
+        ops_sflow_set_collectors(&sflow_options->targets);
+    }
+
+    /* polling interval change checked later for each port. */
+    sflow_options->polling_interval = oso->polling_interval;
+    ops_sflow_set_polling_interval(ofproto, sflow_options->polling_interval);
+
+    return 0;
+}
+
 /* Ft to get BCM host data-path hit-bit */
 static int
 get_l3_host_hit_bit(const struct ofproto *ofproto_, void *aux,
@@ -2108,7 +2223,7 @@ const struct ofproto_class ofproto_bcm_provider_class = {
     packet_out,
     NULL,                       /* may implement set_netflow */
     get_netflow_ids,
-    NULL,                       /* may implement set_sflow */
+    set_sflow,                  /* may implement set_sflow */
     NULL,                       /* may implement set_ipfix */
     NULL,                       /* may implement set_cfm */
     cfm_status_changed,

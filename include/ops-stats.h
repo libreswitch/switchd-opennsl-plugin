@@ -22,6 +22,10 @@
 #ifndef __OPS_STAT_H__
 #define __OPS_STAT_H__ 1
 
+#include "ops-sflow.h"
+
 extern int bcmsdk_get_port_stats(int hw_unit, int hw_port, struct netdev_stats *stats);
+extern int bcmsdk_get_sflow_port_stats(int hw_unit, int hw_port,
+                                       struct ops_sflow_port_stats *stats);
 
 #endif /* __OPS_STAT_H__ */
