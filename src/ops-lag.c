@@ -26,6 +26,7 @@
 #include <opennsl/error.h>
 #include <opennsl/types.h>
 #include <opennsl/trunk.h>
+#include <opennsl/switch.h>
 
 #include "platform-defines.h"
 #include "ops-debug.h"
@@ -64,6 +65,10 @@ lag_mode_to_str(int lag_mode)
         return "src_dst_MAC";
     case OPENNSL_TRUNK_PSC_SRCDSTIP:
         return "src_dst_IP";
+    case OPENNSL_TRUNK_PSC_PORTFLOW:
+    /* NOTE: we have to change this if we support two or more
+             enhanced hashing modes later on.*/
+        return "l4-src-dst";
     default:
         return "unknown";
     }
@@ -318,6 +323,43 @@ hw_lag_detach_port(int unit, opennsl_trunk_t lag_id, opennsl_port_t hw_port)
 
 } // hw_lag_detach_port
 
+static void
+hw_trunk_hash_setup(int unit, int hash_mode)
+{
+    int field_list;
+    opennsl_error_t rc = OPENNSL_E_NONE;
+
+    SW_LAG_DBG("entry: unit=%d, hash_mode=%d", unit, hash_mode);
+
+    rc = opennsl_switch_control_set(unit, opennslSwitchHashSeed1, 0x22222222);
+    if (OPENNSL_FAILURE(rc)) {
+        VLOG_ERR("Failed to set opennslSwitchHashSeed1: unit=%d rc=%s",
+                 unit, opennsl_errmsg(rc));
+        return;
+    }
+
+    rc = opennsl_switch_control_set(unit, opennslSwitchHashField1Config,
+                                        OPENNSL_HASH_FIELD_CONFIG_CRC32HI);
+    if (OPENNSL_FAILURE(rc)) {
+        VLOG_ERR("Failed to set opennslSwitchHashField1Config: unit=%d rc=%s",
+                 unit, opennsl_errmsg(rc));
+        return;
+    }
+
+    field_list = OPENNSL_HASH_FIELD_DSTL4 | OPENNSL_HASH_FIELD_SRCL4;
+
+    rc = opennsl_switch_control_set(unit, opennslSwitchHashIP4TcpUdpField1,
+                                        field_list);
+    if (OPENNSL_FAILURE(rc)) {
+        VLOG_ERR("Failed to set opennslSwitchHashIP4TcpUdpField1: unit=%d rc=%s",
+                 unit, opennsl_errmsg(rc));
+        return;
+    }
+
+    SW_LAG_DBG("done: rc=%s", opennsl_errmsg(rc));
+
+} //hw_trunk_hash_setup
+
 static
 void
 hw_set_lag_balance_mode(int unit, opennsl_trunk_t lag_id, int lag_mode)
@@ -330,7 +372,10 @@ hw_set_lag_balance_mode(int unit, opennsl_trunk_t lag_id, int lag_mode)
     // Verify lag_mode is one of the supported Broadcom's PSC mode.
     switch (lag_mode) {
     case OPENNSL_TRUNK_PSC_SRCDSTMAC:
+        break;
     case OPENNSL_TRUNK_PSC_SRCDSTIP:
+        break;
+    case OPENNSL_TRUNK_PSC_PORTFLOW:
         break;
     default:
         VLOG_ERR("Invalid LAG mode value %d", lag_mode);
@@ -556,6 +601,19 @@ bcmsdk_egress_enable_lag_ports(opennsl_trunk_t lag_id, opennsl_pbmp_t *pbm)
     SW_LAG_DBG("done");
 
 } // bcmsdk_egress_enable_lag_ports
+
+void
+bcmsdk_trunk_hash_setup(int hash_mode)
+{
+    int unit = 0;
+
+    SW_LAG_DBG("entry: hash_mode=%d", hash_mode);
+
+    hw_trunk_hash_setup(unit, hash_mode);
+
+    SW_LAG_DBG("done");
+
+} // bcmsdk_trunk_hash_setup
 
 void
 bcmsdk_set_lag_balance_mode(opennsl_trunk_t lag_id, int lag_mode)

@@ -1205,6 +1205,10 @@ bundle_set(struct ofproto *ofproto_, void *aux,
             case BM_L3_SRC_DST_HASH:
                 lag_mode = OPENNSL_TRUNK_PSC_SRCDSTIP;
                 break;
+            case BM_L4_SRC_DST_HASH:
+                bcmsdk_trunk_hash_setup(OPS_L4_SRC_DST);
+                lag_mode = OPENNSL_TRUNK_PSC_PORTFLOW;
+                break;
             default:
                 break;
             }

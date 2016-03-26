@@ -27,12 +27,15 @@
 #include <opennsl/types.h>
 #include <opennsl/trunk.h>
 
+#define OPS_L4_SRC_DST        1
+
 extern void ops_lag_dump(struct ds *ds, opennsl_trunk_t lagid);
 
 extern void bcmsdk_create_lag(opennsl_trunk_t *lag_id);
 extern void bcmsdk_destroy_lag(opennsl_trunk_t lag_id);
 extern void bcmsdk_attach_ports_to_lag(opennsl_trunk_t lag_id, opennsl_pbmp_t *pbm);
 extern void bcmsdk_egress_enable_lag_ports(opennsl_trunk_t lag_id, opennsl_pbmp_t *pbm);
+extern void bcmsdk_trunk_hash_setup(int hash_mode);
 extern void bcmsdk_set_lag_balance_mode(opennsl_trunk_t lag_id, int lag_mode);
 
 #endif /* __OPS_LAG_H__ */
