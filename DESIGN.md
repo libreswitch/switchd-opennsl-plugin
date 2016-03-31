@@ -238,7 +238,7 @@ The current implementation enables OSPF on a global level. This includes creatin
 This is a one-time setup that is done as part of the ops_l3_init process.
 
 ### Control Plane Policing
-Control plane policing (CoPP) protects usage of the CPU by allowing ingress and egress control plane traffic to be prioritized and rate-limited as follows:
+Control plane policing (CoPP) protects usage of the CPU by prioritizing and rate-limiting control plane traffic as follows:
 
 #### Ingress traffic
 

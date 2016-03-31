@@ -23,6 +23,7 @@
 #include <stdint.h>
 #include <opennsl/field.h>
 #include "platform-defines.h"
+#include "copp-asic-provider.h"
 
 /*
  * Function pointer structure for qualifying control plane packets in ingress.
@@ -194,7 +195,7 @@ typedef int (*ops_copp_packet_class_function_pointer)(uint32 unit);
  */
 #define OPS_DEF_COPP_CLASS(name,packet_name,queue,rate,burst,\
                            pkt_class_func,egress_func,\
-                           ingress_func) OPS_COPP_##name,
+                           ingress_func) PLUGIN_COPP_##name,
 
 /*
  * Enum for storing the indexing id for different control place packets. The
@@ -436,7 +437,11 @@ struct ops_copp_fp_rule_t {
     ops_copp_ingress_fp_function_pointer
                            ops_copp_ingress_fp_funtion_pointer[
                                           OPS_COPP_MAX_RULES_INGRESS];
-
+    /*
+     * Status of the fp rule per hw_unit.
+     * Valid : true; Invalid : false
+     */
+    bool                   status[OPS_COPP_MAX_UNITS];
 };
 
 /*
@@ -509,6 +514,13 @@ struct ops_copp_stats_t {
      */
     uint64      ops_copp_bytes_dropped;
 };
+
+extern int copp_opennsl_stats_get(const unsigned int hw_asic_id,
+                          const enum copp_protocol_class class,
+                          struct copp_protocol_stats *const stats);
+extern int copp_opennsl_hw_status_get(const unsigned int hw_asic_id,
+                              const enum copp_protocol_class class,
+                              struct copp_hw_status *const hw_status);
 
 extern int ops_copp_init();
 extern int ops_get_all_packet_stats();
