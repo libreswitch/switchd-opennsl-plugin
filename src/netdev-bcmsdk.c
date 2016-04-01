@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015. 2016 Hewlett-Packard Development Company, L.P.
+ * Copyright (C) 2015-2016 Hewlett-Packard Enterprise Development Company, L.P.
  * All Rights Reserved.
  *
  *   Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -40,6 +40,7 @@
 #include "ops-routing.h"
 #include "ops-sflow.h"
 #include "eventlog.h"
+#include "mac-learning-plugin.h"
 
 VLOG_DEFINE_THIS_MODULE(netdev_bcmsdk);
 
@@ -253,6 +254,23 @@ netdev_from_hw_id(int hw_unit, int hw_id)
     }
     ovs_mutex_unlock(&bcmsdk_list_mutex);
     return (found == true) ? netdev : NULL;
+}
+
+void netdev_port_name_from_hw_id(int hw_unit,
+                                 int hw_id,
+                                 char *str)
+{
+    struct netdev_bcmsdk *netdev = NULL;
+
+    if (!str) {
+        return;
+    }
+
+    netdev = netdev_from_hw_id(hw_unit, hw_id);
+
+    if (netdev && netdev->port_info) {
+        strncpy(str, netdev->port_info->name, PORT_NAME_SIZE);
+    }
 }
 
 static struct netdev *

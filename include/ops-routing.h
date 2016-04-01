@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Hewlett-Packard Development Company, L.P.
+ * Copyright (C) 2015-2016 Hewlett-Packard Enterprise Development Company, L.P.
  * All Rights Reserved.
  *
  *   Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -178,8 +178,9 @@ extern void ops_l3route_dump(struct ds *ds, int ipv6_enabled);
 extern void ops_l3egress_dump(struct ds *ds, int egressid);
 extern void ops_l3ecmp_egress_dump(struct ds *ds, int ecmpid);
 
-extern void ops_l3_mac_move_cb(int unit, opennsl_l2_addr_t *l2addr,
-                                int operation, void *userdata);
 extern opennsl_field_group_t ops_routing_get_ospf_group_id_by_hw_unit (
                                                                 int unit);
+extern void ops_l3_mac_move_add(int unit, opennsl_l2_addr_t *l2addr, void *userdata);
+extern void ops_l3_mac_move_delete(int unit, opennsl_l2_addr_t *l2addr, void *userdata);
+
 #endif /* __OPS_ROUTING_H__ */

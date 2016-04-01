@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2016 Hewlett-Packard Development Company, L.P.
+ * Copyright (C) 2015-2016 Hewlett-Packard Enterprise Development Company, L.P.
  * All Rights Reserved.
  *
  *   Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -37,6 +37,7 @@
 #include "ops-stg.h"
 #include "ops-sflow.h"
 #include "ops-qos.h"
+#include "ops-mac-learning.h"
 #include "netdev-bcmsdk.h"
 #include "eventlog.h"
 
@@ -136,6 +137,11 @@ ops_bcm_appl_init(void)
     int rc = 0;
 
     ops_debug_init();
+    rc = ops_mac_learning_init();
+    if (rc) {
+        VLOG_ERR("Mac learning init failed");
+        return (1);
+    }
 
     /* Initialize QoS global data structures */
     rc = ops_qos_global_init();

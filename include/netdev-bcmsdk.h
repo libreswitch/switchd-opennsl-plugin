@@ -74,4 +74,5 @@ netdev_bcmsdk_l3intf_fp_stats_destroy(opennsl_port_t hw_port, int hw_unit);
 extern int
 netdev_bcmsdk_l3_global_stats_destroy(struct netdev *netdev_);
 
+extern void netdev_port_name_from_hw_id(int hw_unit, int hw_id, char *str);
 #endif /* netdev-bcmsdk.h */

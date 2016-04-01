@@ -578,16 +578,6 @@ ops_l3_init(int unit)
     /* Initialize egress-id hash map. Used only during mac-move. */
     hmap_init(&ops_mac_move_egress_id_map);
 
-    /* register for mac-move. When move happens, ASIC sends a MAC delete
-     * message followed by MAC add message. There will be MOVE flag set in
-     * both the messages, differentiating it from regular add and delete
-     * messages. */
-    rc = opennsl_l2_addr_register(unit, ops_l3_mac_move_cb, NULL);
-    if (OPENNSL_FAILURE(rc)) {
-        VLOG_ERR("L2 address registration failed");
-        return 1;
-    }
-
     /* Install FPs for forwarding OSPF traffic */
     rc = ops_routing_ospf_init(unit);
     if (rc) {
@@ -2227,33 +2217,6 @@ ops_l3_mac_move_delete(int   unit,
    }
    egress_node->egress_object_id = egress_object_id;
    hmap_insert(&ops_mac_move_egress_id_map, &egress_node->node, hash_string(egress_id_key, 0));
-}
-
-/*This function can get called by ASIC for following events:
-*  Add, Delete, Mac-Learn, Mac-Age, & Mac-Move
-*
-*  Currently, it handles Add & Delete events, triggered due to mac-move. */
-void
-ops_l3_mac_move_cb(int   unit,
-                   opennsl_l2_addr_t  *l2addr,
-                   int    operation,
-                   void   *userdata)
-{
-   if (l2addr == NULL) {
-       VLOG_ERR("Invalid arguments. l2-addr is NULL");
-       return;
-   }
-
-   switch(operation) {
-       case OPENNSL_L2_CALLBACK_ADD:
-           ops_l3_mac_move_add(unit, l2addr, userdata);
-           break;
-       case OPENNSL_L2_CALLBACK_DELETE:
-           ops_l3_mac_move_delete(unit, l2addr, userdata);
-           break;
-       default:
-           break;
-   }
 }
 
 void

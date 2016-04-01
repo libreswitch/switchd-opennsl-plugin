@@ -29,6 +29,7 @@
 #include "eventlog.h"
 #include "ops-copp.h"
 #include "copp-asic-provider.h"
+#include "ops-mac-learning.h"
 
 #define init libovs_bcm_plugin_LTX_init
 #define run libovs_bcm_plugin_LTX_run
@@ -49,6 +50,7 @@ struct asic_plugin_interface opennsl_interface ={
     .set_stg_port_state = &set_stg_port_state,
     .get_stg_port_state = &get_stg_port_state,
     .get_stg_default = &get_stg_default,
+    .get_mac_learning_hmap = &ops_mac_learning_get_hmap,
 };
 
 struct copp_asic_plugin_interface copp_opennsl_interface ={
