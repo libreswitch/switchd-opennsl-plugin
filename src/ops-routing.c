@@ -164,6 +164,14 @@ ops_l3_init(int unit)
         return 1;
     }
 
+    /* Copying packets to CPU whose TTL=1 */
+    rc = opennsl_switch_control_set(unit,opennslSwitchL3UcastTtl1ToCpu, 1);
+    if (OPENNSL_FAILURE(rc)) {
+        VLOG_ERR("Failed to set opennslSwitchL3UcastTtl1ToCpu: unit=%d rc=%s",
+                 unit, opennsl_errmsg(rc));
+        return 1;
+    }
+
     /* Enable ECMP enhanced hash method */
     rc = opennsl_switch_control_set(unit, opennslSwitchHashControl,
                                     OPENNSL_HASH_CONTROL_ECMP_ENHANCE);
