@@ -64,6 +64,9 @@ struct ops_route_table {
 
 struct ops_route_table ops_rtable;
 
+/* Profile id for ip-options */
+int default_ip4_options_profile_id = 1;
+
 static void
 ops_update_ecmp_resilient(opennsl_l3_egress_ecmp_t *ecmp){
 
@@ -284,6 +287,17 @@ ops_l3_init(int unit)
         return 1;
     }
 
+    /* Creating profile for ip-options */
+    rc = opennsl_l3_ip4_options_profile_create(unit,
+                                               OPENNSL_L3_IP4_OPTIONS_WITH_ID,
+                                               opennslIntfIPOptionActionCopyCPUAndDrop,
+                                               &default_ip4_options_profile_id);
+    if (OPENNSL_FAILURE(rc)) {
+      VLOG_ERR("Failed to set opennslIntfIPOptionActionCopyCPUAndDrop: unit=%d rc=%s",
+                unit, opennsl_errmsg(rc));
+      return 1;
+    }
+
     /* initialize route table hash map */
     hmap_init(&ops_rtable.routes);
 
@@ -400,6 +414,7 @@ ops_routing_create_l3_intf(int hw_unit, opennsl_vrf_t vrf_id,
     l3_intf->l3a_flags = OPENNSL_L3_WITH_ID;
     memcpy(l3_intf->l3a_mac_addr, mac, ETH_ALEN);
     l3_intf->l3a_vid = vlan_id;
+    l3_intf->l3a_ip4_options_profile_id = default_ip4_options_profile_id;
 
     rc = opennsl_l3_intf_create(hw_unit, l3_intf);
     if (OPENNSL_FAILURE(rc)) {
