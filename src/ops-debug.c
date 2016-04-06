@@ -47,6 +47,7 @@
 
 VLOG_DEFINE_THIS_MODULE(ops_debug);
 
+#define MAX_PACKET_RES_STRING_LEN 50
 
 uint32 slog_level = 0x0;
 
@@ -79,8 +80,67 @@ char cmd_hp_usage[] =
 "   l3egress [<entry>] - display an egress object info.\n"
 "   l3ecmp [<entry>] - display an ecmp egress object info.\n"
 "   lag [<lagid>] - displays OpenSwitch LAG info.\n"
+"   fp - displays programmed fp rules.\n"
 "   help - displays this help text.\n"
 ;
+
+/*the action list that needs to be defined for checking if defined per entry*/
+enum_to_str_t fp_action_list[] = {
+    {opennslFieldActionCopyToCpu, "Copy To CPU"},
+    {opennslFieldActionDrop, "DROP"},
+    {opennslFieldActionCosQCpuNew, "CosQ CPU New"},
+};
+
+#define STAT_TYPE_STRINGS \
+{ \
+    "Bytes", \
+    "Packets", \
+    "Green Bytes", \
+    "Green Packets", \
+    "Red Bytes", \
+    "Red Packets", \
+    "Dropped Bytes", \
+    "Dropped Packets" \
+}
+
+static opennsl_field_stat_t stat_arr[MAX_STAT_TYPES] = {
+    opennslFieldStatBytes,
+    opennslFieldStatPackets,
+    opennslFieldStatGreenBytes,
+    opennslFieldStatGreenPackets,
+    opennslFieldStatRedBytes,
+    opennslFieldStatRedPackets,
+    opennslFieldStatDroppedBytes,
+    opennslFieldStatDroppedPackets,
+};
+
+void PacketRes_toString(int packetRes, char *packet_res_string )
+{
+    switch(packetRes)
+    {
+        case OPENNSL_FIELD_PKT_RES_L3MCUNKNOWN:
+            snprintf(packet_res_string, MAX_PACKET_RES_STRING_LEN,
+                     "Unknown L3 multicast");
+            break;
+        case OPENNSL_FIELD_PKT_RES_L3MCKNOWN:
+            snprintf(packet_res_string, MAX_PACKET_RES_STRING_LEN,
+                     "Known L3 multicast");
+            break;
+        case OPENNSL_FIELD_PKT_RES_L3UCKNOWN:
+            snprintf(packet_res_string, MAX_PACKET_RES_STRING_LEN,
+                     "Known L3 unicast");
+            break;
+       case OPENNSL_FIELD_PKT_RES_L3UCUNKNOWN:
+            snprintf(packet_res_string, MAX_PACKET_RES_STRING_LEN,
+                     "UnKnown L3 unicast");
+            break;
+        default:
+            snprintf(packet_res_string, MAX_PACKET_RES_STRING_LEN,
+                     "Unknown");
+            break;
+    }
+
+}
 
 char *
 bcmsdk_datapath_version(void)
@@ -204,6 +264,256 @@ handle_ops_debug(struct ds *ds, int arg_idx, int argc, const char *argv[])
 } // handle_ops_debug
 
 static void
+fp_entries_show (int unit, opennsl_field_group_t group, struct ds *ds)
+{
+    int entry_size  = 0;
+    int entry_index = 0;
+    int entry_count = 0;
+    int ret         = 0;
+    enum_to_str_t *fp_action_iter = NULL;
+    opennsl_field_qset_t  qset;
+    opennsl_field_entry_t *entry_array = NULL;
+    uint64 data, mask, data_modid, mask_modid;
+    int stat_id, stat_index, action_index, fp_action_list_size;
+    uint64 stat_value;
+    uint32 p0, p1;
+    static char *stat_type_str[] = STAT_TYPE_STRINGS;
+
+    ds_put_format(ds, "Group ID = %d\n", group);
+    /* First get th entry count for this group */
+    ret = opennsl_field_entry_multi_get(unit, group, 0, NULL, &entry_count);
+    if (entry_count <= 0 || OPENNSL_FAILURE(ret)) {
+        VLOG_ERR(" Error fetching the number of entries");
+        goto done;
+    }
+
+    /* Allocate memory for all entries */
+    entry_array = (opennsl_field_entry_t *) xzalloc(entry_count *
+                                            sizeof(opennsl_field_entry_t));
+    /* fetches the entries per group */
+    ret = opennsl_field_entry_multi_get(unit, group, entry_count, entry_array,
+                                        &entry_size);
+    if (OPENNSL_FAILURE(ret)) {
+        VLOG_ERR(" Error fetching the entries");
+        goto err;
+    }
+
+    OPENNSL_FIELD_QSET_INIT(qset);
+    ret = opennsl_field_group_get(unit, group, &qset);
+    if (OPENNSL_FAILURE(ret)) {
+        VLOG_ERR(" Error fetching the qualifier set");
+        goto err;
+    }
+
+    for (entry_index = 0; entry_index < entry_count; ++entry_index)
+    {
+        stat_id = 0, stat_index =0;
+        stat_value = 0;
+        data = 0;
+        mask = 0;
+        data_modid = 0;
+        mask_modid = 0;
+        p0 = 0;
+        p1 = 0;
+        action_index = 0;
+        fp_action_list_size = (sizeof(fp_action_list)/sizeof(enum_to_str_t));
+        ds_put_format(ds, "entry ID = %d in group = %d\n",
+                           entry_array[entry_index], group);
+        if( OPENNSL_FIELD_QSET_TEST(qset, opennslFieldQualifyStageIngress)) {
+            ds_put_format(ds, "\tQualifier Stage is Ingress\n");
+        }
+
+        if( OPENNSL_FIELD_QSET_TEST(qset, opennslFieldQualifyInPort)) {
+            ret = opennsl_field_qualify_InPort_get(unit,
+                  entry_array[entry_index],(int *) &data,(int *) &mask);
+            if (!OPENNSL_FAILURE(ret)) {
+                ds_put_format(ds, "\t    Qualifier is Inport - ");
+                ds_put_format(ds, "0x%02x mask 0x%02x\n", (int)data,
+                                  (int)mask);
+            }
+            data = 0;
+            mask = 0;
+        }
+
+        if( OPENNSL_FIELD_QSET_TEST(qset, opennslFieldQualifyDstPort)) {
+            ret = opennsl_field_qualify_DstPort_get(unit,
+                  entry_array[entry_index], (int *) &data_modid,
+                  (int *) &mask_modid, (int *) &data, (int *) &mask);
+            if (!OPENNSL_FAILURE(ret)) {
+                ds_put_format(ds, "\t    Qualifier is DstPort - ");
+                ds_put_format(ds, "0x%02x mask - 0x%02x data_modid - 0x%02x \
+                                    mask_modid - 0x%02x \n",
+                                   (int)data, (int)mask,
+                                   (int) data_modid, (int) mask_modid);
+            }
+            data = 0;
+            mask = 0;
+            data_modid = 0;
+            mask_modid = 0;
+        }
+
+        if( OPENNSL_FIELD_QSET_TEST(qset, opennslFieldQualifyDstIp)) {
+            char ip_str[IPV4_BUFFER_LEN];
+            ret = opennsl_field_qualify_DstIp_get(unit,
+                          entry_array[entry_index],(opennsl_ip_t *)&data,
+                          (opennsl_ip_t *)&mask);
+            if (!OPENNSL_FAILURE(ret)) {
+                ds_put_format(ds, "\t    Qualifier is DstIp - ");
+                sprintf(ip_str, "%d.%d.%d.%d",
+                 ((int) data >> 24) & 0xff, ((int) data >> 16) & 0xff,
+                 ((int) data >> 8) & 0xff,(int) data & 0xff);
+                ds_put_format(ds,"%-16s\n", ip_str);
+            }
+            data = 0;
+            mask = 0;
+        }
+
+        if( OPENNSL_FIELD_QSET_TEST(qset, opennslFieldQualifyL3Ingress)) {
+            ret = opennsl_field_qualify_L3Ingress_get(unit,
+                          entry_array[entry_index],(uint32 *)&data,
+                          (uint32 *)&mask);
+            if (!OPENNSL_FAILURE(ret)) {
+                ds_put_format(ds, "\t    Qualifier is L3Ingress - ");
+                ds_put_format(ds, "0x%02x mask 0x%02x\n", (uint32) data,
+                                  (uint32)  mask);
+            }
+            data = 0;
+            mask = 0;
+        }
+
+        if( OPENNSL_FIELD_QSET_TEST(qset, opennslFieldQualifyIpType)) {
+            opennsl_field_IpType_t IpType = 0;
+            ret = opennsl_field_qualify_IpType_get(unit,
+                          entry_array[entry_index], &IpType);
+            if (!OPENNSL_FAILURE(ret)) {
+                if (IpType == opennslFieldIpTypeIpv6) {
+                         ds_put_format(ds, "\t    Qualifier is IpType - "\
+                                           "IPv6 packet\n");
+                } else if(IpType == opennslFieldIpTypeIpv4Any ) {
+                         ds_put_format(ds, "\t    Qualifier is IpType - "\
+                                           "Any IPv4 packet\n");
+                }
+            }
+        }
+
+        if( OPENNSL_FIELD_QSET_TEST(qset, opennslFieldQualifyPacketRes)) {
+            char packet_res_str[MAX_PACKET_RES_STRING_LEN];
+            ret = opennsl_field_qualify_PacketRes_get(unit,
+                          entry_array[entry_index],(uint32 *)&data,
+                          (uint32 *)&mask);
+            if (!OPENNSL_FAILURE(ret)) {
+                ds_put_format(ds, "\t    Qualifier is PacketRes - ");
+                PacketRes_toString(data,packet_res_str);
+                ds_put_format(ds, "%s mask 0x%02x\n",
+                                packet_res_str, (uint32)  mask);
+            }
+            data = 0;
+            mask = 0;
+        }
+
+        if (OPENNSL_FIELD_QSET_TEST(qset, opennslFieldQualifyDstMac)) {
+            char mac_str[SAL_MACADDR_STR_LEN];
+            char mask_str[SAL_MACADDR_STR_LEN];
+            ret = opennsl_field_qualify_DstMac_get(unit,
+                  entry_array[entry_index], (opennsl_mac_t *) &data,
+                  (opennsl_mac_t *) &mask);
+            if (!OPENNSL_FAILURE(ret)) {
+                snprintf(mac_str, SAL_MACADDR_STR_LEN, "%s",
+                          ether_ntoa((struct ether_addr*)&data));
+                snprintf(mask_str, SAL_MACADDR_STR_LEN, "%s",
+                          ether_ntoa((struct ether_addr*)&mask));
+                ds_put_format(ds, "\t    Qualifier is DstMac - ");
+                ds_put_format(ds, "%-18s Mask %-18s\n",
+                                   mac_str, mask_str);
+            }
+            data = 0;
+            mask = 0;
+        }
+
+        if (OPENNSL_FIELD_QSET_TEST(qset, opennslFieldQualifyIpProtocol)) {
+            ret = opennsl_field_qualify_IpProtocol_get(unit,
+                  entry_array[entry_index], (uint8 *)&data, (uint8 *)&mask);
+            if (!OPENNSL_FAILURE(ret)) {
+                ds_put_format(ds, "\t    Qualifier is IpProtocol - ");
+                ds_put_format(ds, "0x%02x mask 0x%02x \n", (uint8) data,
+                                  (uint8)  mask);
+            }
+            data = 0;
+            mask = 0;
+        }
+
+        /*Checking for the actions available in the entry*/
+        for(action_index = 0;action_index < fp_action_list_size;action_index++){
+            fp_action_iter = &fp_action_list[action_index];
+            ret = opennsl_field_action_get(0,entry_array[entry_index],
+                            fp_action_iter->action_type, &p0, &p1);
+            if (!OPENNSL_FAILURE(ret)) {
+                ds_put_format(ds, "\tAction is %s\n",fp_action_iter->api_str);
+                ds_put_format(ds, "\t    p0 %u p1 %u\n", p0,p1);
+            }
+        }
+        /* retrieving the stats for the entry */
+        ret = opennsl_field_entry_stat_get(0, entry_array[entry_index],
+                                           &stat_id);
+        ds_put_format(ds, "\tStatistics: ");
+        if(stat_id > 0) {
+            ds_put_format(ds, "\n\t    Stat id = %d for entry %d\n", stat_id,
+                          entry_array[entry_index]);
+            for(stat_index=0; stat_index< MAX_STAT_TYPES;stat_index++){
+                ret = opennsl_field_stat_get(unit, stat_id,
+                                             stat_arr[stat_index],&stat_value);
+                if (!OPENNSL_FAILURE(ret)) {
+                    ds_put_format(ds, "\t    stat type :%s value is %llu\n",
+                                     stat_type_str[stat_index], stat_value);
+                }
+            }
+        } else {
+            ds_put_format(ds, "NULL\n");
+        }
+    }
+
+err:
+    free(entry_array);
+done:
+    ds_put_format(ds, "Done traversing through group id = %d\n", group );
+} /* fp_entries_show */
+
+static int
+fp_field_group_traverse_cb (int unit, opennsl_field_group_t group, void *user_data)
+{
+    struct knet_user_data *params = (struct knet_user_data *)user_data;
+    struct ds *ds = params->ds;
+
+    /* To display the FP Group  and entry information */
+    fp_entries_show(unit, group, ds);
+    params->count++;
+
+    return OPENNSL_E_NONE;
+} /* fp_field_traverse_cb */
+
+static void
+ops_fp_show_dump(struct ds *ds)
+{
+    struct knet_user_data user_data;
+    int unit = 0;
+    int ret;
+
+    user_data.ds = ds;
+    user_data.count = 0;
+    /* the per fp group traversal function and this is for every hw unit*/
+    for(unit =0; unit < MAX_SWITCH_UNITS; unit++) {
+        ret = opennsl_field_group_traverse (unit, fp_field_group_traverse_cb,
+                                               &user_data);
+        if (OPENNSL_FAILURE(ret)) {
+            VLOG_ERR("FP show groups traversal failure");
+        }
+        if (user_data.count == 0) {
+            ds_put_format(ds, "No  fp groups \n");
+        }
+    }
+} /* ops_fp_show_dump */
+
+static void
 bcm_plugin_debug(struct unixctl_conn *conn, int argc,
                  const char *argv[], void *aux OVS_UNUSED)
 {
@@ -223,6 +533,10 @@ bcm_plugin_debug(struct unixctl_conn *conn, int argc,
 
         if (0 == strcmp(ch, "debug")) {
             handle_ops_debug(&ds, arg_idx, argc, argv);
+            goto done;
+        } else if (!strcmp(ch, "fp")) {
+            ds_put_format(&ds, "Programmed FP rules are \n");
+            ops_fp_show_dump(&ds);
             goto done;
         } else if (!strcmp(ch, "vlan")) {
             int vid = -1;

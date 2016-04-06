@@ -24,6 +24,8 @@
 #define __OPS_DEBUG_H__ 1
 
 #include <shared/pbmp.h>
+#include <opennsl/field.h>
+#include <opennsl/pkt.h>
 
 extern uint32 slog_level;
 
@@ -33,6 +35,7 @@ extern uint32 slog_level;
 #define SWITCHD_LAG_DBG     0x00004
 #define SWITCHD_VLAN_DBG    0x00008
 #define SWITCHD_L3_DBG      0x00010
+#define MAX_STAT_TYPES      8
 
 #define DBG_SLOG(level, format, ...)                          \
 do {                                                          \
@@ -63,5 +66,9 @@ typedef struct ops_debug_s {
 } ops_debug_t;
 
 extern int ops_debug_init(void);
+typedef struct enum_to_str_s {
+    int   action_type;
+    char  *api_str;
+} enum_to_str_t;
 
 #endif // __OPS_DEBUG_H__
