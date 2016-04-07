@@ -34,6 +34,7 @@ VLOG_DEFINE_THIS_MODULE(bufmon_bcm_provider);
 int
 init(void)
 {
+    bst_init_thresholds();
     return 0;
 } /* init */
 
