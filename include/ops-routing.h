@@ -44,6 +44,7 @@ enum ops_route_state {
 
 enum ecmp_res_dynamic_size {
     ECMP_DYN_SIZE_ZERO = 0,
+    ECMP_DYN_SIZE_64   = 64,
     ECMP_DYN_SIZE_512  = 512
 };
 

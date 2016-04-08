@@ -81,7 +81,7 @@ ops_update_ecmp_resilient(opennsl_l3_egress_ecmp_t *ecmp){
         ecmp->dynamic_mode &=  ~OPENNSL_L3_ECMP_DYNAMIC_MODE_RESILIENT;
     }
 
-    ecmp->dynamic_size = ecmp_resilient_flag ? ECMP_DYN_SIZE_512 :
+    ecmp->dynamic_size = ecmp_resilient_flag ? ECMP_DYN_SIZE_64 :
                                                ECMP_DYN_SIZE_ZERO;
 }
 
@@ -180,6 +180,13 @@ ops_l3_init(int unit)
                                     OPENNSL_HASH_CONTROL_ECMP_ENHANCE);
     if (OPENNSL_FAILURE(rc)) {
         VLOG_ERR("Failed to set OPENNSL_HASH_CONTROL_ECMP_ENHANCE: unit=%d rc=%s",
+                 unit, opennsl_errmsg(rc));
+        return 1;
+    }
+
+    rc = opennsl_l3_route_max_ecmp_set(unit, MAX_NEXTHOPS_PER_ROUTE);
+    if (OPENNSL_FAILURE(rc)) {
+        VLOG_ERR("Failed to set Max ECMP  paths unit=%d rc=%s",
                  unit, opennsl_errmsg(rc));
         return 1;
     }
