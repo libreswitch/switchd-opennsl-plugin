@@ -2,32 +2,9 @@
 
 ## Contents
 - [Test loopback creation and deletion](#test-loopback-creation-and-deletion)
-	- [Objective](#objective)
-	- [Requirements](#requirements)
-	- [Setup](#setup)
-		- [Topology Diagram](#topology-diagram)
-	- [Description](#description)
-	- [Test Result Criteria](#test-result-criteria)
-		- [Test Pass Criteria](#test-pass-criteria)
-		- [Test Fail Criteria](#test-fail-criteria)
 - [ECMP resilient test cases](#ecmp-resilient-test-cases)
-        - [Objective](#objective-1)
-        - [Requirements](#requirements-1)
-        - [Setup](#setup-1)
-                - [Topology Diagram](#topology-diagram-1)
-        - [Description](#description-1)
-        - [Test Result Criteria](#test-result-criteria-1)
-                - [Test Pass Criteria](#test-pass-criteria-1)
-                - [Test Fail Criteria](#test-fail-criteria-1)
 - [Test L3 LAG creation and deletion](#test-l3-lag-creation-and-deletion)
-	- [Objective](#objective)
-	- [Requirements](#requirements)
-	- [Setup](#setup)
-		- [Topology Diagram](#topology-diagram)
-	- [Description](#description)
-	- [Test Result Criteria](#test-result-criteria)
-		- [Test Pass Criteria](#test-pass-criteria)
-		- [Test Fail Criteria](#test-fail-criteria)
+- [Test OSPF field processor entries](#test-ospf-field-processor-entries)
 
 ## Test loopback creation and deletion
 ### Objective
@@ -131,3 +108,39 @@ Verify LAG L3 interface add/deletes members, add/deletes knet filters and create
    When both interfaces are 'shutdown' the VLAN does not get deleted.
    When both interfaces are removed from the lag, LAG exists.
    When both interfaces are removed from LAG the VLAN does not get deleted.
+
+## Test OSPF field processor entries
+### Objective
+This test checks for the two OSPF field processor entries programmed in the ASIC.
+### Requirements
+A physical switch is required for this test.
+
+### Setup
+#### Topology diagram
+```ditaa
++---------------+
+|               |
+|    Switch     |
+|               |
++---------------+
+```
+### Description
+1. Use the `ovs-appctl` command for retrieving the existing field processor (FP) entries in the ASIC.
+    ```
+    ovs-appctl plugin/debug fp
+    ```
+
+2. Check for the FP entry that forwards OSPF "All Routers" traffic to the CPU. The entry has the following qualifiers:
+    - Destination MAC address - 01:00:5E:00:00:05
+    - Destination IP address -  224.0.0.5
+    - Protocol Type - 0x59
+3. Check for the FP entry that forwards OSPF "Designated Routers" traffic to the CPU. The entry has the following qualifiers:
+    - Destination MAC address - 01:00:5E:00:00:06
+    - Destination IP address -  224.0.0.6
+    - Protocol Type - 0x59
+
+### Test result criteria
+#### Test pass criteria
+The two OSPF field processor entries are present in the ASIC.
+#### Test fail criteria
+None of the OSPF field processor entries are present in the ASIC.

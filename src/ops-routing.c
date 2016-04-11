@@ -67,6 +67,9 @@ struct ops_route_table ops_rtable;
 /* Profile id for ip-options */
 int default_ip4_options_profile_id = 1;
 
+/* Global Structure that stores OSPF related data */
+static ops_ospf_data_t *ospf_data = NULL;
+
 static void
 ops_update_ecmp_resilient(opennsl_l3_egress_ecmp_t *ecmp){
 
@@ -83,6 +86,205 @@ ops_update_ecmp_resilient(opennsl_l3_egress_ecmp_t *ecmp){
 
     ecmp->dynamic_size = ecmp_resilient_flag ? ECMP_DYN_SIZE_64 :
                                                ECMP_DYN_SIZE_ZERO;
+}
+
+/* This function is used to add an OSPF field entry.
+ * There are two entries in OSPF distinguished using the
+ * 'designatedRouter' parameter:
+ *   1. All OSPF Routers   (224.0.0.5)
+ *   2. Designated Routers (224.0.0.6)
+ *   This function also attaches stat entries to the FPs.
+ *
+ * TODO: See TODO for ops_routing_ospf_init()
+ */
+static int
+ops_routing_create_ospf_field_entry(int unit, bool designatedRouter)
+{
+    opennsl_field_entry_t      fieldEntry;
+    int                        stat_id;
+    int                        retval = -1;
+    opennsl_field_stat_t       stat_arr[] = {opennslFieldStatPackets};
+    char                       *ospf_packet_rule = designatedRouter ?
+                                                   "OSPF:DesignatedRouters" :
+                                                   "OSPF:AllRouters";
+
+    /* OSPF constants used for programming FPs */
+    opennsl_mac_t  OSPF_MAC_ALL_ROUTERS = {0x01,0x00,0x5E,0x00,0x00,0x05};
+    opennsl_mac_t  OSPF_MAC_DESIGNATED_ROUTERS = {0x01,0x00,0x5E,0x00,0x00,0x06};
+    opennsl_mac_t  OSPF_MAC_MASK = {0xff,0xff,0xff,0xff,0xff,0xff};
+    uint8          OSPF_PROTOCOL_TYPE = 0x59;
+    uint8          OSPF_PROTOCOL_MASK = 0xFF;
+
+    retval = opennsl_field_entry_create(unit, ospf_data->ospf_group_id, &fieldEntry);
+    if (OPENNSL_FAILURE(retval)) {
+        VLOG_ERR("Failed at %s opennsl_field_entry_create :: "
+                 "unit=%d retval=%s ",
+                 ospf_packet_rule, unit, opennsl_errmsg(retval));
+        return retval;
+    }
+
+    retval = opennsl_field_qualify_DstMac(unit, fieldEntry,
+                                          designatedRouter ?
+                                          OSPF_MAC_DESIGNATED_ROUTERS :
+                                          OSPF_MAC_ALL_ROUTERS,
+                                          OSPF_MAC_MASK);
+    if (OPENNSL_FAILURE(retval)) {
+        VLOG_ERR("Failed at %s opennsl_field_qualify_DstMac :: "
+                 "unit=%d retval=%s ",
+                 ospf_packet_rule, unit, opennsl_errmsg(retval));
+        opennsl_field_entry_destroy(unit, fieldEntry);
+        return retval;
+    }
+
+    retval = opennsl_field_qualify_IpProtocol(unit, fieldEntry,
+                                              OSPF_PROTOCOL_TYPE,
+                                              OSPF_PROTOCOL_MASK);
+    if (OPENNSL_FAILURE(retval)) {
+        VLOG_ERR("Failed at %s opennsl_field_qualify_IpProtocol :: "
+                 "unit=%d retval=%s ",
+                 ospf_packet_rule, unit, opennsl_errmsg(retval));
+        opennsl_field_entry_destroy(unit, fieldEntry);
+        return retval;
+    }
+
+    if (designatedRouter) {
+        retval = opennsl_field_qualify_DstIp(
+                    unit, fieldEntry,
+                    inet_network(OPS_ROUTING_DESIGNATED_ROUTER_OSPF_MULTICAST_IP_ADDR),
+                    inet_network("255.255.255.255"));
+    } else {
+        retval = opennsl_field_qualify_DstIp(
+                    unit, fieldEntry,
+                    inet_network(OPS_ROUTING_ALL_OSPF_MULTICAST_IP_ADDR),
+                    inet_network("255.255.255.255"));
+    }
+    if (OPENNSL_FAILURE(retval)) {
+        VLOG_ERR("Failed at %s opennsl_field_qualify_DstIp :: "
+                 "unit=%d retval=%s ",
+                 ospf_packet_rule, unit, opennsl_errmsg(retval));
+        opennsl_field_entry_destroy(unit, fieldEntry);
+        return retval;
+    }
+
+    retval = opennsl_field_action_add(unit, fieldEntry,
+                                      opennslFieldActionCopyToCpu,0,0);
+    if (OPENNSL_FAILURE(retval)) {
+        VLOG_ERR("Failed at %s opennslFieldActionCopyToCpu :: "
+                 "unit=%d retval=%s ",
+                 ospf_packet_rule, unit, opennsl_errmsg(retval));
+        opennsl_field_entry_destroy(unit, fieldEntry);
+        return retval;
+    }
+
+    retval =  opennsl_field_stat_create(unit, ospf_data->ospf_group_id, 1,
+                                        stat_arr, &stat_id);
+    if (OPENNSL_FAILURE(retval)) {
+        VLOG_ERR("Failed at %s opennsl_field_stat_create :: unit=%d retval=%s ",
+                 ospf_packet_rule, unit, opennsl_errmsg(retval));
+        opennsl_field_entry_destroy(unit, fieldEntry);
+        return retval;
+    }
+
+    retval = opennsl_field_entry_stat_attach(unit, fieldEntry, stat_id);
+    if (OPENNSL_FAILURE(retval)) {
+        VLOG_ERR("Failed at %s opennsl_field_entry_stat_attach :: "
+                "unit=%d retval=%s ",
+                 ospf_packet_rule, unit, opennsl_errmsg(retval));
+        opennsl_field_stat_destroy(unit, stat_id);
+        opennsl_field_entry_destroy(unit, fieldEntry);
+        return retval;
+    }
+
+    retval = opennsl_field_entry_install(unit, fieldEntry);
+    if (OPENNSL_FAILURE(retval)) {
+        VLOG_ERR("Failed to %s opennsl_field_entry_install : unit=%d retval=%s",
+                 ospf_packet_rule, unit, opennsl_errmsg(retval));
+        opennsl_field_stat_destroy(unit, stat_id);
+        opennsl_field_entry_destroy(unit, fieldEntry);
+        return retval;
+    }
+    if (designatedRouter) {
+        ospf_data->ospf_desginated_routers_fp_id = fieldEntry;
+        ospf_data->ospf_desginated_routers_stat_id = stat_id;
+    } else {
+        ospf_data->ospf_all_routers_fp_id = fieldEntry;
+        ospf_data->ospf_all_routers_stat_id = stat_id;
+    }
+    return retval;
+}
+
+/* This function is used to create a group for OSPF
+ * and add field processor entries for forwarding
+ * OSPF packets to ASIC. This includes packets with the
+ * following destinations:
+ *   1. All OSPF Routers mcast address (224.0.0.5)
+ *   2. OSPF Designated Routers[DR] mcast address (224.0.0.6)
+ *
+ * TODO : Currently this function enables OSPF on a global level.
+ *        This is temporary and later there will be a new table
+ *        which will store all mcast addresses of interest and
+ *        program the ASIC to selectively forward multicast traffic
+ *        on an interface level. Once this is implemented, this function
+ *        will become obsolete and should be removed.
+ */
+static int
+ops_routing_ospf_init(int unit)
+{
+
+    opennsl_field_qset_t       qualifierSet;
+    int                        retval = -1;
+
+    ospf_data = xzalloc(sizeof(ops_ospf_data_t));
+
+    /* Build the qualifier set */
+    OPENNSL_FIELD_QSET_INIT (qualifierSet);
+    OPENNSL_FIELD_QSET_ADD (qualifierSet, opennslFieldQualifyStageIngress);
+    OPENNSL_FIELD_QSET_ADD (qualifierSet, opennslFieldQualifyDstMac);
+    OPENNSL_FIELD_QSET_ADD (qualifierSet, opennslFieldQualifyIpProtocol);
+    OPENNSL_FIELD_QSET_ADD (qualifierSet, opennslFieldQualifyDstIp);
+
+    retval = opennsl_field_group_create(unit, qualifierSet,
+                                        OPS_ROUTING_INGRESS_OSPF_GROUP_PRIORITY,
+                                        &ospf_data->ospf_group_id);
+    if (OPENNSL_FAILURE(retval)) {
+        VLOG_ERR("Failed at OSPF opennsl_field_group_create :: "
+                "unit=%d retval=%s ", unit, opennsl_errmsg(retval));
+        free(ospf_data);
+        return retval;
+    }
+
+    VLOG_DBG("OSPF group added :: group_id=%d ", ospf_data->ospf_group_id);
+
+    retval = ops_routing_create_ospf_field_entry(unit, false);
+    if (OPENNSL_FAILURE(retval)) {
+        VLOG_ERR("Failed at create field entry for OSPF:AllRouters :: "
+                "unit=%d retval=%s ", unit, opennsl_errmsg(retval));
+        opennsl_field_group_destroy(unit, ospf_data->ospf_group_id);
+        free(ospf_data);
+        return retval;
+    }
+
+    VLOG_DBG("OSPF all routers field entry added: "
+             "group_id=%d fp_id=%d stat_id=%d",
+             ospf_data->ospf_group_id,
+             ospf_data->ospf_all_routers_fp_id,
+             ospf_data->ospf_all_routers_stat_id);
+
+    retval = ops_routing_create_ospf_field_entry(unit, true);
+    if (OPENNSL_FAILURE(retval)) {
+        VLOG_ERR("Failed at create field entry for OSPF:DesignatedRouters :: "
+                "unit=%d retval=%s ", unit, opennsl_errmsg(retval));
+        opennsl_field_group_destroy(unit, ospf_data->ospf_group_id);
+        free(ospf_data);
+        return retval;
+    }
+
+    VLOG_DBG("OSPF designated routers field entry added: "
+             "group_id=%d fp_id=%d stat_id=%d",
+             ospf_data->ospf_group_id,
+             ospf_data->ospf_desginated_routers_fp_id,
+             ospf_data->ospf_desginated_routers_stat_id);
+    return retval;
 }
 
 int
@@ -319,6 +521,13 @@ ops_l3_init(int unit)
     if (OPENNSL_FAILURE(rc)) {
         VLOG_ERR("L2 address registration failed");
         return 1;
+    }
+
+    /* Install FPs for forwarding OSPF traffic */
+    rc = ops_routing_ospf_init(unit);
+    if (rc) {
+        VLOG_ERR("OSPF FP init failed");
+        return 1; /* Return error */
     }
 
     /* Initialize hash map of switch mac's */

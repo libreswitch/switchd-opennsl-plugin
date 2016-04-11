@@ -24,6 +24,7 @@
 #include <opennsl/types.h>
 #include <opennsl/l2.h>
 #include <opennsl/l3.h>
+#include <opennsl/field.h>
 #include <netinet/in.h>
 #include <ofproto/ofproto.h>
 
@@ -34,6 +35,10 @@
 #define IPV6_BUFFER_LEN     64
 
 #define OPS_ROUTE_HASH_MAXSIZE 64
+
+#define OPS_ROUTING_ALL_OSPF_MULTICAST_IP_ADDR                "224.0.0.5"
+#define OPS_ROUTING_DESIGNATED_ROUTER_OSPF_MULTICAST_IP_ADDR  "224.0.0.6"
+#define OPS_ROUTING_INGRESS_OSPF_GROUP_PRIORITY               1
 
 #define OPS_FAILURE(rc) (((rc) < 0 ) || ((rc) == EINVAL))
 
@@ -77,6 +82,22 @@ struct ops_mac_move_egress_id {
     struct  hmap_node node;
     int     egress_object_id;
 };
+
+/* Structure to store OSPF related data */
+typedef struct ops_ospf_data {
+
+    /* OSPF group id */
+    opennsl_field_group_t ospf_group_id;
+    /* All OSPF Routers field processor entry */
+    opennsl_field_entry_t ospf_all_routers_fp_id;
+    /* All OSPF Routers stat entry */
+    int ospf_all_routers_stat_id;
+    /* OSPF Designated Routers field processor entry */
+    opennsl_field_entry_t ospf_desginated_routers_fp_id;
+    /* OSPF Designated Routers stat entry */
+    int ospf_desginated_routers_stat_id;
+
+} ops_ospf_data_t;
 
 struct ops_switch_mac_info {
     struct hmap_node node;
@@ -156,5 +177,4 @@ extern void ops_l3ecmp_egress_dump(struct ds *ds, int ecmpid);
 
 extern void ops_l3_mac_move_cb(int unit, opennsl_l2_addr_t *l2addr,
                                 int operation, void *userdata);
-
 #endif /* __OPS_ROUTING_H__ */
