@@ -502,6 +502,15 @@ get_interface_connector_type(const char *interface_type, opennsl_port_if_t *ifac
         } else if (!strcmp(interface_type,
                            INTERFACE_HW_INTF_CONFIG_MAP_INTERFACE_TYPE_40GBASE_LR4)) {
             port_if = OPENNSL_PORT_IF_LR4;
+        } else if (!strcmp(interface_type,
+                           INTERFACE_HW_INTF_CONFIG_MAP_INTERFACE_TYPE_100GBASE_CR4)) {
+            port_if = OPENNSL_PORT_IF_CR4;
+        } else if (!strcmp(interface_type,
+                           INTERFACE_HW_INTF_CONFIG_MAP_INTERFACE_TYPE_100GBASE_SR4)) {
+            port_if = OPENNSL_PORT_IF_SR4;
+        } else if (!strcmp(interface_type,
+                           INTERFACE_HW_INTF_CONFIG_MAP_INTERFACE_TYPE_100GBASE_LR4)) {
+            port_if = OPENNSL_PORT_IF_LR4;
         } else {
             port_if = OPENNSL_PORT_IF_NULL;
         }
@@ -929,7 +938,7 @@ netdev_bcmsdk_link_state_callback(int hw_unit, int hw_id, int link_status)
 {
     struct netdev_bcmsdk *netdev = netdev_from_hw_id(hw_unit, hw_id);
 
-    if (link_status) {
+    if (netdev != NULL && link_status) {
         netdev->link_resets++;
     }
 
