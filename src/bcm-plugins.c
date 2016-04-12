@@ -76,6 +76,12 @@ init(void) {
         VLOG_ERR("Event log initialization failed for SFLOW");
     }
 
+    /* Event log initialization for LAG */
+    retval = event_log_init("LAG");
+    if (retval < 0) {
+        VLOG_ERR("Event log initialization failed for LAG");
+    }
+
     opennsl_extension.plugin_name = ASIC_PLUGIN_INTERFACE_NAME;
     opennsl_extension.major = ASIC_PLUGIN_INTERFACE_MAJOR;
     opennsl_extension.minor = ASIC_PLUGIN_INTERFACE_MINOR;

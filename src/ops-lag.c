@@ -31,6 +31,7 @@
 #include "platform-defines.h"
 #include "ops-debug.h"
 #include "ops-lag.h"
+#include "eventlog.h"
 
 VLOG_DEFINE_THIS_MODULE(ops_lag);
 
@@ -151,6 +152,10 @@ hw_create_lag(int unit, opennsl_trunk_t *lag_id)
         if (OPENNSL_SUCCESS(rc)) {
             SW_LAG_DBG("trunk set succeeds unit %d, lag_id %d\n",
                        unit, *lag_id);
+            log_event("TRUNK_SET_SUCCEEDS",
+                EV_KV("unit", "%d", unit),
+                EV_KV("lag_id", "%d", *lag_id));
+            VLOG_INFO("trunk set succeeds");
         }
     }
 
@@ -158,6 +163,11 @@ hw_create_lag(int unit, opennsl_trunk_t *lag_id)
         // Ignore duplicated create requests.
         VLOG_ERR("Unit %d LAG %d create error, rc=%d (%s)",
                  unit, *lag_id, rc, opennsl_errmsg(rc));
+        log_event("LAG_CREATION_FAILED",
+            EV_KV("unit", "%d", unit),
+            EV_KV("LAGID", "%d", *lag_id),
+            EV_KV("rc=", "%d", rc),
+            EV_KV("error", "%s", opennsl_errmsg(rc)));
     }
 
     SW_LAG_DBG("done: rc=%s", opennsl_errmsg(rc));
@@ -175,6 +185,11 @@ hw_destroy_lag(int unit, opennsl_trunk_t lag_id)
     if (OPENNSL_FAILURE(rc)) {
         VLOG_ERR("Unit %d, LAGID %d destroy error, rc=%d (%s)",
                  unit, lag_id, rc, opennsl_errmsg(rc));
+        log_event("DESTROY_LAG_FAILED",
+            EV_KV("unit", "%d", unit),
+            EV_KV("LAGID", "%d", lag_id),
+            EV_KV("rc=", "%d", rc),
+            EV_KV("error", "%s", opennsl_errmsg(rc)));
     }
 
     SW_LAG_DBG("done: rc=%s", opennsl_errmsg(rc));
@@ -243,9 +258,18 @@ hw_lag_attach_port(int unit, opennsl_trunk_t lag_id, opennsl_port_t hw_port)
     if (OPENNSL_SUCCESS(rc)) {
         SW_LAG_DBG("trunk member add succeeds unit %d, hw_port=%d, "
                    "tid %d", unit, hw_port, lag_id);
+        log_event("TRUNK_MEMBER_ADD_SUCCEEDS",
+            EV_KV("unit", "%d", unit),
+            EV_KV("hw_port", "%d", hw_port),
+            EV_KV("tid", "%d", lag_id));
     } else {
         VLOG_ERR("Trunk port attach error, hw_port %d, tid %d, "
                  "rc=%d (%s)", hw_port, lag_id, rc, opennsl_errmsg(rc));
+        log_event("TRUNK_PORT_ATTACH_ERROR",
+            EV_KV("hw_port", "%d", hw_port),
+            EV_KV("tid", "%d", lag_id),
+            EV_KV("rc", "%d", rc),
+            EV_KV("error", "%s", opennsl_errmsg(rc)));
         goto done;
     }
 
@@ -287,6 +311,11 @@ hw_lag_egress_enable_port(int unit, opennsl_trunk_t trunk_id, opennsl_port_t hw_
                     VLOG_ERR("Failed to set egress enable on "
                              "hw_port=%d, tid=%d, rc=%d (%s)",
                              hw_port, trunk_id, rc, opennsl_errmsg(rc));
+                    log_event("FAILED_TO_SET_EGRESS_ENABLE",
+                        EV_KV("hw_port=", "%d", hw_port),
+                        EV_KV("tid=", "%d", trunk_id),
+                        EV_KV("rc=", "%d", rc),
+                        EV_KV("error", "%s", opennsl_errmsg(rc)));
                 }
                 break;
             }
@@ -317,6 +346,11 @@ hw_lag_detach_port(int unit, opennsl_trunk_t lag_id, opennsl_port_t hw_port)
     if (OPENNSL_FAILURE(rc)) {
         VLOG_ERR("Failed to delete hw_port %d from tid %d, "
                  "rc=%d (%s)", hw_port, lag_id, rc, opennsl_errmsg(rc));
+        log_event("FAILED_TO_DELETE_PORT",
+            EV_KV("hw_port", "%d", hw_port),
+            EV_KV("tid", "%d", lag_id),
+            EV_KV("rc", "%d", rc),
+            EV_KV("error", "%s", opennsl_errmsg(rc)));
     }
 
     SW_LAG_DBG("Done.");
@@ -387,6 +421,12 @@ hw_set_lag_balance_mode(int unit, opennsl_trunk_t lag_id, int lag_mode)
         VLOG_ERR("trunk psc set failed. unit %d, lag_id %d, "
                  "psc=%d, rc=%d (%s)", unit, lag_id,
                  lag_mode, rc, opennsl_errmsg(rc));
+        log_event("TRUNK_PSC_SET_FAILED",
+            EV_KV("unit", "%d", unit),
+            EV_KV("lag_id", "%d", lag_id),
+            EV_KV("psc", "%d", lag_mode),
+            EV_KV("rc", "%d", rc),
+            EV_KV("error", "%s", opennsl_errmsg(rc)));
     }
 
     SW_LAG_DBG("done: rc=%s", opennsl_errmsg(rc));
