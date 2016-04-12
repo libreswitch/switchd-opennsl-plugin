@@ -59,6 +59,7 @@ typedef enum ops_stg_port_state {
 
 int ops_stg_init(int hw_unit);
 void ops_stg_dump(struct ds *ds, int stgid);
+void ops_stg_hw_dump(struct ds *ds, int stgid);
 
 int ops_stg_default_get(opennsl_stg_t *stg_ptr);
 int ops_stg_vlan_add(opennsl_stg_t stg, opennsl_vlan_t vid);

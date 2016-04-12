@@ -139,6 +139,113 @@ ops_stg_dump(struct ds *ds, int stgid)
 }
 
 /*-----------------------------------------------------------------------------
+| Function: ops_stg_hw_dump
+| Description:  dumps all stg groups data from hw
+| Parameters[in]: stgid: spanning tree group id
+|.Parameters[out]:  dynamic string object
+| Return: None
+-----------------------------------------------------------------------------*/
+
+void
+ops_stg_hw_dump(struct ds *ds, int stgid)
+{
+    int unit = 0;
+    char pfmt[_SHR_PBMP_FMT_LEN];
+    opennsl_vlan_t *vlan_list = NULL;
+    int stg_vlan_count = 0;
+    opennsl_error_t rc = OPENNSL_E_NONE;
+    opennsl_pbmp_t disabled_ports[MAX_SWITCH_UNITS];
+    opennsl_pbmp_t blocked_ports[MAX_SWITCH_UNITS];
+    opennsl_pbmp_t learning_ports[MAX_SWITCH_UNITS];
+    opennsl_pbmp_t forwarding_ports[MAX_SWITCH_UNITS];
+    opennsl_port_t portid;
+
+    int port_state = -1;
+
+
+    if (!ds) {
+        /* invalid param */
+        VLOG_ERR("%s: invalid param", __FUNCTION__);
+        return;
+    }
+
+    /* check range of hw stg id */
+    if ((stgid < 1) || (stgid > 511)) {
+        ds_put_format(ds, "Invalid hw stg id %d", stgid);
+        return;
+    }
+
+    ds_put_format(ds, "STG %d:\n", stgid);
+    rc = opennsl_stg_vlan_list(unit, stgid, &vlan_list, &stg_vlan_count);
+    if (OPENNSL_FAILURE(rc)) {
+        ds_put_format(ds, "Unit %d, stg get vlan error, rc=%d (%s)\n",
+                 unit, rc, opennsl_errmsg(rc));
+        return ;
+    }
+
+    ds_put_format(ds, "Vlan count %d:\n", stg_vlan_count);
+    if (stg_vlan_count) {
+        ds_put_format(ds, "Vlan  id's: ");
+        for(int i =0; i<stg_vlan_count ; i++) {
+            ds_put_format(ds, " %d", vlan_list[i]);
+        }
+        rc = OPENNSL_E_NONE;
+        rc = opennsl_stg_vlan_list_destroy(unit, vlan_list, stg_vlan_count);
+        if (OPENNSL_FAILURE(rc)) {
+            ds_put_format(ds, "Unit %d, stg destroy vlan list error, rc=%d (%s)\n",
+                     unit, rc, opennsl_errmsg(rc));
+            return ;
+        }
+        ds_put_format(ds, "\n");
+    }
+    for (unit = 0; unit <= MAX_SWITCH_UNIT_ID; unit++) {
+
+        OPENNSL_PBMP_CLEAR(disabled_ports[unit]);
+        OPENNSL_PBMP_CLEAR(blocked_ports[unit]);
+        OPENNSL_PBMP_CLEAR(learning_ports[unit]);
+        OPENNSL_PBMP_CLEAR(forwarding_ports[unit]);
+
+        for (portid =0; portid <=105; portid++) {
+            port_state = -1;
+            opennsl_stg_stp_get(unit, stgid, portid, &port_state);
+            switch (port_state) {
+                case OPS_STG_PORT_STATE_BLOCKED:
+                    OPENNSL_PBMP_PORT_ADD(blocked_ports[unit],
+                                          portid);
+                    break;
+                case OPS_STG_PORT_STATE_DISABLED:
+                    OPENNSL_PBMP_PORT_ADD(disabled_ports[unit],
+                                          portid);
+                    break;
+                case OPS_STG_PORT_STATE_LEARNING:
+                    OPENNSL_PBMP_PORT_ADD(learning_ports[unit],
+                                          portid);
+                    break;
+                case OPS_STG_PORT_STATE_FORWARDING:
+                    OPENNSL_PBMP_PORT_ADD(forwarding_ports[unit],
+                                          portid);
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        ds_put_format(ds, "  disabled ports=%s\n",
+                      _SHR_PBMP_FMT(disabled_ports[unit], pfmt));
+        ds_put_format(ds, "  blocked ports=%s\n",
+                      _SHR_PBMP_FMT(blocked_ports[unit], pfmt));
+        ds_put_format(ds, "  learning ports=%s\n",
+                      _SHR_PBMP_FMT(learning_ports[unit], pfmt));
+        ds_put_format(ds, "  forwarding ports=%s\n",
+                      _SHR_PBMP_FMT(forwarding_ports[unit], pfmt));
+        ds_put_format(ds, "\n");
+    }
+
+    ds_put_format(ds, "\n");
+
+}
+
+/*-----------------------------------------------------------------------------
 | Function: stg_data_find_create
 | Description: lookup stg data for given stgid, if not found create stg data for given stgid
 | Parameters[in]: stgid: spanning tree group id

@@ -65,9 +65,9 @@ ops_debug_t ops_debug_list[] = {
 };
 
 // Broadcom shell debug command.
-char cmd_hp_usage[] =
+char cmd_ops_usage[] =
 "Usage:\n\t"
-"ovs-appctl plugin/debug <cmds> - Run HP OpenSwitch BCM Plugin specific debug commands.\n"
+"ovs-appctl plugin/debug <cmds> - Run OpenSwitch BCM Plugin specific debug commands.\n"
 "\n"
 "   debug [[+/-]<option> ...] [all/none] - enable/disable debugging.\n"
 "   vlan <vid> - displays OpenSwitch VLAN info.\n"
@@ -80,6 +80,7 @@ char cmd_hp_usage[] =
 "   l3egress [<entry>] - display an egress object info.\n"
 "   l3ecmp [<entry>] - display an ecmp egress object info.\n"
 "   lag [<lagid>] - displays OpenSwitch LAG info.\n"
+"   stg [hw] <stgid> - displays Spanning Tree Group Info. \n"
 "   fp - displays programmed fp rules.\n"
 "   help - displays this help text.\n"
 ;
@@ -525,7 +526,7 @@ bcm_plugin_debug(struct unixctl_conn *conn, int argc,
     int arg_idx = 1;
 
     if (argc <= arg_idx) {
-        ds_put_format(&ds, "%s", cmd_hp_usage);
+        ds_put_format(&ds, "%s", cmd_ops_usage);
         goto done;
 
     } else {
@@ -551,11 +552,24 @@ bcm_plugin_debug(struct unixctl_conn *conn, int argc,
             int stgid = -1;
 
             if (NULL != (ch = NEXT_ARG())) {
+                if (!strcmp(ch, "hw")) {
+                    if (NULL != (ch = NEXT_ARG())) {
+                        stgid = atoi(ch);
+                        ops_stg_hw_dump(&ds, stgid);
+                        goto done;
+                    } else {
+                        ds_put_format(&ds, "%s", cmd_ops_usage);
+                        goto done;
+                    }
+                }
                 stgid = atoi(ch);
+                ops_stg_dump(&ds, stgid);
+                goto done;
+            } else {
+                /* dump all stg */
+                ops_stg_dump(&ds, stgid);
+                goto done;
             }
-            ops_stg_dump(&ds, stgid);
-            goto done;
-
         } else if (!strcmp(ch, "knet")) {
             if (NULL != (ch = NEXT_ARG())) {
                 if (!strcmp(ch, "netif")) {
@@ -622,7 +636,7 @@ bcm_plugin_debug(struct unixctl_conn *conn, int argc,
             goto done;
 
         } else if (!strcmp(ch, "help")) {
-            ds_put_format(&ds, "%s", cmd_hp_usage);
+            ds_put_format(&ds, "%s", cmd_ops_usage);
             goto done;
 
         } else {
