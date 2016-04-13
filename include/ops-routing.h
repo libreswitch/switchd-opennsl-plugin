@@ -42,6 +42,9 @@
 
 #define OPS_FAILURE(rc) (((rc) < 0 ) || ((rc) == EINVAL))
 
+/* l3 ingress stats related globals */
+extern uint32_t l3_stats_mode_id;
+
 enum ops_route_state {
     OPS_ROUTE_STATE_NON_ECMP = 0,
     OPS_ROUTE_STATE_ECMP

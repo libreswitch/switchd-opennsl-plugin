@@ -23,12 +23,15 @@
 #include <ofproto/ofproto-provider.h>
 #include <opennsl/types.h>
 #include <opennsl/l3.h>
+#include <opennsl/stat.h>
 
 /* No bfd/cfm status change. */
 #define NO_STATUS_CHANGE -1
 
 /* vrf */
 #define BCM_MAX_VRFS 1024
+
+#define INTERFACE_TYPE_MAXLEN 10
 
 struct bcmsdk_provider_rule {
     struct rule up;
