@@ -70,6 +70,22 @@ int default_ip4_options_profile_id = 1;
 /* Global Structure that stores OSPF related data */
 static ops_ospf_data_t *ospf_data = NULL;
 
+/*
+ * ops_routing_get_ospf_group_id_by_hw_unit
+ *
+'* This function returns the group-id for the OSPF ingress FP rules for
+ * the given hardware unit.
+ */
+opennsl_field_group_t
+ops_routing_get_ospf_group_id_by_hw_unit (int unit)
+{
+    if (!ospf_data) {
+        return(-1);
+    }
+
+    return(ospf_data->ospf_group_id);
+}
+
 static void
 ops_update_ecmp_resilient(opennsl_l3_egress_ecmp_t *ecmp){
 

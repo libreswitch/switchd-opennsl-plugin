@@ -177,4 +177,6 @@ extern void ops_l3ecmp_egress_dump(struct ds *ds, int ecmpid);
 
 extern void ops_l3_mac_move_cb(int unit, opennsl_l2_addr_t *l2addr,
                                 int operation, void *userdata);
+extern opennsl_field_group_t ops_routing_get_ospf_group_id_by_hw_unit (
+                                                                int unit);
 #endif /* __OPS_ROUTING_H__ */

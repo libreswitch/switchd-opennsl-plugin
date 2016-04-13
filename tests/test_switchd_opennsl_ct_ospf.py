@@ -39,7 +39,7 @@ def ospf_fp_test(**kwargs):
     switch = kwargs.get('switch', None)
     LogOutput('info', 'Verify OSPF FPs are programmed in ASIC')
 
-    appctl_command = "ovs-appctl plugin/debug fp"
+    appctl_command = "ovs-appctl plugin/debug fp ospf-group"
     retStruct = switch.DeviceInteract(command=appctl_command)
     buf = retStruct.get('buffer')
     LogOutput('info', str(buf))

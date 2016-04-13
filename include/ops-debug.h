@@ -26,6 +26,8 @@
 #include <shared/pbmp.h>
 #include <opennsl/field.h>
 #include <opennsl/pkt.h>
+#include <opennsl/types.h>
+#include <opennsl/cosq.h>
 
 extern uint32 slog_level;
 
