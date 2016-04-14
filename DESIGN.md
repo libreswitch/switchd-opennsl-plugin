@@ -295,11 +295,11 @@ Field processors are used in conjunction with traffic policers to rate limit egr
 | ICMP_BC       |  IPv4 broadcast/multicast ICMP |   Q4    |      1000       |
 |               |  packets                       |         |                 |
 +---------------+--------------------------------+---------+-----------------+
-| ICMP_UC       |  IPv4 unicast ICMP packets     |   Q6    |      1000       |
+| ICMP_UC       |  IPv4 unicast ICMP packets     |   Q5    |      1000       |
 +---------------+--------------------------------+---------+-----------------+
 | ICMPV6_MC     |  IPv6 multicast ICMP packets   |   Q4    |      1000       |
 +---------------+--------------------------------+---------+-----------------+
-| ICMPV6_UC     |  IPv6 unicast ICMP             |   Q6    |      1000       |
+| ICMPV6_UC     |  IPv6 unicast ICMP             |   Q5    |      1000       |
 +---------------+--------------------------------+---------+-----------------+
 | IPOPTIONV4    |  Packets with IPv4 options     |   Q5    |       250       |
 +---------------+--------------------------------+---------+-----------------+
@@ -313,15 +313,14 @@ Field processors are used in conjunction with traffic policers to rate limit egr
 +---------------+--------------------------------+---------+-----------------+
 | OSPF_UC       |  Unicast OSPF packets          |   Q9    |      5000       |
 +---------------+--------------------------------+---------+-----------------+
-| sFlow         |  Sampled sFlow packets         |   Q3    |     20000       |
+| sFlow         |  Sampled sFlow packets         |   Q3    |      5000       |
 +---------------+--------------------------------+---------+-----------------+
 | STP           |  STP packets                   |   Q10   |      1000       |
 +---------------+--------------------------------+---------+-----------------+
 |UNKNOWN_IP_DEST|  Unknown IPv4 or Ipv6          |   Q6    |      2500       |
-                |  destination                   |         |                 |
+|               |  destination                   |         |                 |
 +---------------+--------------------------------+---------+-----------------+
-|UNCLASSIFIED   |  Unclassified multicast/       |   Q1    |      5000       |
-|               |  broadcast packets             |         |                 |
+|UNCLASSIFIED   |  Unclassified packets          |   Q1    |      5000       |
 +------------------------------------------------+---------+-----------------+
 ```
 
