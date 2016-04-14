@@ -37,6 +37,7 @@
 #include "netdev-bcmsdk.h"
 #include "ops-routing.h"
 #include "ops-sflow.h"
+#include "eventlog.h"
 
 VLOG_DEFINE_THIS_MODULE(netdev_bcmsdk);
 
@@ -814,6 +815,8 @@ netdev_bcmsdk_populate_sflow_stats(bool ingress, const char *name,
          netdev_close(netdev);
     } else {
         VLOG_ERR("Unable to get netdev for interface %s", name);
+        log_event("SFLOW_STATS_NETDEV_FAILURE",
+                  EV_KV("interface", "%s", name));
     }
 }
 

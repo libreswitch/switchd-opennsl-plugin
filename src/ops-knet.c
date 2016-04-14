@@ -32,6 +32,7 @@
 #include "platform-defines.h"
 #include "ops-debug.h"
 #include "ops-knet.h"
+#include "eventlog.h"
 
 VLOG_DEFINE_THIS_MODULE(ops_knet);
 
@@ -291,6 +292,7 @@ void bcmsdk_knet_sflow_filter_create(int *knet_filter_id, int reason, char *desc
 
     if (desc == NULL) {
         VLOG_ERR("No description provided for filter. Failed to create filter.");
+        log_event("SFLOW_FILTER_DESC_BLANK_FAILURE", NULL);
         return;
     }
 
@@ -311,12 +313,13 @@ void bcmsdk_knet_sflow_filter_create(int *knet_filter_id, int reason, char *desc
     rc = opennsl_knet_filter_create(0, &knet_filter);
     if (OPENNSL_FAILURE(rc)) {
         VLOG_ERR("Failed to create KNET filter for: %s", desc);
+        log_event("SFLOW_FILTER_CREATE_FAILURE",
+                  EV_KV("desc", "%s", desc));
         *knet_filter_id = 0;
     } else {
         VLOG_DBG("Successfully created KNET filter for: %s, id=%d", desc, knet_filter.id);
         *knet_filter_id = knet_filter.id;
     }
-
     return;
 }
 

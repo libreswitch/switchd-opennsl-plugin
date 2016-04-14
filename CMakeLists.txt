@@ -55,7 +55,8 @@ include_directories(${CMAKE_SOURCE_DIR}/${INCL_DIR}
 # Create our library
 add_library (ovs_bcm_plugin SHARED ${SOURCES})
 
-target_link_libraries (ovs_bcm_plugin ${OVSCOMMON_LIBRARIES} ${OPENNSL_LIBRARIES})
+target_link_libraries (ovs_bcm_plugin ${OVSCOMMON_LIBRARIES}
+                       ${OPENNSL_LIBRARIES} -lsupportability)
 
 # Installation
 install(TARGETS ovs_bcm_plugin

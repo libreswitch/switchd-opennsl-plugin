@@ -37,6 +37,7 @@
 #include "ops-sflow.h"
 #include "ops-routing.h"
 #include "netdev-bcmsdk.h"
+#include "eventlog.h"
 
 VLOG_DEFINE_THIS_MODULE(ops_sflow);
 
@@ -198,6 +199,7 @@ void ops_sflow_write_sampled_pkt(opennsl_pkt_t *pkt)
 
     if (pkt == NULL) {
         VLOG_ERR("NULL sFlow pkt received. Can't be buffered.");
+        log_event("SFLOW_SAMPLED_PKT_FAILURE", NULL);
         return;
     }
 
@@ -205,12 +207,14 @@ void ops_sflow_write_sampled_pkt(opennsl_pkt_t *pkt)
      * yet. */
     if (ops_sflow_agent == NULL) {
         VLOG_ERR("sFlow Agent uninitialized.");
+        log_event("SFLOW_AGENT_FAILURE", NULL);
         return;
     }
 
     sampler = ops_sflow_agent->samplers;
     if (sampler == NULL) {
         VLOG_ERR("Sampler on sFlow Agent uninitialized.");
+        log_event("SFLOW_SAMPLER_FAILURE", NULL);
         return;
     }
 
@@ -264,6 +268,8 @@ ops_sflow_set_per_interface (const int unit, const int port, bool set)
     if (port <= 0) {
         VLOG_ERR("Invalid port number (%d). Cannot enable/disable "
                 "sFlow on it.", port);
+        log_event("SFLOW_INVALID_PORT_FAILURE",
+                  EV_KV("port", "%d", port));
         return;
     }
 
@@ -284,6 +290,8 @@ ops_sflow_set_per_interface (const int unit, const int port, bool set)
 
         if (sampler == NULL) {
             VLOG_ERR("There is no Sampler for sFlow Agent.");
+            log_event("SFLOW_SAMPLER_MISSING_FAILURE",
+                      EV_KV("port", "%d", port));
             return;
         }
 
@@ -292,6 +300,9 @@ ops_sflow_set_per_interface (const int unit, const int port, bool set)
         if (OPENNSL_FAILURE(rc)) {
             VLOG_ERR("Failed to set sampling rate on port: %d, (error-%s).",
                     port, opennsl_errmsg(rc));
+            log_event("SFLOW_SET_SAMPLING_RATE_FAILURE",
+                      EV_KV("port", "%d", port),
+                      EV_KV("error", "%s", opennsl_errmsg(rc)));
             return;
         }
     } else {
@@ -300,6 +311,9 @@ ops_sflow_set_per_interface (const int unit, const int port, bool set)
         if (OPENNSL_FAILURE(rc)) {
             VLOG_ERR("Failed to set sampling rate on port: %d, (error-%s).",
                     port, opennsl_errmsg(rc));
+            log_event("SFLOW_SET_SAMPLING_RATE_FAILURE",
+                      EV_KV("port", "%d", port),
+                      EV_KV("error", "%s", opennsl_errmsg(rc)));
             return;
         }
     }
@@ -451,6 +465,8 @@ ops_sflow_set_sampling_rate(const int unit, const int port,
     if (OPENNSL_FAILURE(rc)) {
         VLOG_ERR("Failed to retrieve port config. Can't set sampling rate. "
                 "(rc=%s)", opennsl_errmsg(rc));
+        log_event("SFLOW_FETCH_PORT_CONFIG_FAILURE",
+                  EV_KV("error", "%s", opennsl_errmsg(rc)));
         return;
     }
 
@@ -459,6 +475,9 @@ ops_sflow_set_sampling_rate(const int unit, const int port,
         if (OPENNSL_FAILURE(rc)) {
             VLOG_ERR("Failed to set sampling rate on port: %d, (error-%s).",
                     port, opennsl_errmsg(rc));
+            log_event("SFLOW_SET_SAMPLING_RATE_FAILURE",
+                      EV_KV("port", "%d", port),
+                      EV_KV("error", "%s", opennsl_errmsg(rc)));
             return;
         }
 
@@ -470,6 +489,9 @@ ops_sflow_set_sampling_rate(const int unit, const int port,
             if (OPENNSL_FAILURE(rc)) {
                 VLOG_ERR("Failed to set sampling rate on port: %d, (error-%s)",
                         port, opennsl_errmsg(rc));
+                log_event("SFLOW_SET_SAMPLING_RATE_FAILURE",
+                          EV_KV("port", "%d", port),
+                          EV_KV("error", "%s", opennsl_errmsg(rc)));
                 return;
             }
         }
@@ -483,6 +505,8 @@ ops_sflow_set_sampling_rate(const int unit, const int port,
 
         if (sampler == NULL) {
             VLOG_ERR("There is no Sampler for sFlow Agent.");
+            log_event("SFLOW_SAMPLER_MISSING_FAILURE",
+                      EV_KV("port", "%d", port));
             return;
         }
 
@@ -539,6 +563,8 @@ ops_sflow_show (struct unixctl_conn *conn, int argc, const char *argv[],
     if (OPENNSL_FAILURE(rc)) {
         VLOG_ERR("Failed to retrieve port config. Can't get sampling rate. "
                 "(rc=%s)", opennsl_errmsg(rc));
+        log_event("SFLOW_FETCH_PORT_CONFIG_FAILURE",
+                  EV_KV("error", "%s", opennsl_errmsg(rc)));
         return;
     }
 
@@ -547,6 +573,9 @@ ops_sflow_show (struct unixctl_conn *conn, int argc, const char *argv[],
         if (OPENNSL_FAILURE(rc)) {
             VLOG_ERR("Failed to get sample rate for port: %d (error-%s)",
                     port, opennsl_errmsg(rc));
+            log_event("SFLOW_GET_SAMPLING_RATE_FAILURE",
+                      EV_KV("port", "%d", port),
+                      EV_KV("error", "%s", opennsl_errmsg(rc)));
             goto done;
         }
         ds_put_format(&ds, "\t%2d\t%6d\t\t%6d\n", port, ingress_rate, egress_rate);
@@ -556,6 +585,9 @@ ops_sflow_show (struct unixctl_conn *conn, int argc, const char *argv[],
             if (OPENNSL_FAILURE(rc)) {
                 VLOG_ERR("Failed on port (%d) while getting global sample rate "
                         "(error-%s)", tempPort, opennsl_errmsg(rc));
+                log_event("SFLOW_GET_SAMPLING_RATE_FAILURE",
+                          EV_KV("port", "%d", tempPort),
+                          EV_KV("error", "%s", opennsl_errmsg(rc)));
                 goto done;
             }
             ds_put_format(&ds, "\t%2d\t%6d\t\t%6d\n", tempPort, ingress_rate, egress_rate);
@@ -658,8 +690,9 @@ ops_sflow_agent_enable(struct bcmsdk_provider_node *ofproto,
         if (inet_pton(af, oso->agent_ip, addr) != 1) {
             /* This error condition should not happen. */
             VLOG_ERR("sFlow Agent device IP is malformed:%s", oso->agent_ip);
+            log_event("SFLOW_AGENT_IP_CONFIG_FAILURE",
+                      EV_KV("ip_address", "%s", oso->agent_ip));
         }
-
         if (agentIP.type == SFLADDRESSTYPE_IP_V4) {
             agentIP.address.ip_v4.addr = myIP.s_addr;
         } else {
@@ -818,9 +851,10 @@ ops_sflow_agent_ip(const char *ip)
     /* validate input IP addr. Will not happen. Placed for safety. */
     if (inet_pton(af, ip, ptr) <= 0) {
         VLOG_ERR("Invalid IP address(%s). Failed to assign IP.", ip);
+        log_event("SFLOW_AGENT_IP_CONFIG_FAILURE",
+                  EV_KV("ip_address", "%s", ip));
         return;
     }
-
     if (af == AF_INET6) {
         myIP.type = SFLADDRESSTYPE_IP_V6;
         memcpy(myIP.address.ip_v6.addr, addr6.s6_addr, 16);
@@ -836,9 +870,9 @@ assign:
     if (receiver == NULL) {
         VLOG_ERR("Got NULL Receiver from sflow agent. Something is "
                 "incorrectly configured.");
+        log_event("SFLOW_RECEIVER_MISSING_FAILURE", NULL);
         return;
     }
-
     sfl_receiver_replaceAgentAddress(receiver, &myIP);
 }
 
@@ -854,9 +888,9 @@ ops_sflow_set_collector_ip(const char *ip, const char *port)
 
     if (ops_sflow_agent == NULL) {
         VLOG_ERR("sFlow Agent uninitialized.");
+        log_event("SFLOW_AGENT_FAILURE", NULL);
         return;
     }
-
     receiver = sfl_agent_getReceiver(ops_sflow_agent, 1); // Currently support one receiver.
 
     /* v6 address */
@@ -864,6 +898,8 @@ ops_sflow_set_collector_ip(const char *ip, const char *port)
         memset(&myIP6, 0, sizeof myIP6);
         if (inet_pton(AF_INET6, ip, &myIP6) <= 0) {
             VLOG_ERR("Invalid collector IP:%s", ip);
+            log_event("SFLOW_COLLECTOR_IP_CONFIG_FAILURE",
+                      EV_KV("ip_address", "%s", ip));
             return;
         }
         receiverIP.type = SFLADDRESSTYPE_IP_V6;
@@ -872,6 +908,8 @@ ops_sflow_set_collector_ip(const char *ip, const char *port)
         memset(&myIP, 0, sizeof myIP);
         if (inet_pton(AF_INET, ip, &myIP) <= 0) {
             VLOG_ERR("Invalid collector IP:%s", ip);
+            log_event("SFLOW_COLLECTOR_IP_CONFIG_FAILURE",
+                      EV_KV("ip_address", "%s", ip));
             return;
         }
         receiverIP.type = SFLADDRESSTYPE_IP_V4;

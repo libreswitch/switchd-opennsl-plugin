@@ -28,6 +28,7 @@
 #include <netdev.h>
 
 #include "ops-stats.h"
+#include "eventlog.h"
 
 VLOG_DEFINE_THIS_MODULE(ops_stats);
 
@@ -127,6 +128,10 @@ bcmsdk_get_sflow_port_stats(int hw_unit, int hw_port,
     if (OPENNSL_FAILURE(rc)) {
         VLOG_ERR("Failed to get interface statistics. Unit=%d port=%d. rc=%s",
                  hw_unit, hw_port, opennsl_errmsg(rc));
+        log_event("SFLOW_INTF_STATISTICS_FAILURE",
+                  EV_KV("unit", "%d", hw_unit),
+                  EV_KV("port", "%d", hw_port),
+                  EV_KV("error", "%s", opennsl_errmsg(rc)));
         return -1;
     }
 

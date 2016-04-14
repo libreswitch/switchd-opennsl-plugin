@@ -26,6 +26,7 @@
 #include "plugin-extensions.h"
 #include "asic-plugin.h"
 #include "ops-stg.h"
+#include "eventlog.h"
 
 #define init libovs_bcm_plugin_LTX_init
 #define run libovs_bcm_plugin_LTX_run
@@ -54,6 +55,12 @@ static void netdev_change_seq_changed(const struct netdev *) __attribute__((__un
 void
 init(void) {
 
+    int retval;
+    /* Event log initialization for sFlow */
+    retval = event_log_init("SFLOW");
+    if (retval < 0) {
+        VLOG_ERR("Event log initialization failed for SFLOW");
+    }
     struct plugin_extension_interface opennsl_extension;
     opennsl_extension.plugin_name = ASIC_PLUGIN_INTERFACE_NAME;
     opennsl_extension.major = ASIC_PLUGIN_INTERFACE_MAJOR;
