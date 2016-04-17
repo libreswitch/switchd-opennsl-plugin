@@ -23,7 +23,6 @@
 #include "bufmon-bcm-provider.h"
 #include "netdev-bcmsdk.h"
 #include "ofproto-bcm-provider.h"
-#include "qos.h"
 #include "plugin-extensions.h"
 #include "asic-plugin.h"
 #include "ops-stg.h"
@@ -64,6 +63,7 @@ init(void) {
     register_plugin_extension(&opennsl_extension);
     VLOG_INFO("The %s asic plugin interface was registered", ASIC_PLUGIN_INTERFACE_NAME);
 
+    register_qos_extension();
     ovs_bcm_init();
 }
 

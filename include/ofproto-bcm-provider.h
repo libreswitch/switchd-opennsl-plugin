@@ -192,4 +192,6 @@ enum { TBL_INTERNAL = N_TABLES - 1 };    /* Used for internal hidden rules. */
 
 extern const struct ofproto_class ofproto_bcm_provider_class;
 
+int register_qos_extension(void);
+
 #endif  /* ofproto-bcm-provider.h */
