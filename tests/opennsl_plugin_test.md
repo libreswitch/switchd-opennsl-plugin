@@ -1,4 +1,4 @@
-# opennsl Plugin Test Cases
+# OpenNSL Plugin Test Cases
 
 ## Contents
 - [Test loopback creation and deletion](#test-loopback-creation-and-deletion)
@@ -6,6 +6,7 @@
 - [Test TCP/UDP load balance mode](#test-tcp/udp-load-balance-mode)
 - [Test L3 LAG creation and deletion](#test-l3-lag-creation-and-deletion)
 - [Test OSPF field processor entries](#test-ospf-field-processor-entries)
+- [Test sFlow](#test-sflow)
 
 ## Test loopback creation and deletion
 ### Objective
@@ -182,3 +183,42 @@ A physical switch is required for this test.
 The two OSPF field processor entries are present in the ASIC.
 #### Test fail criteria
 None of the OSPF field processor entries are present in the ASIC.
+
+## Test sFlow
+### Objective
+The test case checks whether sFlow (Sampled Flow) gets successfully configured in the ASIC through OpenSwitch CLI.
+We verify both the ingress and egress sampling rates and the KNET filter ids created each for source and destination samples.
+### Requirements
+A physical switch is required for this test.
+
+### Setup
+#### Topology diagram
+```ditaa
++---------------+
+|               |
+|    Switch     |
+|               |
++---------------+
+```
+### Description\
+1. Enable sFlow and configure sampling rate and collector IP as shown below
+```
+switch(config)# sflow enable
+switch(config)# sflow sampling 100
+switch(config)# sflow collector 10.10.10.2
+```
+2. Use the `ovs-appctl` command for retrieving the ingress and the egress sampling rates set in the ASIC.
+```
+ovs-appctl -t ops-switchd sflow/show-rate
+```
+3. Use the `ovs-appctl` command for retrieving the KNET filter ids created in the ASIC for source and destination samples.
+```
+ovs-appctl plugin/debug knet filter
+```
+### Test result criteria
+#### Test pass criteria
+The sFlow sampling rate should to be set on all the displayed ports (for eg. 1 - 72)
+KNET filters should be created for source and destination samples
+
+#### Test fail criteria
+Sampling rate is not configured in ASIC or creation of KNET filters for sFlow failed
