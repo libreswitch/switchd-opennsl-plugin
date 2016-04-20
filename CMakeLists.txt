@@ -30,6 +30,7 @@ set (SOURCES ${SRC_DIR}/bcm.c
              ${SRC_DIR}/ops-lag.c
              ${SRC_DIR}/ops-pbmp.c
              ${SRC_DIR}/ops-port.c
+             ${SRC_DIR}/ops-qos.c
              ${SRC_DIR}/ops-stats.c
              ${SRC_DIR}/ops-vlan.c
              ${SRC_DIR}/ops-sflow.c

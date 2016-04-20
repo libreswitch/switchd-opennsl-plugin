@@ -33,6 +33,8 @@
 #define CPU_PORT(unit)       0
 
 #define VALID_HW_UNIT(hw_unit)      (((hw_unit) >= 0) && ((hw_unit) < MAX_SWITCH_UNITS))
+#define VALID_HW_UNIT_PORT(hw_unit, hw_port)  \
+      (((hw_port) >= 0) && ((hw_port) < (MAX_PORTS(hw_unit))))
 
 /*********************************************************************
  * hc-debug.c: returns BCMSDK datapath version.

@@ -33,6 +33,7 @@
 
 #include "ops-port.h"
 #include "ops-knet.h"
+#include "ops-qos.h"
 #include "ops-stats.h"
 #include "platform-defines.h"
 #include "netdev-bcmsdk.h"
@@ -1251,6 +1252,16 @@ netdev_bcmsdk_update_flags(struct netdev *netdev_,
     return rc;
 }
 
+static int
+netdev_bcmsdk_dump_queue_stats(const struct netdev *netdev_,
+                               netdev_dump_queue_stats_cb* cb,
+                               void* aux)
+{
+    struct netdev_bcmsdk *netdev = netdev_bcmsdk_cast(netdev_);
+
+    return ops_qos_get_cosq_stats(netdev->hw_unit, netdev->hw_id, cb, aux);
+}
+
 void
 netdev_bcmsdk_link_state_callback(int hw_unit, int hw_id, int link_status)
 {
@@ -1392,7 +1403,7 @@ static const struct netdev_class bcmsdk_class = {
     NULL,                       /* queue_dump_start */
     NULL,                       /* queue_dump_next */
     NULL,                       /* queue_dump_done */
-    NULL,                       /* dump_queue_stats */
+    netdev_bcmsdk_dump_queue_stats,
 
     NULL,                       /* get_in4 */
     NULL,                       /* set_in4 */
@@ -1621,7 +1632,7 @@ static const struct netdev_class bcmsdk_internal_class = {
     NULL,                       /* queue_dump_start */
     NULL,                       /* queue_dump_next */
     NULL,                       /* queue_dump_done */
-    NULL,                       /* dump_queue_stats */
+    netdev_bcmsdk_dump_queue_stats,
 
     NULL,                       /* get_in4 */
     NULL,                       /* set_in4 */

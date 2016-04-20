@@ -41,6 +41,7 @@
 #include "plugin-extensions.h"
 #include "ofproto-bcm-provider.h"
 #include "ops-stg.h"
+#include "ops-qos.h"
 #include "qos-asic-provider.h"
 
 VLOG_DEFINE_THIS_MODULE(ofproto_bcm_provider);
@@ -2277,87 +2278,192 @@ l3_ecmp_hash_set(const struct ofproto *ofprotop, unsigned int hash, bool enable)
     return ops_routing_ecmp_hash_set(0, hash, enable);
 }
 
-/* QOS. */
+/* QoS */
 int
 set_port_qos_cfg(struct ofproto *ofproto_,
-                 void *aux,  // struct port *port
-                 const struct  qos_port_settings *cfg) {
-    const struct bcmsdk_provider_node *ofproto = bcmsdk_provider_node_cast(ofproto_);
+                 void *aux,  /* struct port *port */
+                 const struct  qos_port_settings *cfg)
+{
+    struct bcmsdk_provider_node *ofproto = bcmsdk_provider_node_cast(ofproto_);
+    struct bcmsdk_provider_ofport_node *port, *next_port;
+    int hw_unit, hw_port;
+    uint8_t mac[ETH_ADDR_LEN];
+    int rc = OPS_QOS_SUCCESS_CODE;
 
     struct ofbundle *bundle = bundle_lookup(ofproto, aux);
-    if (bundle)
-    {
-        VLOG_DBG("%s: port %s, settings->qos_trust %d, cfg@ %p",
-                 __FUNCTION__, bundle->name, cfg->qos_trust, cfg->other_config);
-    }
-    else
-    {
-        VLOG_DBG("%s: NO BUNDLE aux@%p, settings->qos_trust %d, cfg@ %p",
-                 __FUNCTION__, aux, cfg->qos_trust, cfg->other_config);
+    if (bundle) {
+        VLOG_DBG("set port qos cfg: name %s ofproto@ %p port %s, "
+                 "settings->qos_trust %d, cfg@ %p",
+                  ofproto_->name, ofproto, bundle->name,
+                  cfg->qos_trust, cfg->other_config);
+
+        VLOG_DBG("bundle hw_unit %d, hw_port %d, bond_hw_handle %d bond %p",
+                  bundle->hw_unit, bundle->hw_port, bundle->bond_hw_handle,
+                  bundle->bond);
+
+        /*
+         * Set port qos cfg could be for individual port or LAGs. The following
+         * code should take care of both cases.
+         */
+        LIST_FOR_EACH_SAFE (port, next_port, bundle_node, &bundle->ports) {
+            netdev_bcmsdk_get_hw_info(port->up.netdev, &hw_unit, &hw_port,
+                                      mac);
+
+            VLOG_DBG("port hw_unit %d, hw_port %d, bond_hw_handle %d bond %p",
+                       hw_unit, hw_port, bundle->bond_hw_handle, bundle->bond);
+
+            if (VALID_HW_UNIT(hw_unit) && VALID_HW_UNIT_PORT(hw_unit,
+                hw_port)) {
+                rc = ops_qos_set_port_cfg(bundle, hw_unit, hw_port,
+                                          cfg);
+            } else {
+                /* Log an ERR msg and return error code */
+                VLOG_ERR("Invalid hw unit %d or port %d in "
+                         "set port qos cfg for %s",
+                          hw_unit, hw_port, bundle->name);
+
+                return OPS_QOS_FAILURE_CODE;
+            }
+
+        }
+    } else {
+        VLOG_ERR("set port qos trust: NO BUNDLE aux@%p, "
+                  "settings->qos_trust %d, cfg@ %p",
+                   aux, cfg->qos_trust, cfg->other_config);
+        return OPS_QOS_FAILURE_CODE;
     }
 
-    return 0;
+    return rc;
 }
 
 int
-set_cos_map(struct ofproto *ofproto,
+set_cos_map(struct ofproto *ofproto_,
             void *aux,
-            const struct cos_map_settings *settings) {
-    int   index;
-    struct cos_map_entry *entry;
+            const struct cos_map_settings *settings)
+{
+    int rc;
 
-    for (index = 0; index < settings->n_entries; index++) {
-        entry = &settings->entries[index];
-        VLOG_DBG("%s: ofproto@ %p index=%d color=%d cp=%d lp=%d",
-                 __FUNCTION__, ofproto, index,
-                 entry->color, entry->codepoint, entry->local_priority);
-    }
+    VLOG_DBG("QoS: set COS map");
+    rc = ops_qos_set_cos_map(settings);
 
-    return 0;
+    return rc;
 }
 
 int
-set_dscp_map(struct ofproto *ofproto,
+set_dscp_map(struct ofproto *ofproto_,
              void *aux,
-             const struct dscp_map_settings *settings) {
-    int   index;
-    struct dscp_map_entry *entry;
+             const struct dscp_map_settings *settings)
+{
+    int rc;
 
-    for (index = 0; index < settings->n_entries; index++) {
-        entry = &settings->entries[index];
-        VLOG_DBG("%s: ofproto@ %p index=%d color=%d cp=%d lp=%d cos=%d",
-                 __FUNCTION__, ofproto, index,
-                 entry->color, entry->codepoint, entry->local_priority, entry->cos);
-    }
+    VLOG_DBG("QoS: set DSCP map");
+    rc = ops_qos_set_dscp_map(settings);
 
-    return 0;
+    return rc;
 }
 
 int
-apply_qos_profile(struct ofproto *ofproto,
+apply_qos_profile(struct ofproto *ofproto_,
                   void *aux,
                   const struct schedule_profile_settings *s_settings,
-                  const struct queue_profile_settings *q_settings) {
+                  const struct queue_profile_settings *q_settings)
+{
+    struct bcmsdk_provider_node *ofproto;
+
     int index;
     struct queue_profile_entry *qp_entry;
     struct schedule_profile_entry *sp_entry;
+    uint8_t mac[ETH_ADDR_LEN];
+    struct bcmsdk_provider_ofport_node *port, *next_port;
+    int hw_unit, hw_port;
+    int rc = OPS_QOS_SUCCESS_CODE;
+    struct ofbundle *bundle;
 
-    VLOG_DBG("%s ofproto@ %p aux=%p q_settings=%p s_settings=%p", __FUNCTION__,
-             aux, ofproto, s_settings, q_settings);
+    if (ofproto_) {
+        ofproto = bcmsdk_provider_node_cast(ofproto_);
+
+        bundle = bundle_lookup(ofproto, aux);
+
+        VLOG_DBG("apply_qos_profile: %s ofproto@ %p port %s aux=%p "
+                 "q_settings=%p s_settings=%p",
+                  ofproto_->name, ofproto, bundle->name, aux,
+                  s_settings, q_settings);
+    } else {
+        /* This is global defaults case */
+        ofproto = NULL;
+        bundle = NULL;
+
+        VLOG_DBG("apply_qos_profile: global defaults config "
+                 "q_settings=%p s_settings=%p",
+                  s_settings, q_settings);
+    }
 
     for (index = 0; index < q_settings->n_entries; index++) {
         qp_entry = q_settings->entries[index];
         VLOG_DBG("... %d q=%d #lp=%d", index,
-                 qp_entry->queue, qp_entry->n_local_priorities);
+                  qp_entry->queue, qp_entry->n_local_priorities);
+
     }
 
     for (index = 0; index < s_settings->n_entries; index++) {
         sp_entry = s_settings->entries[index];
-        VLOG_DBG("... %d q=%d alg=%d wt=%d", index,
-                 sp_entry->queue, sp_entry->algorithm, sp_entry->weight);
+        VLOG_DBG("... %d alg=%d wt=%d", index,
+                  sp_entry->algorithm, sp_entry->weight);
+
     }
 
-    return 0;
+    if (aux == NULL) {
+        /* If aux is NULL, apply queue profile and return */
+        VLOG_DBG("apply qos profile: applying queue profile...");
+
+        rc = ops_qos_apply_queue_profile(ofproto, s_settings, q_settings);
+
+        return rc;
+    }
+
+    /* Apply the schedule profile now */
+    if (bundle) {
+        VLOG_DBG("apply qos profile: name %s ofproto@ %p port %s",
+                  ofproto_->name, ofproto, bundle->name);
+
+        VLOG_DBG("bundle hw_unit %d, hw_port %d, bond_hw_handle %d bond %p",
+                  bundle->hw_unit, bundle->hw_port, bundle->bond_hw_handle,
+                  bundle->bond);
+
+        /*
+         * Apply qos profile could be for individual port or LAGs.
+         * The following code should take care of both cases.
+         */
+        LIST_FOR_EACH_SAFE (port, next_port, bundle_node, &bundle->ports) {
+            netdev_bcmsdk_get_hw_info(port->up.netdev, &hw_unit, &hw_port,
+                                      mac);
+
+            VLOG_DBG("port hw_unit %d, hw_port %d, bond_hw_handle %d bond %p",
+                       hw_unit, hw_port, bundle->bond_hw_handle, bundle->bond);
+
+            if (VALID_HW_UNIT(hw_unit) && VALID_HW_UNIT_PORT(hw_unit,
+                hw_port)) {
+                rc = ops_qos_apply_schedule_profile(bundle,
+                                        hw_unit, hw_port,
+                                        s_settings, q_settings);;
+            } else {
+                /* Log an ERR msg and return error code */
+                VLOG_ERR("Invalid hw unit %d or port %d in "
+                         "apply qos profile for %s",
+                          hw_unit, hw_port, bundle->name);
+
+                return OPS_QOS_FAILURE_CODE;
+            }
+
+        }
+    } else {
+        VLOG_ERR("apply qos profile: NO BUNDLE aux@ %p, "
+                 "ofproto_ name %s, ofproto@ %p ",
+                  aux, ofproto_->name, ofproto);
+        return OPS_QOS_FAILURE_CODE;
+    }
+
+    return rc;
 }
 
 static struct qos_asic_plugin_interface qos_asic_plugin = {
