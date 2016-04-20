@@ -506,6 +506,16 @@ error:
 }
 
 static void
+get_interface_speed_config(const char *speed_cfg, int *speed)
+{
+    /* Speed configuration. */
+    if (sscanf(speed_cfg, "%d,", speed) != 1) {
+        /* Set 40G as default speed */
+        *speed = SPEED_40G;
+    }
+}
+
+static void
 get_interface_autoneg_config(const char *autoneg_cfg, int *autoneg)
 {
         /* Auto negotiation configuration. */
@@ -713,6 +723,7 @@ netdev_bcmsdk_set_hw_intf_config(struct netdev *netdev_, const struct smap *args
     const char *pause = smap_get(args, INTERFACE_HW_INTF_CONFIG_MAP_PAUSE);
     const char *interface_type = smap_get(args, INTERFACE_HW_INTF_CONFIG_MAP_INTERFACE_TYPE);
     const int mtu = smap_get_int(args, INTERFACE_HW_INTF_CONFIG_MAP_MTU, 0);
+    const char *speeds = smap_get(args, INTERFACE_HW_INTF_CONFIG_MAP_SPEEDS);
 
     VLOG_DBG("netdev set_hw_intf_config called for interface %s", netdev->up.name);
 
@@ -734,6 +745,7 @@ netdev_bcmsdk_set_hw_intf_config(struct netdev *netdev_, const struct smap *args
         get_interface_pause_config(pause, &(pcfg->pause_rx), &(pcfg->pause_tx));
         get_interface_connector_type(interface_type, &(pcfg->intf_type));
         pcfg->max_frame_sz = (mtu == 0) ? 0 : mtu + BCMSDK_MTU_TO_MAXFRAMESIZE_PAD;
+        get_interface_speed_config(speeds, &(pcfg->cfg_speed));
 
     } else {
         /* Treat the absence of hw_enable info as a "disable" action. */

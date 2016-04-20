@@ -333,7 +333,9 @@ bcmsdk_set_port_config(int hw_unit, opennsl_port_t hw_port, const struct port_cf
             bcm_pinfo.duplex       = pcfg->duplex;
             bcm_pinfo.pause_rx     = pcfg->pause_rx;
             bcm_pinfo.pause_tx     = pcfg->pause_tx;
+            bcm_pinfo.autoneg      = FALSE;
 
+            bcm_pinfo.action_mask |=   OPENNSL_PORT_ATTR_AUTONEG_MASK;
             bcm_pinfo.action_mask |= ( OPENNSL_PORT_ATTR_SPEED_MASK    |
                                        OPENNSL_PORT_ATTR_DUPLEX_MASK   |
                                        OPENNSL_PORT_ATTR_PAUSE_RX_MASK |

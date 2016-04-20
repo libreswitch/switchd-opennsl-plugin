@@ -20,6 +20,13 @@
 #ifndef NETDEV_BCMSDK_H
 #define NETDEV_BCMSDK_H 1
 
+#define SPEED_1G                    1000
+#define SPEED_10G                   10000
+#define SPEED_25G                   25000
+#define SPEED_40G                   40000
+#define SPEED_50G                   50000
+#define SPEED_100G                  100000
+
 #define STR_EQ(s1, s2)      ((s1 != NULL) && (s2 != NULL) && \
                              (strlen((s1)) == strlen((s2))) && \
                              (!strncmp((s1), (s2), strlen((s2)))))
