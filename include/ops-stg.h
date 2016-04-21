@@ -33,6 +33,7 @@
 #define OPS_STG_MAX           64
 #define OPS_STG_VALID(v)  ((v)>=OPS_STG_MIN && (v)<=OPS_STG_MAX)
 #define OPS_STG_COUNT         64
+#define OPS_STG_ENTRY_PORT_WIDTH 105
 
 typedef struct ops_stg_vlan {
     struct hmap_node node;            /* ops_stg[stg_id]->vlans */

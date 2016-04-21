@@ -109,6 +109,88 @@ show_stg_data(struct ds *ds, ops_stg_data_t *pstg)
 
 }
 
+/*------------------------------------------------------------------------------
+| Function:  get_hw_port_state_enum_from_port_state
+| Description: get the hw port state equivalent enum from port state
+| Parameters[in]: portstate
+| Parameters[out]: hw_port_state:
+| Return: True if valid port state else false.
+-----------------------------------------------------------------------------*/
+bool
+get_hw_port_state_enum_from_port_state(int port_state, int *hw_port_state)
+{
+    bool retval = false;
+
+    if(!hw_port_state) {
+        return retval;
+    }
+
+    switch (port_state) {
+        case OPS_STG_PORT_STATE_BLOCKED:
+            *hw_port_state = OPENNSL_STG_STP_BLOCK;
+            retval = true;
+            break;
+        case OPS_STG_PORT_STATE_DISABLED:
+            *hw_port_state = OPENNSL_STG_STP_DISABLE;
+            retval = true;
+            break;
+        case OPS_STG_PORT_STATE_LEARNING:
+            *hw_port_state = OPENNSL_STG_STP_LEARN;
+            retval = true;
+            break;
+        case OPS_STG_PORT_STATE_FORWARDING:
+            *hw_port_state = OPENNSL_STG_STP_FORWARD;
+            retval = true;
+            break;
+        default:
+            break;
+    }
+
+    return retval;
+}
+
+/*------------------------------------------------------------------------------
+| Function:  get_port_state_from_hw_port_state
+| Description: get the port state equivalent from hw port state
+| Parameters[in]: hw_portstate
+| Parameters[out]: port_state:-
+| Return: True if valid port state else false.
+-----------------------------------------------------------------------------*/
+bool
+get_port_state_from_hw_port_state(int hw_port_state, int *port_state)
+{
+    bool retval = false;
+
+    if(!port_state) {
+        return retval;
+    }
+
+    switch (hw_port_state) {
+        case OPENNSL_STG_STP_BLOCK:
+            *port_state = OPS_STG_PORT_STATE_BLOCKED;
+            retval = true;
+            break;
+        case OPENNSL_STG_STP_DISABLE:
+            *port_state =  OPS_STG_PORT_STATE_DISABLED;
+            retval = true;
+            break;
+        case OPENNSL_STG_STP_LEARN:
+            *port_state =  OPS_STG_PORT_STATE_LEARNING;
+            retval = true;
+            break;
+        case OPENNSL_STG_STP_FORWARD:
+            *port_state =  OPS_STG_PORT_STATE_FORWARDING;
+            retval = true;
+            break;
+        default:
+            *port_state = OPS_STG_PORT_STATE_NOT_SET;
+            retval = false;
+            break;
+    }
+
+    return retval;
+}
+
 /*-----------------------------------------------------------------------------
 | Function: ops_stg_dump
 | Description:  dumps all stg groups data
@@ -159,8 +241,9 @@ ops_stg_hw_dump(struct ds *ds, int stgid)
     opennsl_pbmp_t learning_ports[MAX_SWITCH_UNITS];
     opennsl_pbmp_t forwarding_ports[MAX_SWITCH_UNITS];
     opennsl_port_t portid;
+    opennsl_stg_t default_stg;
 
-    int port_state = -1;
+    int port_state = -1, hw_port_state = -1;
 
 
     if (!ds) {
@@ -170,7 +253,7 @@ ops_stg_hw_dump(struct ds *ds, int stgid)
     }
 
     /* check range of hw stg id */
-    if ((stgid < 1) || (stgid > 511)) {
+    if ((stgid < 0) || (stgid > 511)) {
         ds_put_format(ds, "Invalid hw stg id %d", stgid);
         return;
     }
@@ -205,9 +288,11 @@ ops_stg_hw_dump(struct ds *ds, int stgid)
         OPENNSL_PBMP_CLEAR(learning_ports[unit]);
         OPENNSL_PBMP_CLEAR(forwarding_ports[unit]);
 
-        for (portid =0; portid <=105; portid++) {
+        for (portid =0; portid <=OPS_STG_ENTRY_PORT_WIDTH; portid++) {
+            hw_port_state = -1;
             port_state = -1;
-            opennsl_stg_stp_get(unit, stgid, portid, &port_state);
+            opennsl_stg_stp_get(unit, stgid, portid, &hw_port_state);
+            get_port_state_from_hw_port_state(hw_port_state, &port_state);
             switch (port_state) {
                 case OPS_STG_PORT_STATE_BLOCKED:
                     OPENNSL_PBMP_PORT_ADD(blocked_ports[unit],
@@ -241,6 +326,8 @@ ops_stg_hw_dump(struct ds *ds, int stgid)
         ds_put_format(ds, "\n");
     }
 
+    ops_stg_default_get(&default_stg);
+    ds_put_format(ds, "Default STG %d\n", default_stg);
     ds_put_format(ds, "\n");
 
 }
@@ -561,6 +648,9 @@ int ops_stg_vlan_add(opennsl_stg_t stgid, opennsl_vlan_t vid)
     opennsl_error_t rc = OPENNSL_E_NONE;
     int unit = 0;
     ops_stg_data_t *p_stg_data = NULL;
+    opennsl_vlan_t *vlan_list = NULL;
+    int stg_vlan_count = 0;
+    bool vlan_exists_in_stg_hw = false;
 
     if (!OPS_STG_VALID(stgid)) {
         VLOG_ERR("Invalid stgid param");
@@ -579,13 +669,35 @@ int ops_stg_vlan_add(opennsl_stg_t stgid, opennsl_vlan_t vid)
         return -1;
     }
 
-    VLOG_DBG("opennsl_stg_vlan_add called with stgid %d vid %d", stgid,
-             vid);
-    rc = opennsl_stg_vlan_add(unit, stgid, vid);
+    rc = opennsl_stg_vlan_list(unit, stgid, &vlan_list, &stg_vlan_count);
     if (OPENNSL_FAILURE(rc)) {
-        VLOG_ERR("Unit %d, stg vlan add error, rc=%d (%s)",
+        VLOG_ERR("Unit %d, stg get vlan error, rc=%d (%s)\n",
                  unit, rc, opennsl_errmsg(rc));
         return -1;
+    }
+
+    if (stg_vlan_count) {
+        for(int i =0; i<stg_vlan_count ; i++) {
+            if (vid == vlan_list[i]) {
+                vlan_exists_in_stg_hw = true;
+                break;
+            }
+        }
+        opennsl_stg_vlan_list_destroy(unit, vlan_list, stg_vlan_count);
+    }
+
+    if (false == vlan_exists_in_stg_hw) {
+
+        VLOG_DBG("opennsl_stg_vlan_add called with stgid %d vid %d", stgid,
+                 vid);
+        rc = opennsl_stg_vlan_add(unit, stgid, vid);
+        if (OPENNSL_FAILURE(rc)) {
+            VLOG_ERR("Unit %d, stg vlan add error, rc=%d (%s)",
+                     unit, rc, opennsl_errmsg(rc));
+            return -1;
+        }
+    } else {
+        VLOG_DBG("ops_stg_vlan_add: vlan id %d exists in stg id %d", vid, stgid);
     }
 
     stg_data_add_vlan(stgid, vid);
@@ -741,6 +853,7 @@ int ops_stg_stp_set(opennsl_stg_t stgid, opennsl_port_t port, int stp_state,
     opennsl_error_t rc = OPENNSL_E_NONE;
     int unit = 0;
     ops_stg_data_t *p_stg_data = NULL;
+    int hw_stp_state = 0;
 
     if (!OPS_STG_VALID(stgid)) {
         VLOG_ERR("Invalid stgid param");
@@ -753,22 +866,25 @@ int ops_stg_stp_set(opennsl_stg_t stgid, opennsl_port_t port, int stp_state,
                  stgid);
         return -1;
     }
-    VLOG_DBG("opennsl_stg_stp_set called with stg %d port %d stp_state %d",
-             stgid, port, stp_state);
-    rc = opennsl_stg_stp_set(unit, stgid, port, stp_state);
-    if (OPENNSL_FAILURE(rc)) {
-        VLOG_ERR("Unit %d, stg %d port %d state %d set error, rc=%d (%s)",
-                 unit, stgid, port, stp_state, rc, opennsl_errmsg(rc));
-        return -1;
-    }
 
-    if (port_stp_set) {
-        VLOG_DBG("opennsl_port_stp_set called with port %d stp_state %d",
-                 port, stp_state);
-        rc = opennsl_port_stp_set(unit, port, stp_state);
+    get_hw_port_state_enum_from_port_state(stp_state, &hw_stp_state);
+
+    if (ops_stg_count > 1 ) {
+        VLOG_DBG("opennsl_stg_stp_set called with stg %d port %d stp_state %d hw_stp_state %d",
+                 stgid, port, stp_state, hw_stp_state);
+        rc = opennsl_stg_stp_set(unit, stgid, port, hw_stp_state);
         if (OPENNSL_FAILURE(rc)) {
-            VLOG_ERR("Unit %d, port state set error, rc=%d (%s)",
-                     unit, rc, opennsl_errmsg(rc));
+            VLOG_ERR("Unit %d, stg %d port %d state %d set error, rc=%d (%s)",
+                     unit, stgid, port, hw_stp_state, rc, opennsl_errmsg(rc));
+            return -1;
+        }
+    } else if ((ops_stg_count == 1) || port_stp_set) {
+        VLOG_DBG("opennsl_port_stp_set called with port %d stp_state %d hw stp state %d",
+                 port, stp_state, hw_stp_state);
+        rc = opennsl_port_stp_set(unit, port, hw_stp_state);
+        if (OPENNSL_FAILURE(rc)) {
+            VLOG_ERR("Unit %d, port %d state %d set error, rc=%d (%s)",
+                     unit, port, hw_stp_state, rc, opennsl_errmsg(rc));
             return -1;
         }
     }
