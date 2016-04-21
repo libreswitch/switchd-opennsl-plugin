@@ -142,7 +142,7 @@
  * Control Plane packet egress FP qualifier function name
  * Control Plane packet ingress FP qualifier function names
  */
-OPS_DEF_COPP_CLASS(ACL_LOGGING_PACKET, "ACL Logging packets", OPS_COPP_QOS_QUEUE_EXCEPTION, 5, 5, NULL, ops_copp_egress_fp_acl_logging, OPS_COPP_INGRESS_FUNC_POINTERS())
+OPS_DEF_COPP_CLASS(ACL_LOGGING_PACKET, "ACL Logging packets", OPS_COPP_QOS_QUEUE_ACL_LOGGING, 5, 5, NULL, ops_copp_egress_fp_acl_logging, OPS_COPP_INGRESS_FUNC_POINTERS())
 OPS_DEF_COPP_CLASS(BROADCAST_ARP_PACKET, "Broadcast ARPs packets", OPS_COPP_QOS_QUEUE_NORMAL, 1000, 1000, NULL, ops_copp_egress_fp_broadcast_arp, OPS_COPP_INGRESS_FUNC_POINTERS(ops_copp_ingress_fp_broadcast_arp))
 OPS_DEF_COPP_CLASS(UNICAST_ARP_PACKET, "Unicast ARPs packets", OPS_COPP_QOS_QUEUE_SWPATH, 1000, 1000, NULL, ops_copp_egress_fp_unicast_arp, OPS_COPP_INGRESS_FUNC_POINTERS(ops_copp_ingress_fp_unicast_arp))
 OPS_DEF_COPP_CLASS(LACP_PACKET, "LACP packets", OPS_COPP_QOS_QUEUE_BPDU, 1000, 1000, NULL, ops_copp_egress_fp_lacp, OPS_COPP_INGRESS_FUNC_POINTERS(ops_copp_ingress_fp_lacp))

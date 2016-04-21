@@ -198,6 +198,16 @@ enum { N_TABLES = 255 };
 enum { TBL_INTERNAL = N_TABLES - 1 };    /* Used for internal hidden rules. */
 
 extern const struct ofproto_class ofproto_bcm_provider_class;
+struct ofbundle * bundle_lookup(const struct bcmsdk_provider_node *ofproto,
+                                void *aux);
+
+struct bcmsdk_provider_node * bcmsdk_provider_node_cast(
+    const struct ofproto *ofproto);
+
+/**
+ * Register asic plugins for various features such as ACL
+ */
+int register_classifier_plugins(void);
 
 extern int
 register_qos_extension(void);
