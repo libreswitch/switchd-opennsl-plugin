@@ -48,6 +48,8 @@
 #include "eventlog.h"
 #include "ops-stats.h"
 #include "ops-mirrors.h"
+#include "ops-classifier.h"
+
 #define DEFAULT_VID  (1)
 
 VLOG_DEFINE_THIS_MODULE(ofproto_bcm_provider);
@@ -97,7 +99,7 @@ release_vrf_id(size_t vrf_id) {
     bitmap_set0(available_vrf_ids, vrf_id);
 }
 
-static struct bcmsdk_provider_ofport_node *
+struct bcmsdk_provider_ofport_node *
 bcmsdk_provider_ofport_node_cast(const struct ofport *ofport)
 {
     return ofport ?
@@ -107,7 +109,7 @@ bcmsdk_provider_ofport_node_cast(const struct ofport *ofport)
 /*
  * used externally, do NOT make static
  */
-struct bcmsdk_provider_node *
+inline struct bcmsdk_provider_node *
 bcmsdk_provider_node_cast(const struct ofproto *ofproto)
 {
     ovs_assert(ofproto->ofproto_class == &ofproto_bcm_provider_class);
@@ -2611,6 +2613,13 @@ int
 register_qos_extension(void)
 {
     return(register_plugin_extension(&qos_extension));
+}
+
+int
+register_classifier_plugins(void)
+{
+    /* Register classifier plugin extension */
+     return(register_ops_cls_plugin());
 }
 
 const struct ofproto_class ofproto_bcm_provider_class = {

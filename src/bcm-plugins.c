@@ -89,6 +89,7 @@ init(void) {
     opennsl_extension.minor = ASIC_PLUGIN_INTERFACE_MINOR;
     opennsl_extension.plugin_interface = (void *)&opennsl_interface;
 
+
     register_plugin_extension(&opennsl_extension);
     VLOG_INFO("The %s asic plugin interface was registered", ASIC_PLUGIN_INTERFACE_NAME);
 
@@ -101,6 +102,8 @@ init(void) {
     VLOG_INFO("The %s asic plugin interface was registered",
                                               COPP_ASIC_PLUGIN_INTERFACE_NAME);
 
+    /* Register plugins */
+    register_classifier_plugins();
     register_qos_extension();
     ovs_bcm_init();
 }

@@ -343,6 +343,42 @@ void bcmsdk_knet_bridge_normal_filter_create(char *knet_dst_if_name,
     opennsl_knet_filter_create(0, &knet_filter);
     return;
 }
+
+
+void bcmsdk_knet_acl_logging_filter_create(char *knet_dst_if_name,
+        int *knet_filter_id)
+{
+    opennsl_error_t rc;
+    const char *desc = "knet_filter_acl_logging";
+    opennsl_knet_filter_t knet_filter;
+    opennsl_knet_filter_t_init(&knet_filter);
+
+    knet_filter.type = OPENNSL_KNET_FILTER_T_RX_PKT;
+    snprintf(knet_filter.desc, OPENNSL_KNET_FILTER_DESC_MAX,
+             desc);
+
+    /* Note that this priority can be very high because the only packets copied
+     * for ACL logging are packets that should be denied/dropped, so no other
+     * parts of the system should need to see them. */
+    knet_filter.priority = KNET_FILTER_PRIO_ACL_LOGGING;
+    knet_filter.dest_type = OPENNSL_KNET_DEST_T_OPENNSL_RX_API;
+    knet_filter.flags |= OPENNSL_KNET_FILTER_F_STRIP_TAG;
+    knet_filter.match_flags |= OPENNSL_KNET_FILTER_M_REASON;
+    OPENNSL_RX_REASON_SET(knet_filter.m_reason, opennslRxReasonFilterMatch);
+
+    rc = opennsl_knet_filter_create(0, &knet_filter);
+    if (OPENNSL_FAILURE(rc)) {
+        VLOG_ERR("Failed to create KNET filter for: %s", desc);
+        *knet_filter_id = 0;
+    } else {
+        VLOG_DBG("Successfully created KNET filter for: %s, id=%d", desc, knet_filter.id);
+        *knet_filter_id = knet_filter.id;
+    }
+
+    return;
+}
+
+
 ///////////////////////////////// DEBUG/DUMP /////////////////////////////////
 
 /* Note:  See knet.h, OPENNSL_KNET_NETIF_T_xxx */

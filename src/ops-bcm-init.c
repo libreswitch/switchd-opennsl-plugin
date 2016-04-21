@@ -20,6 +20,7 @@
  */
 
 #include <openvswitch/vlog.h>
+#include <ovs/uuid.h>
 
 #include <sal/driver.h>
 #include <opennsl/error.h>
@@ -33,6 +34,7 @@
 #include "ops-mirrors.h"
 #include "ops-routing.h"
 #include "ops-vlan.h"
+#include "ops-classifier.h"
 #include "ops-debug.h"
 #include "ops-copp.h"
 #include "ops-stg.h"
@@ -87,6 +89,13 @@ opennsl_rx_t opennsl_rx_callback(int unit, opennsl_pkt_t *pkt, void *cookie)
         /* Write incoming data to Receivers buffer. When buffer is full,
          * data is sent to Collectors. */
         ops_sflow_write_sampled_pkt(pkt);
+    }
+
+    /* ACL logging packet */
+    if (OPENNSL_RX_REASON_GET(pkt->rx_reasons, opennslRxReasonFilterMatch)) {
+        /* Copy relevant parts of the metadata and header to an ACL logging
+        * buffer */
+        acl_log_handle_rx_event(pkt);
     }
 
     return OPENNSL_RX_HANDLED;
@@ -234,6 +243,12 @@ ops_bcm_appl_init(void)
         if (rc) {
             VLOG_ERR("QoS hw unit %d init failed, rc %d",
                       unit, rc);
+            return 1;
+        }
+
+        rc = ops_classifier_init(unit);
+        if (rc) {
+            VLOG_ERR("Classifier subsystem init failed");
             return 1;
         }
     }
