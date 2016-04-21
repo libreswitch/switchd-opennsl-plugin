@@ -54,10 +54,6 @@
 #define OPS_OPENNSL_CPU_SCHED_L2_COUNT     44
 
 
-/* Maximum number of hardware units (asics) on the system */
-#define OPS_QOS_MAX_UNITS                  MAX_SWITCH_UNITS
-#define OPS_QOS_MAX_SWITCH_UNIT_ID         MAX_SWITCH_UNIT_ID
-
 /* COS map structure */
 typedef struct ops_cos_map_entry_s {
 
@@ -146,7 +142,7 @@ typedef struct ops_qos_config_s {
      *     Use per unit max ports instead of MAX_HW_PORTS
      *     as MAX_HW_PORTS is for entire system. For now, it's ok.
      */
-    ops_qos_port_config_t port_cfg[OPS_QOS_MAX_UNITS][MAX_HW_PORTS];
+    ops_qos_port_config_t port_cfg[MAX_SWITCH_UNITS][MAX_HW_PORTS];
 
     /* COS map config */
     ops_cos_map_entry_t cos_map[OPS_QOS_COS_COUNT];
@@ -155,13 +151,13 @@ typedef struct ops_qos_config_s {
     ops_dscp_map_entry_t dscp_map[OPS_QOS_DSCP_COUNT];
 
     /* Default COS map id for each hardware unit */
-    int cos_map_id_default[OPS_QOS_MAX_UNITS];
+    int cos_map_id_default[MAX_SWITCH_UNITS];
 
     /* COS map id for each hardware unit */
-    int cos_map_id[OPS_QOS_MAX_UNITS];
+    int cos_map_id[MAX_SWITCH_UNITS];
 
     /* DSCP map id for each hardware unit */
-    int dscp_map_id[OPS_QOS_MAX_UNITS];
+    int dscp_map_id[MAX_SWITCH_UNITS];
 
     /*
      * Date structure for scheduling hierarchy
@@ -169,7 +165,7 @@ typedef struct ops_qos_config_s {
      *     Use per unit max ports instead of MAX_HW_PORTS
      *     as MAX_HW_PORTS is for entire system. For now, it's ok.
      */
-    ops_qos_sched_nodes_t *sched_nodes[OPS_QOS_MAX_UNITS][MAX_HW_PORTS];
+    ops_qos_sched_nodes_t *sched_nodes[MAX_SWITCH_UNITS][MAX_HW_PORTS];
 
 } ops_qos_config_t;
 
@@ -196,7 +192,7 @@ ops_qos_get_cosq_stats(int hw_unit, int hw_port,
                        void *aux);
 
 extern int
-ops_qos_apply_queue_profile(struct bcmsdk_provider_node *ofproto,
+ops_qos_apply_queue_profile(
                        const struct schedule_profile_settings *s_settings,
                        const struct queue_profile_settings *q_settings);
 

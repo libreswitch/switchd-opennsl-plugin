@@ -138,7 +138,7 @@ ops_bcm_appl_init(void)
     ops_debug_init();
 
     /* Initialize QoS global data structures */
-    ops_qos_global_init();
+    rc = ops_qos_global_init();
     if (rc) {
         VLOG_ERR("QoS global subsytem init failed, rc %d", rc);
         return 1;

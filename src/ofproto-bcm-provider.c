@@ -2416,7 +2416,7 @@ apply_qos_profile(struct ofproto *ofproto_,
         /* If aux is NULL, apply queue profile and return */
         VLOG_DBG("apply qos profile: applying queue profile...");
 
-        rc = ops_qos_apply_queue_profile(ofproto, s_settings, q_settings);
+        rc = ops_qos_apply_queue_profile(s_settings, q_settings);
 
         return rc;
     }

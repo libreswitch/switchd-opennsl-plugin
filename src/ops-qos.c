@@ -1027,7 +1027,7 @@ ops_qos_set_cos_map(const struct cos_map_settings *settings)
      * Create the QoS COS maps in each hardware unit if it's
      * not already created.
      */
-    for (hw_unit = 0; hw_unit <= OPS_QOS_MAX_SWITCH_UNIT_ID; hw_unit++) {
+    for (hw_unit = 0; hw_unit <= MAX_SWITCH_UNIT_ID; hw_unit++) {
         if (ops_qos_config.cos_map_id_default[hw_unit] ==
                                 OPS_QOS_COS_MAP_ID_DEFAULT) {
             rc = opennsl_qos_map_create(hw_unit, qos_flags, &cos_map_id);
@@ -1084,7 +1084,7 @@ ops_qos_set_cos_map(const struct cos_map_settings *settings)
         cos_map.color = ops_qos_get_opennsl_color(entry->color);
 
         /* Add the cos map to all asics */
-        for (hw_unit = 0; hw_unit <= OPS_QOS_MAX_SWITCH_UNIT_ID; hw_unit++) {
+        for (hw_unit = 0; hw_unit <= MAX_SWITCH_UNIT_ID; hw_unit++) {
             cos_map_id = ops_qos_config.cos_map_id[hw_unit];
 
             rc = opennsl_qos_map_add(hw_unit, qos_flags, &cos_map, cos_map_id);
@@ -1121,7 +1121,7 @@ ops_qos_set_cos_map(const struct cos_map_settings *settings)
             for (cos = 0; cos < OPS_QOS_COS_COUNT; cos++) {
                 cos_map.pkt_pri = cos;
 
-                for (hw_unit = 0; hw_unit <= OPS_QOS_MAX_SWITCH_UNIT_ID;
+                for (hw_unit = 0; hw_unit <= MAX_SWITCH_UNIT_ID;
                     hw_unit++) {
                     cos_map_id = ops_qos_config.cos_map_id_default[hw_unit];
 
@@ -1182,7 +1182,7 @@ ops_qos_set_dscp_map(const struct dscp_map_settings *settings)
      * Create the QoS DSCP maps in each hardware unit if it's
      * not already created.
      */
-    for (hw_unit = 0; hw_unit <= OPS_QOS_MAX_SWITCH_UNIT_ID; hw_unit++) {
+    for (hw_unit = 0; hw_unit <= MAX_SWITCH_UNIT_ID; hw_unit++) {
         if (ops_qos_config.dscp_map_id[hw_unit] ==
                                 OPS_QOS_DSCP_MAP_ID_DEFAULT) {
             rc = opennsl_qos_map_create(hw_unit, qos_flags, &dscp_map_id);
@@ -1221,7 +1221,7 @@ ops_qos_set_dscp_map(const struct dscp_map_settings *settings)
         dscp_map.color = ops_qos_get_opennsl_color(entry->color);
 
         /* Add the cos map to all asics */
-        for (hw_unit = 0; hw_unit <= OPS_QOS_MAX_SWITCH_UNIT_ID; hw_unit++) {
+        for (hw_unit = 0; hw_unit <= MAX_SWITCH_UNIT_ID; hw_unit++) {
             dscp_map_id = ops_qos_config.dscp_map_id[hw_unit];
 
             rc = opennsl_qos_map_add(hw_unit, qos_flags, &dscp_map,
@@ -1769,7 +1769,19 @@ ops_qos_get_cosq_stats(int hw_unit, int hw_port,
          * Invoke the PI layer callback function.
          * No need for error checking here.
          */
-        (*cb)(cosq, &qstats[cosq], aux);
+        if (cb) {
+            (*cb)(cosq, &qstats[cosq], aux);
+        } else {
+            /*
+             * Stats error messages should be logged as DBG
+             * to avoid flooding of ERR logs.
+             */
+            VLOG_DBG("qos cosq stats: NULL PI callback function for "
+                     "hw unit %d, port %d",
+                      hw_unit, hw_port);
+
+            return OPS_QOS_FAILURE_CODE;
+        }
 
     }
 
@@ -1783,7 +1795,7 @@ ops_qos_get_cosq_stats(int hw_unit, int hw_port,
  * COS map table of the Broadcom ASIC.
  */
 int
-ops_qos_apply_queue_profile(struct bcmsdk_provider_node *ofproto,
+ops_qos_apply_queue_profile(
                        const struct schedule_profile_settings *s_settings,
                        const struct queue_profile_settings *q_settings)
 {
@@ -1810,7 +1822,7 @@ ops_qos_apply_queue_profile(struct bcmsdk_provider_node *ofproto,
             VLOG_DBG("ops_qos_apply_queue_profile - cosq %d, int pri %d",
                       cosq, int_priority);
 
-            for (hw_unit = 0; hw_unit <= OPS_QOS_MAX_SWITCH_UNIT_ID;
+            for (hw_unit = 0; hw_unit <= MAX_SWITCH_UNIT_ID;
                 hw_unit++) {
 
                 rc = opennsl_cosq_mapping_set(hw_unit, int_priority, cosq);
