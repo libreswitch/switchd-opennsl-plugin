@@ -108,6 +108,13 @@ ops_sflow_options_equal(const struct ofproto_sflow_options *oso1,
 extern void
 ops_sflow_set_sampling_rate(const int unit, const int port,
                             const int ingress_rate, const int egress_rate);
+
+extern void
+ops_sflow_set_max_datagram_size(const int size);
+
+extern void
+ops_sflow_set_header_size(const int size);
+
 extern void
 ops_sflow_set_polling_interval(struct bcmsdk_provider_node *ofproto,
                                int polling_interval);

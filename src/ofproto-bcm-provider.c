@@ -2146,6 +2146,8 @@ set_sflow(struct ofproto *ofproto_,
 {
     uint32_t rate;
     struct bcmsdk_provider_node *ofproto = bcmsdk_provider_node_cast(ofproto_);
+    uint32_t header;
+    uint32_t datagram;
 
     if (oso == NULL) { /* disable sflow */
         VLOG_DBG("%s : Input sflow options are NULL (maybe sflow (or collectors) is "
@@ -2207,6 +2209,21 @@ set_sflow(struct ofproto *ofproto_,
         sflow_options->sampling_rate = rate;
         ops_sflow_set_sampling_rate(0, 0, rate, rate);
         VLOG_DBG("sflow: sampling rate %d applied on sFlow Agent", rate);
+    }
+
+
+    /* Max datagram size has changed. */
+    datagram = oso->max_datagram;
+    if (sflow_options->max_datagram != datagram) {
+        sflow_options->max_datagram = datagram;
+        ops_sflow_set_max_datagram_size(datagram);
+    }
+
+    /* Header size has changed. */
+    header = oso->header_len;
+    if (sflow_options->header_len != header) {
+        sflow_options->header_len = header;
+        ops_sflow_set_header_size(header);
     }
 
     /* source IP for sFlow agent */

@@ -110,6 +110,7 @@ ops_sflow_options_equal(const struct ofproto_sflow_options *oso1,
             (oso1->sampling_rate == oso2->sampling_rate) &&
             (oso1->polling_interval == oso2->polling_interval) &&
             (oso1->header_len == oso2->header_len) &&
+            (oso1->max_datagram == oso2->max_datagram) &&
             string_is_equal(oso1->agent_device, oso2->agent_device));
 }
 
@@ -517,6 +518,46 @@ ops_sflow_set_sampling_rate(const int unit, const int port,
     }
 }
 
+void
+ops_sflow_set_max_datagram_size(const int size)
+{
+    SFLReceiver *receiver;
+
+    /* set max datagram size on Receiver corresponding to 'port' */
+    if (ops_sflow_agent) {
+        receiver = sfl_agent_getReceiver(ops_sflow_agent, 1);
+        if (receiver == NULL) {
+             VLOG_ERR("Got NULL Receiver from sflow agent. Something is "
+                      "incorrectly configured.");
+             log_event("SFLOW_RECEIVER_MISSING_FAILURE", NULL);
+             return;
+        }
+        sfl_receiver_set_sFlowRcvrMaximumDatagramSize(receiver, size);
+    }
+}
+
+void
+ops_sflow_set_header_size(const int size)
+{
+    SFLSampler  *sampler;
+    uint32_t    dsIndex;
+    SFLDataSource_instance  dsi;
+
+    /* set header size on Sampler corresponding to 'port' */
+    if (ops_sflow_agent) {
+        dsIndex = 1000 + sflow_options->sub_id;
+        SFL_DS_SET(dsi, SFL_DSCLASS_PHYSICAL_ENTITY, dsIndex, 0);
+        sampler = sfl_agent_getSampler(ops_sflow_agent, &dsi);
+
+        if (sampler == NULL) {
+            VLOG_ERR("There is no Sampler for sFlow Agent.");
+            log_event("SFLOW_SAMPLER_MISSING_FAILURE", NULL);
+            return;
+        }
+        sfl_sampler_set_sFlowFsMaximumHeaderSize(sampler, size);
+    }
+}
+
 static void
 ops_sflow_set_rate(struct unixctl_conn *conn, int argc, const char *argv[],
                    void *aux OVS_UNUSED)
@@ -658,6 +699,7 @@ ops_sflow_options_init(struct ofproto_sflow_options *oso)
     oso->sampling_rate = SFL_DEFAULT_SAMPLING_RATE;
     oso->polling_interval = SFL_DEFAULT_POLLING_INTERVAL;
     oso->header_len = SFL_DEFAULT_HEADER_SIZE;
+    oso->max_datagram = SFL_DEFAULT_DATAGRAM_SIZE;
     oso->control_ip = NULL;
 }
 
@@ -696,6 +738,8 @@ ops_sflow_agent_enable(struct bcmsdk_provider_node *ofproto,
     uint32_t    rate;
     int         af;
     void        *addr;
+    uint32_t    header;
+    uint32_t    datagram;
 
     if (!ofproto) {
         return;
@@ -766,11 +810,17 @@ ops_sflow_agent_enable(struct bcmsdk_provider_node *ofproto,
             ops_sflow_agent_error_cb,
             ops_sflow_agent_pkt_tx_cb);
 
+    if (sflow_options->max_datagram) {
+        datagram = sflow_options->max_datagram;
+    } else {
+        datagram = SFL_DEFAULT_DATAGRAM_SIZE;
+    }
+
     /* RECEIVER: aka Collector */
     receiver = sfl_agent_addReceiver(ops_sflow_agent);
     sfl_receiver_set_sFlowRcvrOwner(receiver, "Openswitch sFlow Receiver");
     sfl_receiver_set_sFlowRcvrTimeout(receiver, 0xffffffff);
-
+    sfl_receiver_set_sFlowRcvrMaximumDatagramSize(receiver, datagram);
     ops_sflow_set_collectors(&sflow_options->targets);
 
     /* SAMPLER: OvS lib for sFlow seems to encourage one Sampler per
@@ -786,11 +836,17 @@ ops_sflow_agent_enable(struct bcmsdk_provider_node *ofproto,
         rate = SFL_DEFAULT_SAMPLING_RATE;
     }
 
+    if (sflow_options->header_len) {
+        header = sflow_options->header_len;
+    } else {
+        header = SFL_DEFAULT_HEADER_SIZE;
+    }
+
     sfl_sampler_set_sFlowFsPacketSamplingRate(sampler, rate);
 
     ops_sflow_set_sampling_rate(0, 0, rate, rate);  // download the rate to ASIC
 
-    sfl_sampler_set_sFlowFsMaximumHeaderSize(sampler, SFL_DEFAULT_HEADER_SIZE);
+    sfl_sampler_set_sFlowFsMaximumHeaderSize(sampler, header);
     sfl_sampler_set_sFlowFsReceiver(sampler, SFLOW_RECEIVER_INDEX);
 
     ops_sflow_set_polling_interval(ofproto, sflow_options->polling_interval);
