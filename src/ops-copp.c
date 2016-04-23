@@ -4148,7 +4148,7 @@ int copp_opennsl_stats_get(const unsigned int hw_asic_id,
     /* Map the incoming enum to our copp class enum */
     mapped_packet_class = copp_packet_class_mapper(class);
     if (mapped_packet_class == PLUGIN_COPP_MAX_CLASSES) {
-        VLOG_ERR("CoPP packet class %d not supported.\n", mapped_packet_class);
+        VLOG_DBG("CoPP packet class %d not supported.\n", mapped_packet_class);
         return EOPNOTSUPP;
     }
 
