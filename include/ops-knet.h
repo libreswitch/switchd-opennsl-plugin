@@ -42,10 +42,18 @@
  * Filters with priority 1 are applied only on RX channel 1.
  * Filters with priority 2 and above are applied to both RX channels.
  */
+/*
+ * FIXME :  Currently we see issues in opennsl knet
+ * for knet filters with priority > 9. These filters
+ * dont seem to take effect.
+ * We are ok for now, since we are using only upto
+ * priority 8, but needs to be fixed incase we need
+ * more knet filter priorities.
+ */
 enum knet_filter_prio_e
 {
     KNET_FILTER_PRIO_HIGHEST = 2,
-    KNET_FILTER_PRIO_SFLOW = 5,
+    KNET_FILTER_PRIO_SFLOW,
     KNET_FILTER_PRIO_BPDU,
     KNET_FILTER_PRIO_PORT,
     KNET_FILTER_PRIO_VLAN,
