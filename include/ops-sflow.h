@@ -133,7 +133,7 @@ ops_sflow_agent_ip(const char *ip);
 extern void
 ops_sflow_set_per_interface (const int unit, const int port, bool set);
 
-extern void
+extern int
 ops_sflow_set_collectors(struct sset *ops_targets);
 
 #endif /* __OPS_SFLOW_H__ */

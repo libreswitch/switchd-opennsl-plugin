@@ -2144,6 +2144,7 @@ static int
 set_sflow(struct ofproto *ofproto_,
           const struct ofproto_sflow_options *oso)
 {
+    int ret;
     uint32_t rate;
     struct bcmsdk_provider_node *ofproto = bcmsdk_provider_node_cast(ofproto_);
     uint32_t header;
@@ -2183,6 +2184,15 @@ set_sflow(struct ofproto *ofproto_,
         return 0;
     }
 
+    if (!oso->agent_ip || (strlen(oso->agent_ip) == 0)) {
+        VLOG_DBG("sflow agent IP not found. Disable sFlow Agent.");
+        ops_sflow_agent_disable(ofproto);
+        if (sflow_options) {
+            memset(sflow_options->agent_ip, 0, sizeof(sflow_options->agent_ip));
+        }
+        return 0;
+    }
+
     /* sFlow Agent create, for first time. */
     if (sflow_options == NULL) {
         VLOG_DBG("sflow: Initialize sFlow agent with input options.");
@@ -2217,6 +2227,7 @@ set_sflow(struct ofproto *ofproto_,
     if (sflow_options->max_datagram != datagram) {
         sflow_options->max_datagram = datagram;
         ops_sflow_set_max_datagram_size(datagram);
+        VLOG_DBG("sflow: max datagram set to %d", datagram);
     }
 
     /* Header size has changed. */
@@ -2224,20 +2235,27 @@ set_sflow(struct ofproto *ofproto_,
     if (sflow_options->header_len != header) {
         sflow_options->header_len = header;
         ops_sflow_set_header_size(header);
+        VLOG_DBG("sflow: header size set to %d", header);
     }
 
     /* source IP for sFlow agent */
-    sflow_options->agent_ip[0] = '\0';
-    if (oso->agent_ip) {
-        strncpy(sflow_options->agent_ip, oso->agent_ip, INET6_ADDRSTRLEN);
+    if (strncmp(sflow_options->agent_ip, oso->agent_ip, sizeof(oso->agent_ip))) {
+        memset(sflow_options->agent_ip, 0, sizeof(sflow_options->agent_ip));
+        strncpy(sflow_options->agent_ip, oso->agent_ip,
+                sizeof(sflow_options->agent_ip) - 1);
+        ops_sflow_agent_ip(oso->agent_ip);
+        VLOG_DBG("sflow: agent_ip changed to '%s'", oso->agent_ip);
     }
-    ops_sflow_agent_ip(oso->agent_ip);
 
     if (!sset_equals(&oso->targets, &sflow_options->targets)) {
         /* collectors has changed. destroy and create again. */
         sset_destroy(&sflow_options->targets);
         sset_clone(&sflow_options->targets, &oso->targets);
-        ops_sflow_set_collectors(&sflow_options->targets);
+        if ((ret = ops_sflow_set_collectors(&sflow_options->targets)) != 0) {
+            /* couldn't configure collectors. retry next time */
+            VLOG_DBG("sflow: couldn't configure collectors. ret %d", ret);
+            sset_clear(&sflow_options->targets);
+        }
     }
 
     /* polling interval change checked later for each port. */

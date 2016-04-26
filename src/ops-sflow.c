@@ -111,7 +111,7 @@ ops_sflow_options_equal(const struct ofproto_sflow_options *oso1,
             (oso1->polling_interval == oso2->polling_interval) &&
             (oso1->header_len == oso2->header_len) &&
             (oso1->max_datagram == oso2->max_datagram) &&
-            string_is_equal(oso1->agent_device, oso2->agent_device));
+            string_is_equal((char *)oso1->agent_ip, (char *)oso2->agent_ip));
 }
 
 /* Ethernet Hdr (18 bytes)
@@ -740,6 +740,7 @@ ops_sflow_agent_enable(struct bcmsdk_provider_node *ofproto,
     void        *addr;
     uint32_t    header;
     uint32_t    datagram;
+    int         ret;
 
     if (!ofproto) {
         return;
@@ -821,7 +822,11 @@ ops_sflow_agent_enable(struct bcmsdk_provider_node *ofproto,
     sfl_receiver_set_sFlowRcvrOwner(receiver, "Openswitch sFlow Receiver");
     sfl_receiver_set_sFlowRcvrTimeout(receiver, 0xffffffff);
     sfl_receiver_set_sFlowRcvrMaximumDatagramSize(receiver, datagram);
-    ops_sflow_set_collectors(&sflow_options->targets);
+    if ((ret = ops_sflow_set_collectors(&sflow_options->targets)) != 0) {
+        /* we will try to configure collectors again at next set_sflow() */
+        VLOG_DBG("sFlow: couldn't configure collectors. ret %d", ret);
+        sset_clear(&sflow_options->targets);
+    }
 
     /* SAMPLER: OvS lib for sFlow seems to encourage one Sampler per
      * interface. Currently, OPS will have only one Sampler for all
@@ -1038,9 +1043,10 @@ ops_sflow_set_collector_ip(const char *ip, const char *port)
 }
 
 /* Configure the collectors */
-void
+int
 ops_sflow_set_collectors(struct sset *ops_targets)
 {
+    int ret;
     char *port, *vrf;
     struct sset targets;
     int target_count = 0;
@@ -1048,7 +1054,7 @@ ops_sflow_set_collectors(struct sset *ops_targets)
     char buf[IPV6_BUFFER_LEN + PORT_BUF_LEN + 5]; /* 5 for the separators */
 
     if (!ops_targets) {
-        return;
+        return -1;
     }
 
     sset_init(&targets);
@@ -1078,8 +1084,9 @@ ops_sflow_set_collectors(struct sset *ops_targets)
         free(tmp_ip);
         VLOG_DBG("sflow: adding collector [%d] : '%s'", target_count++, buf);
     }
-    collectors_create(&targets, atoi(SFLOW_COLLECTOR_DFLT_PORT),
-                      &sflow_collectors);
+    ret = collectors_create(&targets, atoi(SFLOW_COLLECTOR_DFLT_PORT),
+                            &sflow_collectors);
+    return ret;
 }
 
 /* This function creates a receiver and sets an IP for it. */
