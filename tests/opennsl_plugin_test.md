@@ -7,6 +7,7 @@
 - [Test L3 LAG creation and deletion](#test-l3-lag-creation-and-deletion)
 - [Test OSPF field processor entries](#test-ospf-field-processor-entries)
 - [Test sFlow](#test-sflow)
+- [Test L3 ipv4/ipv6 statistics collected from the ASIC ](#test-l3-fp-statistics)
 
 ## Test loopback creation and deletion
 ### Objective
@@ -222,3 +223,32 @@ KNET filters should be created for source and destination samples
 
 #### Test fail criteria
 Sampling rate is not configured in ASIC or creation of KNET filters for sFlow failed
+
+## Test L3 ipv4/ipv6 statistics collected from the ASIC.
+### Objective
+Verify the statistic counters for L3 IPv4 and IPv6 traffic collected from the ASIC.
+### Requirements
+RTL setup with physical switch
+
+### Setup
+#### Topology diagram
+```
+[host1] <==> [switch1] <==> [host2]
+```
+### Description
+1. Enable interface 1 on switch1.
+2. Assign IPv4 address 2.2.2.1/24 and IPv6 address 1000::1/120 on interface 1.
+3. Enable interface 2 on switch1.
+4. Assign IPv4 address 3.3.3.1/24 and IPv6 address 2000::1/120 on interface 2.
+5. Configure host1 eth1 with IPv4 address 2.2.2.2 and default gateway 2.2.2.1.
+6. Configure host1 eth1 with IPv6 address 1000::2/120 and default gateway 1000::1/120.
+7. Configure host2 eth1 with IPv4 address 3.3.3.2 and default gateway 3.3.3.1.
+8. Configure host2 eth1 with IPv6 address 2000::2/120 and default gateway 2000::1/120.
+9. Ping host2 from host1 using IPv4 and IPv6 protocol types.
+10. Using the 'ovs-vsctl list interface' command, verify that the Rx/Tx counters for IPv4 and IPv6 traffic increase correctly on interface 1 and 2 of the switch.
+
+### Test result criteria
+#### Test pass criteria
+IPv4 and IPv6 pings are successful, and the RX/TX counters for IPv4 and IPv6 traffic correctly increase.
+#### Test fail criteria
+Either one of the pings fail, or the RX/TX counters for IPv4 and IPv6 traffic do not correctly increase.
