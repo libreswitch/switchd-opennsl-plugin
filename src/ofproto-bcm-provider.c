@@ -45,6 +45,7 @@
 #include "qos-asic-provider.h"
 #include "ops-mac-learning.h"
 #include "ops-mirrors.h"
+#include "eventlog.h"
 #define DEFAULT_VID  (1)
 
 VLOG_DEFINE_THIS_MODULE(ofproto_bcm_provider);
@@ -81,6 +82,7 @@ allocate_vrf_id() {
     vrf_id = bitmap_scan(available_vrf_ids, 0, 0, BCM_MAX_VRFS);
     if (vrf_id == BCM_MAX_VRFS) {
         VLOG_DBG("Couldn't allocate VRF ID\n");
+
         return BCM_MAX_VRFS;
     }
 
@@ -601,7 +603,8 @@ bundle_destroy(struct ofbundle *bundle)
                             false);
                 } else {
                     netdev_bcmsdk_get_hw_info(port->up.netdev, &hw_unit, &hw_port, mac);
-                    VLOG_DBG("%s destroy the l3 interface hw_port = %d", __FUNCTION__, hw_port);
+                    VLOG_DBG("%s destroy the l3 interface hw_port = %d",
+                             __FUNCTION__, hw_port);
                     ops_routing_disable_l3_interface(hw_unit,
                             hw_port,
                             bundle->l3_intf,
@@ -968,7 +971,6 @@ port_ip_reconfigure(struct ofproto *ofproto, struct ofbundle *bundle,
                 }
                 /* else no change */
             } else {
-
                 /* Earlier primary was not there, just add new */
                 bundle->ip6_address = xstrdup(s->ip6_address);
                 port_l3_host_add(ofproto, is_ipv6, bundle->ip6_address);
@@ -1130,6 +1132,8 @@ bundle_set(struct ofproto *ofproto_, void *aux,
         /* Create a h/w LAG if there is more than one member present
            in the bundle or if requested by upper layer. */
         bcmsdk_create_lag(&bundle->bond_hw_handle);
+        log_event("LAG_CREATE",
+                   EV_KV("interface", "%s", bundle->name));
         VLOG_DBG("%s: Allocated bond_hw_handle# %d for port %s",
                  __FUNCTION__, bundle->bond_hw_handle, s->name);
         if (s->bond_handle_alloc_only) {
@@ -1141,6 +1145,8 @@ bundle_set(struct ofproto *ofproto_, void *aux,
         VLOG_DBG("%s destroy LAG", __FUNCTION__);
         bcmsdk_destroy_lag(bundle->bond_hw_handle);
         bundle->bond_hw_handle = -1;
+        log_event("LAG_DELETE",
+                   EV_KV("interface", "%s", bundle->name));
     }
 
     if (ofproto->vrf &&
@@ -1174,6 +1180,7 @@ bundle_set(struct ofproto *ofproto_, void *aux,
             /* For l3-loopback interfaces, just configure ips */
             port_ip_reconfigure(ofproto_, bundle, s);
             VLOG_DBG("%s Done with l3 loopback configurations", __FUNCTION__);
+            log_event("LOOPBACK_CREATE", EV_KV("interface", "%s", bundle->name));
             goto done;
         } else {
             vlan_id = smap_get_int(s->port_options[PORT_HW_CONFIG],
@@ -1187,20 +1194,39 @@ bundle_set(struct ofproto *ofproto_, void *aux,
             if ((bundle->l3_intf->l3a_vid != vlan_id || !s->enable) &&
                  false == s->hw_bond_should_exist) {
                 VLOG_DBG("%s call disable s-enable = %d or vid(%d) != vlan_id(%d)",
-                           __FUNCTION__, s->enable, bundle->l3_intf->l3a_vid, vlan_id);
+                           __FUNCTION__, s->enable,
+                           bundle->l3_intf->l3a_vid, vlan_id);
                 if (strcmp(type, OVSREC_INTERFACE_TYPE_VLANSUBINT) == 0) {
                     VLOG_DBG("%s disable l3 subinterface", __FUNCTION__);
+                     if (bundle->l3_intf->l3a_vid != vlan_id) {
+                         log_event("SUBINTERFACE_ENC_UPDATE",
+                                   EV_KV("interface", "%s", bundle->name),
+                                   EV_KV("value", "%d", vlan_id));
+                     }
+                     if (!s->enable) {
+                         log_event("SUBINTERFACE_ADMIN_STATE",
+                                    EV_KV("interface", "%s", bundle->name),
+                                    EV_KV("state", "%s", s->enable?"up":"down"));
+                     }
                     ops_routing_disable_l3_subinterface(hw_unit, hw_port,
                                                         bundle->l3_intf,
                                                         port->up.netdev);
+                    log_event("SUBINTERFACE_DELETE",
+                               EV_KV("interface", "%s", bundle->name));
                 } else if (strcmp(type, OVSREC_INTERFACE_TYPE_SYSTEM) == 0) {
-                    VLOG_DBG("%s disable l3 interface %s", __FUNCTION__, bundle->name);
+                    VLOG_DBG("%s disable l3 interface %s",
+                              __FUNCTION__, bundle->name);
+                         log_event("L3INTERFACE_ADMIN_STATE",
+                                    EV_KV("interface", "%s", bundle->name),
+                                    EV_KV("state", "%s", s->enable?"up":"down"));
                     ops_routing_disable_l3_interface(hw_unit, hw_port,
                                                      bundle->l3_intf,
                                                      port->up.netdev);
                     /* Destroy L3 stats */
                     netdev_bcmsdk_l3intf_fp_stats_destroy(hw_port, hw_unit);
 
+                    log_event("L3INTERFACE_DELETE",
+                               EV_KV("interface", "%s", bundle->name));
                 } else if (strcmp(type, OVSREC_INTERFACE_TYPE_INTERNAL) == 0) {
                     opennsl_l3_intf_delete(hw_unit, bundle->l3_intf);
                 }
@@ -1217,6 +1243,9 @@ bundle_set(struct ofproto *ofproto_, void *aux,
              * create an l3 vlan interface on every hw_unit. */
             if (strcmp(type, OVSREC_INTERFACE_TYPE_SYSTEM) == 0) {
                 VLOG_DBG("%s Create interface %s", __FUNCTION__, bundle->name);
+                log_event("L3INTERFACE_ADMIN_STATE",
+                           EV_KV("interface", "%s", bundle->name),
+                           EV_KV("state", "%s", s->enable?"up":"down"));
                 bundle->l3_intf = ops_routing_enable_l3_interface(
                             hw_unit, hw_port, ofproto->vrf_id, vlan_id,
                             mac, port->up.netdev);
@@ -1226,6 +1255,8 @@ bundle_set(struct ofproto *ofproto_, void *aux,
                     bundle->hw_port = hw_port;
                     /* Initilize FP entries for l3 interface stats */
                     netdev_bcmsdk_l3intf_fp_stats_init(vlan_id, hw_port, hw_unit);
+                    log_event("L3INTERFACE_CREATE",
+                               EV_KV("interface", "%s", bundle->name));
                 }
 
             } else if (strcmp(type, OVSREC_INTERFACE_TYPE_VLANSUBINT) == 0) {
@@ -1237,6 +1268,8 @@ bundle_set(struct ofproto *ofproto_, void *aux,
                 if (bundle->l3_intf) {
                     bundle->hw_unit = hw_unit;
                     bundle->hw_port = hw_port;
+                    log_event("SUBINTERFACE_CREATE",
+                               EV_KV("interface", "%s", bundle->name));
                 }
 
             } else if (strcmp(type, OVSREC_INTERFACE_TYPE_INTERNAL) == 0) {
@@ -1245,6 +1278,10 @@ bundle_set(struct ofproto *ofproto_, void *aux,
                     bundle->l3_intf = ops_routing_enable_l3_vlan_interface(
                             unit, ofproto->vrf_id, vlan_id,
                             mac);
+                    if (bundle->l3_intf) {
+                        log_event("VLANINTERFACE_CREATE",
+                                EV_KV("interface", "%s", bundle->name));
+                    }
                 }
             }
             /* Initialize L3 ingress flex counters. The L3 egress flex counters are
@@ -1301,13 +1338,22 @@ bundle_set(struct ofproto *ofproto_, void *aux,
             switch (s->bond->balance) {
             case BM_L2_SRC_DST_HASH:
                 lag_mode = OPENNSL_TRUNK_PSC_SRCDSTMAC;
+                log_event("LAG_LOAD_BAL_MODE",
+                           EV_KV("interface", "%s", bundle->name),
+                           EV_KV("mode", "%s", "SRCDSTMAC"));
                 break;
             case BM_L3_SRC_DST_HASH:
                 lag_mode = OPENNSL_TRUNK_PSC_SRCDSTIP;
+                log_event("LAG_LOAD_BAL_MODE",
+                           EV_KV("interface", "%s", bundle->name),
+                           EV_KV("mode", "%s", "SRCDSTIP"));
                 break;
             case BM_L4_SRC_DST_HASH:
                 bcmsdk_trunk_hash_setup(OPS_L4_SRC_DST);
                 lag_mode = OPENNSL_TRUNK_PSC_PORTFLOW;
+                log_event("LAG_LOAD_BAL_MODE",
+                           EV_KV("interface", "%s", bundle->name),
+                           EV_KV("mode", "%s", "PORTFLOW"));
                 break;
             default:
                 break;
@@ -1361,6 +1407,10 @@ bundle_set(struct ofproto *ofproto_, void *aux,
                 }
                 VLOG_DBG("%s Adding port %s from VLAN",
                          __FUNCTION__,netdev_get_name(port->up.netdev));
+                log_event("L3_LAG_ADD_VLAN_PORT_BITMAP",
+                           EV_KV("interface", "%s", bundle->name),
+                           EV_KV("port", "%s", netdev_get_name(port->up.netdev)),
+                           EV_KV("vlan", "%d", vlan_id));
                 netdev_bcmsdk_get_hw_info(port->up.netdev, &hw_unit, &hw_port, mac);
                 OPENNSL_PBMP_PORT_ADD(lag_pbmp, hw_port);
                 /* add bitmap */
@@ -1389,6 +1439,8 @@ bundle_set(struct ofproto *ofproto_, void *aux,
                     ops_routing_disable_l3_interface(hw_unit, hw_port,
                             bundle->l3_intf,
                             port->up.netdev);
+                    log_event("L3_LAG_DELETE",
+                               EV_KV("interface", "%s", bundle->name));
                     bundle->l3_intf = NULL;
                 } else {
 
@@ -1398,6 +1450,10 @@ bundle_set(struct ofproto *ofproto_, void *aux,
                         /* Delete bitmap */
                         bcmsdk_del_native_untagged_ports(vlan_id, &lag_pbmp,
                                 true);
+                        log_event("L3_LAG_REM_VLAN_PORT_BITMAP",
+                                EV_KV("interface", "%s", bundle->name),
+                                EV_KV("port", "%s", netdev_get_name(port->up.netdev)),
+                                EV_KV("vlan", "%d", vlan_id));
                     }
 
                     /* Delete knet */
@@ -1432,7 +1488,10 @@ bundle_set(struct ofproto *ofproto_, void *aux,
             VLOG_DBG("%s Bundle delete port %s",
                        __FUNCTION__,netdev_get_name(port->up.netdev));
             bundle_del_port(port);
-        found: ;
+            log_event("LAG_REM_PORT_BITMAP",
+                    EV_KV("interface", "%s", bundle->name),
+                    EV_KV("port", "%s", netdev_get_name(port->up.netdev)));
+            found: ;
         }
     }
 
@@ -2092,7 +2151,14 @@ add_l3_host_entry(const struct ofproto *ofproto_, void *aux,
     if (!port) {
         VLOG_ERR("Failed to get port while adding l3 host entry");
         return 1; /* Return error */
+        log_event("L3INTERFACE_ADD_HOST_ERR",
+                  EV_KV("ipaddr", "%s", ip_addr),
+                  EV_KV("egressid", "%d", *l3_egress_id),
+                  EV_KV("err", "%s", opennsl_errmsg(rc)));
     }
+    log_event("L3INTERFACE_ADD_HOST",
+            EV_KV("ipaddr", "%s", ip_addr),
+            EV_KV("egressid", "%d", *l3_egress_id));
 
     if (list_size(&port_bundle->ports) == 1) {
         rc = netdev_bcmsdk_set_l3_egress_id(port->up.netdev, *l3_egress_id);
@@ -2148,6 +2214,14 @@ delete_l3_host_entry(const struct ofproto *ofproto_, void *aux,
                                       l3_egress_id);
     if (rc) {
         VLOG_ERR("Failed to delete L3 host entry for ip %s", ip_addr);
+        log_event("L3INTERFACE_DEL_HOST_ERR",
+                   EV_KV("ipaddr", "%s", ip_addr),
+                   EV_KV("egressid", "%d", *l3_egress_id),
+                   EV_KV("err", "%s", opennsl_errmsg(rc)));
+    } else {
+        log_event("L3INTERFACE_DEL_HOST",
+                   EV_KV("ipaddr", "%s", ip_addr),
+                   EV_KV("egressid", "%d", *l3_egress_id));
     }
 
     return rc;
@@ -2297,6 +2371,8 @@ get_l3_host_hit_bit(const struct ofproto *ofproto_, void *aux,
                                  is_ipv6_addr, ip_addr, hit_bit);
     if (rc) {
         VLOG_ERR("Failed to get L3 host hit for ip %s", ip_addr);
+        log_event("L3INTERFACE_HITBIT_FAILURE",
+                   EV_KV("ipaddr", "%s", ip_addr));
     }
 
     return rc;

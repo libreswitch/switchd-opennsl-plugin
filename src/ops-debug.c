@@ -46,6 +46,8 @@
 #include "ops-port.h"
 #include "ops-qos.h"
 #include "ops-stg.h"
+#include "diag_dump.h"
+#include "ops-sflow.h"
 
 VLOG_DEFINE_THIS_MODULE(ops_debug);
 
@@ -1516,11 +1518,125 @@ done:
     ds_destroy(&ds);
 } // bcm_mac_debug
 
+#define DIAGNOSTIC_BUFFER_LEN 64000
+#define L3INTERFACE "l3interface"
+#define VLANINTERFACE "vlaninterface"
+#define LAGINTERFACE "lag"
+#define SUBINTERFACE "sub-interface"
+#define LOOPBACK "loopback"
+#define COPP "copp"
+#define SFLOW "sflow"
+
+static void diag_dump_basic_cb(char *buf)
+{
+    struct ds ds = DS_EMPTY_INITIALIZER;
+    /* populate basic diagnostic data to buffer  */
+    ds_put_format(&ds, "L3 interface information: \n");
+    ops_l3intf_dump(&ds, -1);
+    ds_put_format(&ds, "\n\n");
+
+    ds_put_format(&ds, "VLAN information: \n");
+    ops_vlan_dump(&ds, -1);
+    ds_put_format(&ds, "\n\n");
+
+    ds_put_format(&ds, "L3 ipv4 host information: \n");
+    ops_l3host_dump(&ds, FALSE);
+    ds_put_format(&ds, "\n\n");
+
+    ds_put_format(&ds, "L3 ipv6 host information: \n");
+    ops_l3host_dump(&ds, TRUE);
+    ds_put_format(&ds, "\n\n");
+
+    ds_put_format(&ds, "L3 ipv4 route information: \n");
+    ops_l3route_dump(&ds, FALSE);
+    ds_put_format(&ds, "\n\n");
+
+    ds_put_format(&ds, "L3 ipv6 route information: \n");
+    ops_l3route_dump(&ds, TRUE);
+    ds_put_format(&ds, "\n\n");
+
+    ds_put_format(&ds, "L3 egress information: \n");
+    ops_l3egress_dump(&ds, -1);
+    ds_put_format(&ds, "\n\n");
+
+    ds_put_format(&ds, "FP information: \n");
+    ops_fp_show_dump(&ds);
+    ds_put_format(&ds, "\n\n");
+
+    snprintf(buf, ds.length, "%s", ds_cstr(&ds));
+}
+
+static void copp_diag_dump_cb(char *buf)
+{
+    int queueid;
+    struct ds ds = DS_EMPTY_INITIALIZER;
+    /* populate basic diagnostic data to buffer  */
+
+    ds_put_format(&ds, "Output for CoPP ingress rules information:\n");
+    ops_fp_dump_copp_ingress_rules(&ds);
+    ds_put_format(&ds, "\n\n");
+
+    ds_put_format(&ds, "Output for CoPP egress rules information:\n");
+    ops_fp_dump_copp_egress_rules(&ds);
+    ds_put_format(&ds, "\n\n");
+
+    ds_put_format(&ds, "Output for CoPP cpu queue stats:\n");
+    for(queueid = OPS_COPP_QOS_QUEUE_MIN;
+        queueid <= OPS_COPP_QOS_QUEUE_MAX; queueid++)
+    {
+        ops_get_cpu_queue_stats(&ds, queueid);
+    }
+    ds_put_format(&ds, "\n\n");
+
+    ds_put_format(&ds, "Output for CoPP stats:\n");
+    if (ops_get_all_packet_stats() > 0) {
+        ds_put_format(&ds, "%s", ops_copp_all_packet_stat_buffer);
+    }
+    ds_put_format(&ds, "\n\n");
+
+    snprintf(buf, ds.length, "%s", ds_cstr(&ds));
+}
+
+/* _diag_dump_callback */
+/**
+ * callback handler function for diagnostic dump basic
+ * it allocates memory as per requirement and populates data.
+ * INIT_DIAG_DUMP_BASIC will free allocated memory.
+ *
+ * @param feature name of the feature.
+ * @param buf pointer to the buffer.
+ **/
+static void diag_dump_callback(const char *feature , char **buf)
+{
+    if (!buf)
+        return;
+    *buf =  xcalloc(1,DIAGNOSTIC_BUFFER_LEN);
+    if (*buf) {
+        if (!strncmp(feature, L3INTERFACE, strlen(L3INTERFACE)) ||
+            !strncmp(feature, LAGINTERFACE, strlen(LAGINTERFACE)) ||
+            !strncmp(feature, SUBINTERFACE, strlen(SUBINTERFACE)) ||
+            !strncmp(feature, LOOPBACK, strlen(LOOPBACK)) ||
+            !strncmp(feature, VLANINTERFACE, strlen(VLANINTERFACE))) {
+            diag_dump_basic_cb(*buf);
+        } else if (!strncmp(feature, COPP, strlen(COPP))) {
+            copp_diag_dump_cb(*buf);
+        } else if (!strncmp(feature, SFLOW, strlen(SFLOW))) {
+            sflow_diag_dump_basic_cb(*buf);
+        }
+    } else {
+        VLOG_ERR("Memory allocation failed for feature %s , %d bytes",
+                feature , DIAGNOSTIC_BUFFER_LEN);
+    }
+    return ;
+}
+
 ///////////////////////////////// INIT /////////////////////////////////
 
 int
 ops_debug_init(void)
 {
+    /* Register diagnostic callback function */
+    INIT_DIAG_DUMP_BASIC(diag_dump_callback);
     unixctl_command_register("plugin/debug", "[cmds]", 0, INT_MAX,
                              bcm_plugin_debug, NULL);
     unixctl_command_register("plugin/dump-mac-table", "[port|vlan <id list>]",
