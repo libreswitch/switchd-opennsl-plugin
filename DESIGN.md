@@ -15,6 +15,7 @@
         - [Physical interface configuration](#physical-interface-configuration)
                 - [Trunk/LAG configuration](#trunklag-configuration)
         - [Layer 2 switching](#layer-2-switching)
+        - [Layer 2 mirroring](#layer-2-mirroring)
         - [Layer 3 routing](#layer-3-routing)
         - [Code details](#code-details)
                 - [Asynchronous notifications](#asynchronous-notifications)
@@ -153,6 +154,9 @@ The vlan_mode field has four possible values:
 4. **VLAN_NATIVE_UNTAGGED**: The port resembles a native-tagged port, with the exception that packets egressing on the native VLAN are untagged.
 
 This functionality is handled in the ofproto layer.
+
+### Layer 2 mirroring
+Openswitch supports simple port mirroring.  Supported mirroring modes are **one to one** which means one source port can be mirrored to one destination port; **one to many** which means that one source port can be mirrored out to multiple destination ports; and **many to one** where many source ports can be mirrored out to one destination port.  Many to many mode is NOT supported.  A destination port can NOT also be a source port.  Both LAG sources and destinations are supported with the understanding that every time a LAG changes (an interface is added to the LAG or deleted from the LAG), the active mirror sessions which contain that LAG as a source, must first be made inactive (shutdown) and re-started again for correct operation.  In addition, further source packet granularity can be achieved by specifying whether received packets or transmitted packets or both types of packets are to be mirrored.  Currently, only a maximum of 4 mirror destination ports can be specified.  This is a hardware limitation.
 
 ### Layer 3 routing
 The switchd plugin supports layer 3 routing for the IPv4 and IPv6 protocols. The ops-switchd daemon learns route/nexthop from the OVSDB and pushes it down to the switchd plugin. Plugin intern calls the opennsl API to populate the host, the longest prefix match (LPM), and the ECMP table in the ASIC. ECMP hashing currently supports 16-bit CRC-CCITT. By default, the hashing tuple is: source ip, destination ip, source port, and destination port. The tuple element can be included/excuded in the hash calculation by using the CLI. ECMP resiliency is enabled by default when the dynamic mode and size are set to true and 64 respectively. Resiliency can be enabled or disabled through CLI.

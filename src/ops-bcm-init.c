@@ -30,6 +30,7 @@
 #include "ops-bcm-init.h"
 #include "ops-knet.h"
 #include "ops-port.h"
+#include "ops-mirrors.h"
 #include "ops-routing.h"
 #include "ops-vlan.h"
 #include "ops-debug.h"
@@ -212,6 +213,12 @@ ops_bcm_appl_init(void)
         if (rc) {
             VLOG_ERR("sflow init failed");
             log_event("SFLOW_INIT_FAILURE", NULL);
+            return 1;
+        }
+
+        rc = bcmsdk_mirrors_init(unit);
+        if (rc) {
+            VLOG_ERR("MIRRORING/SPAN subsystem init failed");
             return 1;
         }
 
