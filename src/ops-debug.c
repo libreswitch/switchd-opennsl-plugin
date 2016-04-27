@@ -1574,6 +1574,7 @@ static void diag_dump_basic_cb(char *buf)
 
 static void copp_diag_dump_cb(char *buf)
 {
+    int queueid;
     struct ds ds = DS_EMPTY_INITIALIZER;
     /* populate basic diagnostic data to buffer  */
 
@@ -1586,6 +1587,23 @@ static void copp_diag_dump_cb(char *buf)
     ops_fp_dump_copp_egress_rules(&ds);
     snprintf(buf, ds.length, "%s", ds_cstr(&ds));
     ds_put_format(&ds, "\n\n");
+
+    ds_put_format(&ds, "Output for CoPP cpu queue stats:\n");
+    for(queueid = OPS_COPP_QOS_QUEUE_MIN;
+        queueid <= OPS_COPP_QOS_QUEUE_MAX; queueid++)
+    {
+        ops_get_cpu_queue_stats(&ds, queueid);
+        snprintf(buf, ds.length, "%s", ds_cstr(&ds));
+    }
+    ds_put_format(&ds, "\n\n");
+
+    ds_put_format(&ds, "Output for CoPP stats:\n");
+    if (ops_get_all_packet_stats() > 0) {
+        ds_put_format(&ds, "%s", ops_copp_all_packet_stat_buffer);
+        snprintf(buf, ds.length, "%s", ds_cstr(&ds));
+    }
+    ds_put_format(&ds, "\n\n");
+
 }
 
 /* _diag_dump_callback */

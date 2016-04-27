@@ -90,6 +90,7 @@ typedef int (*ops_copp_packet_class_function_pointer)(uint32 unit);
 #define OPS_COPP_QOS_QUEUE_DEFAULT              1  /* Q1 */
 #define OPS_COPP_QOS_QUEUE_EXCEPTION            0  /* Q0 */
 #define OPS_COPP_QOS_QUEUE_MAX                  OPS_COPP_QOS_QUEUE_CRITICAL
+#define OPS_COPP_QOS_QUEUE_MIN                  OPS_COPP_QOS_QUEUE_EXCEPTION
 
 /*
  * Protocol common constants
