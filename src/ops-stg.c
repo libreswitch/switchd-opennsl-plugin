@@ -692,8 +692,8 @@ int ops_stg_vlan_add(opennsl_stg_t stgid, opennsl_vlan_t vid)
                  vid);
         rc = opennsl_stg_vlan_add(unit, stgid, vid);
         if (OPENNSL_FAILURE(rc)) {
-            VLOG_ERR("Unit %d, stg vlan add error, rc=%d (%s)",
-                     unit, rc, opennsl_errmsg(rc));
+            VLOG_ERR("Unit %d, stg vlan %d add error, rc=%d (%s)",
+                     unit, vid, rc, opennsl_errmsg(rc));
             return -1;
         }
     } else {
@@ -716,6 +716,9 @@ int ops_stg_vlan_remove(opennsl_stg_t stgid, opennsl_vlan_t vid)
 {
     opennsl_error_t rc = OPENNSL_E_NONE;
     int unit = 0;
+    opennsl_vlan_t *vlan_list = NULL;
+    int stg_vlan_count = 0;
+    bool vlan_exists_in_stg_hw = false;
 
     ops_stg_data_t *p_stg_data = NULL;
 
@@ -736,14 +739,35 @@ int ops_stg_vlan_remove(opennsl_stg_t stgid, opennsl_vlan_t vid)
         return -1;
     }
 
-    VLOG_DBG("opennsl_stg_vlan_remove called with stgid %d, vid %d", stgid,
-             vid);
-
-    rc = opennsl_stg_vlan_remove(unit, stgid, vid);
+    rc = opennsl_stg_vlan_list(unit, stgid, &vlan_list, &stg_vlan_count);
     if (OPENNSL_FAILURE(rc)) {
-        VLOG_ERR("Unit %d, stg vlan add error, rc=%d (%s)",
+        VLOG_ERR("Unit %d, stg get vlan error, rc=%d (%s)\n",
                  unit, rc, opennsl_errmsg(rc));
         return -1;
+    }
+
+    if (stg_vlan_count) {
+        for(int i =0; i<stg_vlan_count ; i++) {
+            if (vid == vlan_list[i]) {
+                vlan_exists_in_stg_hw = true;
+                break;
+            }
+        }
+        opennsl_stg_vlan_list_destroy(unit, vlan_list, stg_vlan_count);
+    }
+
+    if (vlan_exists_in_stg_hw) {
+        VLOG_DBG("opennsl_stg_vlan_remove called with stgid %d, vid %d", stgid,
+                vid);
+
+        rc = opennsl_stg_vlan_remove(unit, stgid, vid);
+        if (OPENNSL_FAILURE(rc)) {
+            VLOG_ERR("Unit %d, stg vlan %d remove error, rc=%d (%s)",
+                    unit, vid, rc, opennsl_errmsg(rc));
+            return -1;
+        }
+    } else {
+        VLOG_DBG("ops_stg_vlan_remove: vlan id %d doesn't exists in stg id %d", vid, stgid);
     }
 
     stg_data_remove_vlan(stgid, vid);
