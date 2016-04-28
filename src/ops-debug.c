@@ -1533,43 +1533,37 @@ static void diag_dump_basic_cb(char *buf)
     /* populate basic diagnostic data to buffer  */
     ds_put_format(&ds, "L3 interface information: \n");
     ops_l3intf_dump(&ds, -1);
-    snprintf(buf, ds.length, "%s", ds_cstr(&ds));
     ds_put_format(&ds, "\n\n");
 
     ds_put_format(&ds, "VLAN information: \n");
     ops_vlan_dump(&ds, -1);
-    snprintf(buf, ds.length, "%s", ds_cstr(&ds));
     ds_put_format(&ds, "\n\n");
 
     ds_put_format(&ds, "L3 ipv4 host information: \n");
     ops_l3host_dump(&ds, FALSE);
-    snprintf(buf, ds.length, "%s", ds_cstr(&ds));
     ds_put_format(&ds, "\n\n");
 
     ds_put_format(&ds, "L3 ipv6 host information: \n");
     ops_l3host_dump(&ds, TRUE);
-    snprintf(buf, ds.length, "%s", ds_cstr(&ds));
     ds_put_format(&ds, "\n\n");
 
     ds_put_format(&ds, "L3 ipv4 route information: \n");
     ops_l3route_dump(&ds, FALSE);
-    snprintf(buf, ds.length, "%s", ds_cstr(&ds));
     ds_put_format(&ds, "\n\n");
 
     ds_put_format(&ds, "L3 ipv6 route information: \n");
     ops_l3route_dump(&ds, TRUE);
-    snprintf(buf, ds.length, "%s", ds_cstr(&ds));
     ds_put_format(&ds, "\n\n");
 
     ds_put_format(&ds, "L3 egress information: \n");
     ops_l3egress_dump(&ds, -1);
-    snprintf(buf, ds.length, "%s", ds_cstr(&ds));
     ds_put_format(&ds, "\n\n");
 
     ds_put_format(&ds, "FP information: \n");
     ops_fp_show_dump(&ds);
-    snprintf(buf, ds.length, "%s", ds_cstr(&ds));
     ds_put_format(&ds, "\n\n");
+
+    snprintf(buf, ds.length, "%s", ds_cstr(&ds));
 }
 
 static void copp_diag_dump_cb(char *buf)
@@ -1580,12 +1574,10 @@ static void copp_diag_dump_cb(char *buf)
 
     ds_put_format(&ds, "Output for CoPP ingress rules information:\n");
     ops_fp_dump_copp_ingress_rules(&ds);
-    snprintf(buf, ds.length, "%s", ds_cstr(&ds));
     ds_put_format(&ds, "\n\n");
 
     ds_put_format(&ds, "Output for CoPP egress rules information:\n");
     ops_fp_dump_copp_egress_rules(&ds);
-    snprintf(buf, ds.length, "%s", ds_cstr(&ds));
     ds_put_format(&ds, "\n\n");
 
     ds_put_format(&ds, "Output for CoPP cpu queue stats:\n");
@@ -1593,16 +1585,16 @@ static void copp_diag_dump_cb(char *buf)
         queueid <= OPS_COPP_QOS_QUEUE_MAX; queueid++)
     {
         ops_get_cpu_queue_stats(&ds, queueid);
-        snprintf(buf, ds.length, "%s", ds_cstr(&ds));
     }
     ds_put_format(&ds, "\n\n");
 
     ds_put_format(&ds, "Output for CoPP stats:\n");
     if (ops_get_all_packet_stats() > 0) {
         ds_put_format(&ds, "%s", ops_copp_all_packet_stat_buffer);
-        snprintf(buf, ds.length, "%s", ds_cstr(&ds));
     }
+
     ds_put_format(&ds, "\n\n");
+    snprintf(buf, ds.length, "%s", ds_cstr(&ds));
 
 }
 
