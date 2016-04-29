@@ -24,6 +24,7 @@
 #include <opennsl/types.h>
 #include <opennsl/l3.h>
 #include <opennsl/stat.h>
+#include <opennsl/mirror.h>
 
 /* No bfd/cfm status change. */
 #define NO_STATUS_CHANGE -1
@@ -73,6 +74,9 @@ struct ofbundle {
     int bond_hw_handle;         /* Allocated bond id in hardware. */
     int hw_unit, hw_port;       /* HW identification of L3 interfaces, might change
                                  * when L3 on top of LAGs would be introduced */
+
+    /* used for mirroring */
+    opennsl_mirror_destination_t *mirror_data;
 
     /* L3 Routing */
     opennsl_l3_intf_t *l3_intf;  /* L3 interface pointer. NULL if not L3 */
@@ -195,6 +199,13 @@ enum { TBL_INTERNAL = N_TABLES - 1 };    /* Used for internal hidden rules. */
 
 extern const struct ofproto_class ofproto_bcm_provider_class;
 
-int register_qos_extension(void);
+extern int
+register_qos_extension(void);
+
+extern struct bcmsdk_provider_node *
+bcmsdk_provider_node_cast(const struct ofproto *ofproto);
+
+extern struct ofbundle *
+bundle_lookup(const struct bcmsdk_provider_node *ofproto, void *aux);
 
 #endif  /* ofproto-bcm-provider.h */

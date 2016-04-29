@@ -44,6 +44,7 @@
 #include "ops-qos.h"
 #include "qos-asic-provider.h"
 #include "ops-mac-learning.h"
+#include "ops-mirrors.h"
 
 VLOG_DEFINE_THIS_MODULE(ofproto_bcm_provider);
 
@@ -98,7 +99,10 @@ bcmsdk_provider_ofport_node_cast(const struct ofport *ofport)
            CONTAINER_OF(ofport, struct bcmsdk_provider_ofport_node, up) : NULL;
 }
 
-static inline struct bcmsdk_provider_node *
+/*
+ * used externally, do NOT make static
+ */
+struct bcmsdk_provider_node *
 bcmsdk_provider_node_cast(const struct ofproto *ofproto)
 {
     ovs_assert(ofproto->ofproto_class == &ofproto_bcm_provider_class);
@@ -505,7 +509,10 @@ handle_trunk_vlan_changes(unsigned long *old_trunks, unsigned long *new_trunks,
     bitmap_free(added_vlans);
 }
 
-static struct ofbundle *
+/*
+ * used externally, do NOT make static
+ */
+struct ofbundle *
 bundle_lookup(const struct bcmsdk_provider_node *ofproto, void *aux)
 {
     struct ofbundle *bundle;
@@ -635,6 +642,9 @@ bundle_destroy(struct ofbundle *bundle)
         VLOG_DBG("%s destroy the lag %s", __FUNCTION__, bundle->name);
         bcmsdk_destroy_lag(bundle->bond_hw_handle);
     }
+
+    /* in case a mirror destination, unconfigure it */
+    mirror_object_destroy_with_mtp(bundle);
 
     ofproto = bundle->ofproto;
 
@@ -1082,6 +1092,7 @@ bundle_set(struct ofproto *ofproto_, void *aux,
         bundle->trunk_all_vlans = false;
         bundle->pbm = NULL;
         bundle->bond_hw_handle = -1;
+        bundle->mirror_data = NULL;
         bundle->lacp = NULL;
         bundle->bond = NULL;
 
@@ -1717,21 +1728,6 @@ set_vlan(struct ofproto *ofproto, int vid, bool add)
         bcmsdk_destroy_vlan(vid, false);
     }
     return 0;
-}
-
-/* Mirrors. */
-
-static int
-mirror_get_stats__(struct ofproto *ofproto OVS_UNUSED, void *aux OVS_UNUSED,
-                   uint64_t *packets OVS_UNUSED, uint64_t *bytes OVS_UNUSED)
-{
-    return 0;
-}
-
-static bool
-is_mirror_output_bundle(const struct ofproto *ofproto_ OVS_UNUSED, void *aux OVS_UNUSED)
-{
-    return false;
 }
 
 static void
@@ -2600,10 +2596,14 @@ const struct ofproto_class ofproto_bcm_provider_class = {
     bundle_remove,
     bundle_get,
     set_vlan,
-    NULL,                       /* may implement mirror_set__ */
-    mirror_get_stats__,
+
+    /* mirror processing functions */
+    .mirror_set = mirror_set__,
+    .mirror_get_stats = mirror_get_stats__,
+
     NULL,                       /* may implement set_flood_vlans */
-    is_mirror_output_bundle,
+
+    .is_mirror_output_bundle = is_mirror_output_bundle,
     forward_bpdu_changed,
     NULL,                       /* may implement set_mac_table_config */
     NULL,                       /* may implement set_mcast_snooping */
