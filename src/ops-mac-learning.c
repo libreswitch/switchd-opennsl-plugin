@@ -24,6 +24,7 @@
 #include "ovs-thread.h"
 #include "netdev-bcmsdk.h"
 #include "platform-defines.h"
+#include <netinet/ether.h>
 
 VLOG_DEFINE_THIS_MODULE(ops_mac_learning);
 
@@ -111,14 +112,15 @@ static void ops_mac_entry_add(
         const int16_t vlan,
         const int port_id,
         int hw_unit,
-        const mac_event event)
+        const mac_event event,
+        bool move_event)
 {
     struct mlearn_hmap_node *entry = NULL;
     struct eth_addr mac_eth;
     uint32_t hash = 0;
     int actual_size = 0;
-    bool found = false;
     char port_name[PORT_NAME_SIZE];
+    bool found = false;
 
     memcpy(mac_eth.ea, mac, sizeof(mac_eth.ea));
     hash = mlearn_table_hash_calc(mac_eth, vlan, hw_unit);
@@ -133,15 +135,37 @@ static void ops_mac_entry_add(
         return;
     }
 
-    HMAP_FOR_EACH_WITH_HASH (entry, hmap_node, hash,
-                             &(hmap_entry->table)) {
-        if ((entry->vlan == vlan) && eth_addr_equals(entry->mac, mac_eth) &&
-            (entry->hw_unit == hw_unit)) {
-            found = true;
-            entry->oper = event;
-            entry->port = port_id;
-            entry->hw_unit = hw_unit;
-            strncpy(entry->port_name, port_name, PORT_NAME_SIZE);
+    if (move_event) {
+        VLOG_DBG("%s: move_event, port: %d, oper: %d, hw_unit: %d, vlan: %d, MAC: %s",
+                 __FUNCTION__, port_id, event, hw_unit, vlan,
+                 ether_ntoa((struct ether_addr *)mac));
+        HMAP_FOR_EACH_WITH_HASH (entry, hmap_node, hash,
+                                 &(hmap_entry->table)) {
+            if ((entry->vlan == vlan) && eth_addr_equals(entry->mac, mac_eth) &&
+                (entry->hw_unit == hw_unit)) {
+                if ((event == MLEARN_ADD) && (entry->oper == MLEARN_DEL)) {
+                    if (port_id == entry->port) {
+                        /*
+                         * remove this entry from hmap
+                         */
+                        entry->oper = MLEARN_UNDEFINED;
+                        VLOG_DBG("%s: move event, entry found removing", __FUNCTION__);
+                        found = true;
+                    }
+                } else if ((event == MLEARN_DEL) && (entry->oper == MLEARN_ADD)) {
+                    /*
+                     * remove this entry from hmap
+                     */
+                    if (port_id == entry->port) {
+                        /*
+                         * remove this entry from hmap
+                         */
+                        entry->oper = MLEARN_UNDEFINED;
+                        VLOG_DBG("%s: move event, entry found removing", __FUNCTION__);
+                        found = true;
+                    }
+                }
+            }
         }
     }
 
@@ -149,6 +173,9 @@ static void ops_mac_entry_add(
         if (actual_size < (hmap_entry->buffer).size) {
             struct mlearn_hmap_node *mlearn_node =
                                     &((hmap_entry->buffer).nodes[actual_size + 1]);
+            VLOG_DBG("%s: move_event, port: %d, oper: %d, hw_unit: %d, vlan: %d, MAC: %s",
+                     __FUNCTION__, port_id, event, hw_unit, vlan,
+                     ether_ntoa((struct ether_addr *)mac));
 
             memcpy(&mlearn_node->mac, &mac_eth, sizeof(mac_eth));
             mlearn_node->port = port_id;
@@ -239,7 +266,8 @@ ops_mac_learn_cb(int   unit,
                               l2addr->vid,
                               l2addr->port,
                               unit,
-                              MLEARN_ADD);
+                              MLEARN_ADD,
+                              (l2addr->flags & OPENNSL_L2_MOVE_PORT));
             ovs_mutex_unlock(&mlearn_mutex);
             ops_l3_mac_move_add(unit, l2addr, userdata);
             break;
@@ -250,7 +278,8 @@ ops_mac_learn_cb(int   unit,
                                l2addr->vid,
                                l2addr->port,
                                unit,
-                               MLEARN_DEL);
+                               MLEARN_DEL,
+                               (l2addr->flags & OPENNSL_L2_MOVE_PORT));
              ovs_mutex_unlock(&mlearn_mutex);
              ops_l3_mac_move_delete(unit, l2addr, userdata);
             break;
@@ -290,7 +319,8 @@ ops_l2_traverse_cb (int unit,
                        l2addr->vid,
                        l2addr->port,
                        unit,
-                       MLEARN_ADD);
+                       MLEARN_ADD,
+                       false);
      ovs_mutex_unlock(&mlearn_mutex);
      return (0);
 }
@@ -304,7 +334,6 @@ ops_l2_traverse_cb (int unit,
  */
 int ops_mac_learning_get_hmap(struct mlearn_hmap **mhmap)
 {
-    VLOG_INFO("In %s", __FUNCTION__);
     if (!mhmap) {
         VLOG_ERR("%s: Invalid argument", __FUNCTION__);
         return (EINVAL);
