@@ -1239,7 +1239,6 @@ vlan_reconfig_on_link_change(int unit, opennsl_port_t hw_port, int link_is_up)
 bool is_user_created_vlan(int vid)
 {
     ops_vlan_data_t *vlanp = ops_vlans[vid];
-    vlanp = ops_vlans[vid];
 
     return vlanp->user_created;
 }
@@ -1247,7 +1246,6 @@ bool is_user_created_vlan(int vid)
 void set_created_by_user(int vid, bool status)
 {
     ops_vlan_data_t *vlanp = ops_vlans[vid];
-    vlanp = ops_vlans[vid];
 
     if (vlanp) {
         vlanp->user_created = status;
