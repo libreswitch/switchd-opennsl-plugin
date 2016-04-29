@@ -1598,6 +1598,22 @@ static void copp_diag_dump_cb(char *buf)
 
 }
 
+static void
+lag_diag_dump_basic_cb(char *buf)
+{
+    struct ds ds = DS_EMPTY_INITIALIZER;
+
+    /* populate basic diagnostic data to buffer  */
+    ds_put_format(&ds, "LAG information:\n");
+    ops_lag_dump(&ds, -1);
+    ds_put_format(&ds, "\n\n");
+    snprintf(buf, ds.length, "%s", ds_cstr(&ds));
+
+    diag_dump_basic_cb(buf+ds.length-1);
+
+}
+
+
 /* _diag_dump_callback */
 /**
  * callback handler function for diagnostic dump basic
@@ -1614,7 +1630,6 @@ static void diag_dump_callback(const char *feature , char **buf)
     *buf =  xcalloc(1,DIAGNOSTIC_BUFFER_LEN);
     if (*buf) {
         if (!strncmp(feature, L3INTERFACE, strlen(L3INTERFACE)) ||
-            !strncmp(feature, LAGINTERFACE, strlen(LAGINTERFACE)) ||
             !strncmp(feature, SUBINTERFACE, strlen(SUBINTERFACE)) ||
             !strncmp(feature, LOOPBACK, strlen(LOOPBACK)) ||
             !strncmp(feature, VLANINTERFACE, strlen(VLANINTERFACE))) {
@@ -1623,6 +1638,8 @@ static void diag_dump_callback(const char *feature , char **buf)
             copp_diag_dump_cb(*buf);
         } else if (!strncmp(feature, SFLOW, strlen(SFLOW))) {
             sflow_diag_dump_basic_cb(*buf);
+        } else if (!strncmp(feature, LAGINTERFACE, strlen(LAGINTERFACE))) {
+            lag_diag_dump_basic_cb(*buf);
         }
     } else {
         VLOG_ERR("Memory allocation failed for feature %s , %d bytes",
