@@ -2205,7 +2205,8 @@ delete_l3_host_entry(const struct ofproto *ofproto_, void *aux,
                    EV_KV("err", "%s", opennsl_errmsg(rc)));
     } else {
         log_event("L3INTERFACE_DEL_HOST",
-                   EV_KV("ipaddr", "%s", ip_addr));
+                   EV_KV("ipaddr", "%s", ip_addr),
+                   EV_KV("egressid", "%d", *l3_egress_id));
     }
 
     return rc;
