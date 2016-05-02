@@ -1662,7 +1662,7 @@ ops_delete_ecmp_object(int hw_unit, opennsl_if_t ecmp_intf)
         return rc;
     }
     log_event("ECMP_DELETE",
-            EV_KV("egressid", "%s", ecmp_intf));
+            EV_KV("egressid", "%d", ecmp_intf));
 
     return rc;
 } /* ops_delete_ecmp_object */
