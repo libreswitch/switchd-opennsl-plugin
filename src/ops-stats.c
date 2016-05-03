@@ -203,7 +203,7 @@ bcmsdk_get_port_stats(int hw_unit, int hw_port, struct netdev_stats *stats)
     opennsl_error_t rc = OPENNSL_E_NONE;
 
     /* global stats */
-    opennsl_stat_multi_get(hw_unit, hw_port, MAX_STATS, stat_arr, value_arr);
+    rc = opennsl_stat_multi_get(hw_unit, hw_port, MAX_STATS, stat_arr, value_arr);
     if (OPENNSL_FAILURE(rc)) {
         VLOG_ERR("Failed to get interface statistics. Unit=%d port=%d. rc=%s",
                  hw_unit, hw_port, opennsl_errmsg(rc));
@@ -239,7 +239,7 @@ bcmsdk_get_sflow_port_stats(int hw_unit, int hw_port,
     uint64 value_arr[MAX_STATS];
     opennsl_error_t rc = OPENNSL_E_NONE;
 
-    opennsl_stat_multi_get(hw_unit, hw_port, MAX_STATS, stat_arr, value_arr);
+    rc = opennsl_stat_multi_get(hw_unit, hw_port, MAX_STATS, stat_arr, value_arr);
     if (OPENNSL_FAILURE(rc)) {
         VLOG_ERR("Failed to get interface statistics. Unit=%d port=%d. rc=%s",
                  hw_unit, hw_port, opennsl_errmsg(rc));
