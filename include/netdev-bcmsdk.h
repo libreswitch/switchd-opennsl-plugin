@@ -20,6 +20,8 @@
 #ifndef NETDEV_BCMSDK_H
 #define NETDEV_BCMSDK_H 1
 
+#include <opennsl/fieldX.h>
+
 #define SPEED_1G                    1000
 #define SPEED_10G                   10000
 #define SPEED_25G                   25000
@@ -75,4 +77,9 @@ extern int
 netdev_bcmsdk_l3_global_stats_destroy(struct netdev *netdev_);
 
 extern void netdev_port_name_from_hw_id(int hw_unit, int hw_id, char *str);
+
+extern opennsl_field_group_t ops_l3intf_ingress_stats_group_id_for_hw_unit(int unit);
+
+extern opennsl_field_group_t ops_l3intf_egress_stats_group_id_for_hw_unit(int unit);
+
 #endif /* netdev-bcmsdk.h */

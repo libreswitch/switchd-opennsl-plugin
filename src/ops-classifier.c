@@ -67,6 +67,21 @@ struct hmap classifier_map;
 /* IFP slice for ipv4 ACL */
 opennsl_field_group_t ip_group;
 
+/*
+ * ops_cls_get_ingress_group_id_for_hw_unit
+ *
+* This function returns the group-id for the Classifier ingress FP rules for
+* the given hardware unit.
+*/
+opennsl_field_group_t ops_cls_get_ingress_group_id_for_hw_unit(int unit)
+{
+    if (!ip_group || unit < 0) {
+        return(-1);
+    }
+
+    return(ip_group);
+}
+
 /**
  * Function pointer to handle ACL logging packet data set functionality.
  * A callback is registered from PI at the init time to this function.
@@ -1819,13 +1834,4 @@ acl_log_handle_rx_event(opennsl_pkt_t *pkt)
         /* submit packet data for PI code to retrieve */
         (*acl_pd_log_pkt_data_set)(&pkt_info);
     }
-}
-
-/*
- *  Return ACL FP group id
- */
-int
-ops_cls_get_ingress_group_id_for_hw_unit(int hw_unit)
-{
-    return (ip_group);
 }
