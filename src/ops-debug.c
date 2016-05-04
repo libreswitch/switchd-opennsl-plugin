@@ -49,6 +49,7 @@
 #include "diag_dump.h"
 #include "ops-sflow.h"
 #include "ops-classifier.h"
+#include "netdev-bcmsdk.h"
 
 VLOG_DEFINE_THIS_MODULE(ops_debug);
 
@@ -102,7 +103,14 @@ char cmd_ops_usage[] =
 "   cpu-queue-stats - displays the per cpu queue statistics.\n"
 "   qos [cos-map | dscp-map | trust | dscp-override | queuing | scheduling | "
         "statistics] - displays QoS information programmed in hardware.\n"
+"   hw-resource [aclv4 | copp | ospf | l3intf] - displays hardware resource utilization.\n"
 "   help - displays this help text.\n"
+;
+/* Format of hw-resource command */
+static const char cmd_hw_resource_table_header[] =
+"              |Rules |Rules   |Group |Group |Counters |Counters |Meters |Meters\n"
+"Feature       |Used  |Maximum |ID    |Used  |Used     |Maximum  |Used   |Maximum\n"
+"--------------|------|--------|------|------|---------|-------- |-------|-------\n"
 ;
 
 /*the action list that needs to be defined for checking if defined per entry*/
@@ -171,6 +179,16 @@ void PacketRes_toString(int packetRes, char *packet_res_string )
     }
 
 }
+
+enum hw_resource_type {
+    HW_RESOURCE_INVALID = 0,
+    HW_RESOURCE_OSPF_INGRESS,
+    HW_RESOURCE_COPP_INGRESS,
+    HW_RESOURCE_COPP_EGRESS,
+    HW_RESOURCE_ACLV4_INGRESS,
+    HW_RESOURCE_L3INTF_INGRESS,
+    HW_RESOURCE_L3INTF_EGRESS
+};
 
 char *
 bcmsdk_datapath_version(void)
@@ -1037,6 +1055,103 @@ ops_get_cpu_queue_stats (struct ds *ds, opennsl_cos_queue_t queueid)
 }
 
 static void
+hw_resource_show (int unit, opennsl_field_group_t group, struct ds *ds)
+{
+    int ret          = 0;
+    opennsl_field_group_status_t status;
+
+    /* Retrieving status from field group */
+    ret = opennsl_field_group_status_get(unit, group, &status);
+    if (OPENNSL_FAILURE(ret)) {
+        VLOG_ERR("Error getting hw resources for unit %d, group %d\n", unit, group);
+        ds_put_format(ds, "Error getting hw resources for unit %d, group %d\n", unit, group);
+        return;
+    }
+
+    /* Print out current hw resources rows. Group required is one per feature for now.
+     * TODO: Add support for displaying one feature consuming multiple groups.
+     */
+    ds_put_format(ds, "| %5d| %7d| %5d| %5d| %8d| %8d| %6d| %6d\n",
+            (&status)->entry_count, (&status)->entries_total, group, 1, (&status)->counter_count,
+            (&status)->counters_total, (&status)->meter_count, (&status)->meters_total);
+} /* hw_resources_show */
+
+/*
+ * ops_hw_dump_resources
+ *
+ * This function dumps the "hw_resource_show" output for field group rules
+ * for all hardware units. Currently only one hw unit available.
+ */
+static void
+ops_hw_dump_resources (struct ds *ds, enum hw_resource_type type, const char *option)
+{
+    int                   unit;
+    opennsl_field_group_t group_id;
+
+    /*
+     * If "ds" is not a valid pointer, then return
+     * from this function.
+     */
+    if (!ds) {
+        return;
+    }
+    /*
+     * If "option" is not a valid pointer, then print out error message
+     * and return from this function.
+     */
+    if (!option) {
+        ds_put_format(ds, "Invalid hardware resource option for type %d", type);
+        return;
+    }
+    /*
+     * Iterate over all the hardware units available.
+     * Currently only one hardware unit is available.
+     */
+    for(unit =0; unit < MAX_SWITCH_UNITS; unit++) {
+
+        /* Get the group id for type of rules */
+        switch(type) {
+        case HW_RESOURCE_OSPF_INGRESS:
+            group_id = ops_routing_get_ospf_group_id_by_hw_unit(unit);
+            break;
+        case HW_RESOURCE_COPP_INGRESS:
+            group_id = ops_copp_get_ingress_group_id_for_hw_unit(unit);
+            break;
+        case HW_RESOURCE_COPP_EGRESS:
+            group_id = ops_copp_get_egress_group_id_for_hw_unit(unit);
+            break;
+        case HW_RESOURCE_ACLV4_INGRESS:
+            group_id = ops_cls_get_ingress_group_id_for_hw_unit(unit);
+            break;
+        case HW_RESOURCE_L3INTF_INGRESS:
+            group_id = ops_l3intf_ingress_stats_group_id_for_hw_unit(unit);
+            break;
+        case HW_RESOURCE_L3INTF_EGRESS:
+            group_id = ops_l3intf_egress_stats_group_id_for_hw_unit(unit);
+            break;
+        default: /* Unknown type */
+            continue;
+        }
+        /*
+         * If the group_id is invalid, then do not dump the
+         * "hw_resource_show" for that hardware unit.
+         */
+        if (group_id == -1) {
+            ds_put_format(ds, "%-14s", option);
+            ds_put_format(ds, "Field group hasn't been created\n");
+            continue;
+        }
+
+        /*
+         * Call the "hw_resource_show" function to dump the hardware resource utilization
+         * of fp rules for the given group and hardware unit.
+         */
+        ds_put_format(ds, "%-14s", option);
+        hw_resource_show(unit, group_id, ds);
+    }
+}
+
+static void
 bcm_plugin_debug(struct unixctl_conn *conn, int argc,
                  const char *argv[], void *aux OVS_UNUSED)
 {
@@ -1336,6 +1451,59 @@ copp_config_help:
             }
             goto done;
 
+        } else if (!strcmp(ch, "hw-resource")) {
+                    const char* option = NEXT_ARG();
+                    ds_put_format(&ds, "\n");
+                    ds_put_format(&ds, "Hardware Resource Usage\n");
+
+                    if (option) {
+                        if (!strcmp(option, "aclv4")) {
+                            /* aclv4 only has ingress group for now */
+                            ds_put_format(&ds, "\nIngress:\n");
+                            ds_put_format(&ds, "%s", cmd_hw_resource_table_header);
+                            ops_hw_dump_resources(&ds, HW_RESOURCE_ACLV4_INGRESS, option);
+                        } else if (!strcmp(option, "copp")) {
+                            ds_put_format(&ds, "\nIngress:\n");
+                            ds_put_format(&ds, "%s", cmd_hw_resource_table_header);
+                            ops_hw_dump_resources(&ds, HW_RESOURCE_COPP_INGRESS, option);
+                            ds_put_format(&ds, "\nEgress:\n");
+                            ds_put_format(&ds, "%s", cmd_hw_resource_table_header);
+                            ops_hw_dump_resources(&ds, HW_RESOURCE_COPP_EGRESS, option);
+                        } else if (!strcmp(option, "ospf")) {
+                            /* ospf only has ingress group for now */
+                            ds_put_format(&ds, "\nIngress:\n");
+                            ds_put_format(&ds, "%s", cmd_hw_resource_table_header);
+                            ops_hw_dump_resources(&ds, HW_RESOURCE_OSPF_INGRESS, option);
+                        } else if (!strcmp(option, "l3intf")) {
+                            ds_put_format(&ds, "\nIngress:\n");
+                            ds_put_format(&ds, "%s", cmd_hw_resource_table_header);
+                            ops_hw_dump_resources(&ds, HW_RESOURCE_L3INTF_INGRESS, option);
+                            ds_put_format(&ds, "\nEgress:\n");
+                            ds_put_format(&ds, "%s", cmd_hw_resource_table_header);
+                            ops_hw_dump_resources(&ds, HW_RESOURCE_L3INTF_EGRESS, option);
+                        } else {
+                            ds_put_format(&ds, "Unsupported Hardware Resource command.\n\n"
+                                    "Usage: ovs-appctl plugin/debug "
+                                    "hw-resource [aclv4 | copp | ospf | l3intf]\n"
+                                    "If no argument is specified,\n"
+                                    "the hardware resource utilization for all features will be displayed.\n\n");
+                        }
+                    } else {
+                        /* If no options are given, dump all */
+                        /* Ingress part */
+                        ds_put_format(&ds, "\nIngress:\n");
+                        ds_put_format(&ds, "%s", cmd_hw_resource_table_header);
+                        ops_hw_dump_resources(&ds, HW_RESOURCE_OSPF_INGRESS, "ospf");
+                        ops_hw_dump_resources(&ds, HW_RESOURCE_COPP_INGRESS, "copp");
+                        ops_hw_dump_resources(&ds, HW_RESOURCE_ACLV4_INGRESS, "aclv4");
+                        ops_hw_dump_resources(&ds, HW_RESOURCE_L3INTF_INGRESS, "l3intf");
+                        /* Egress part */
+                        ds_put_format(&ds, "\nEgress:\n");
+                        ds_put_format(&ds, "%s", cmd_hw_resource_table_header);
+                        ops_hw_dump_resources(&ds, HW_RESOURCE_COPP_EGRESS, "copp");
+                        ops_hw_dump_resources(&ds, HW_RESOURCE_L3INTF_EGRESS, "l3intf");
+                    }
+                    goto done;
         } else {
             ds_put_format(&ds, "Unknown or unsupported command - %s.\n", ch);
             goto done;

@@ -183,6 +183,38 @@ static int netdev_bcmsdk_construct(struct netdev *);
 opennsl_field_group_t l3intf_ingress_stats_fp_group = 0;
 opennsl_field_group_t l3intf_egress_stats_fp_group = 0;
 
+/*
+* ops_l3intf_ingress_stats_group_id_for_hw_unit
+*
+* This function returns the group-id for the L3 inteface ingress stats FP rules for
+* the given hardware unit.
+*/
+opennsl_field_group_t
+ops_l3intf_ingress_stats_group_id_for_hw_unit(int unit)
+{
+    if (!l3intf_ingress_stats_fp_group || unit < 0) {
+        return(-1);
+    }
+
+    return(l3intf_ingress_stats_fp_group);
+}
+
+/*
+* ops_l3intf_egress_stats_group_id_for_hw_unit
+*
+* This function returns the group-id for the L3 inteface egress stats FP rules for
+* the given hardware unit.
+*/
+opennsl_field_group_t
+ops_l3intf_egress_stats_group_id_for_hw_unit(int unit)
+{
+    if (!l3intf_egress_stats_fp_group || unit < 0) {
+        return(-1);
+    }
+
+    return(l3intf_egress_stats_fp_group);
+}
+
 static int netdev_bcmsdk_construct(struct netdev *);
 
 static bool
