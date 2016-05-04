@@ -1144,16 +1144,6 @@ netdev_bcmsdk_get_l3_stats(const struct netdev *netdev_,
     int rc = 0;
     struct netdev_bcmsdk *netdev = netdev_bcmsdk_cast(netdev_);
     struct ops_stats_egress_id    *egress_id_node;
-    struct ops_deleted_stats      *del_stats;
-
-    del_stats = (struct ops_deleted_stats*) xzalloc(sizeof(struct
-                                                  ops_deleted_stats));
-
-    /* populate the del stats from bcmsdk netdev struct */
-    del_stats->del_uc_packets = netdev->deleted_stats_counter.del_uc_packets;
-    del_stats->del_mc_packets = netdev->deleted_stats_counter.del_mc_packets;
-    del_stats->del_uc_bytes = netdev->deleted_stats_counter.del_uc_bytes;
-    del_stats->del_mc_bytes = netdev->deleted_stats_counter.del_mc_bytes;
 
     /* Iterate through egress object hashmap and get every object stats */
     HMAP_FOR_EACH(egress_id_node, egress_node, &(netdev->egress_id_map)) {
@@ -1169,15 +1159,14 @@ netdev_bcmsdk_get_l3_stats(const struct netdev *netdev_,
         }
     }
 
-    stats->l3_uc_tx_packets += del_stats->del_uc_packets;
-    stats->l3_uc_tx_bytes += del_stats->del_uc_bytes;
-    stats->l3_mc_tx_packets += del_stats->del_mc_packets;
-    stats->l3_mc_tx_bytes += del_stats->del_mc_bytes;
+    stats->l3_uc_tx_packets += netdev->deleted_stats_counter.del_uc_packets;
+    stats->l3_uc_tx_bytes += netdev->deleted_stats_counter.del_uc_bytes;
+    stats->l3_mc_tx_packets += netdev->deleted_stats_counter.del_mc_packets;
+    stats->l3_mc_tx_bytes += netdev->deleted_stats_counter.del_mc_bytes;
 
     /* Now get the ingress stats for the l3 interface if they are configured */
-    if(netdev->ingress_stats_object.ingress_stat_id &&
-            netdev->ingress_stats_object.ingress_vlan_id)
-    {
+    if (netdev->ingress_stats_object.ingress_stat_id &&
+            netdev->ingress_stats_object.ingress_vlan_id) {
         rc = bcmsdk_get_l3_ingress_stats(netdev->hw_unit, stats,
                 netdev->ingress_stats_object.ingress_vlan_id,
                 netdev->ingress_stats_object.ingress_num_id);
@@ -1832,6 +1821,11 @@ netdev_bcmsdk_l3intf_fp_stats_init(opennsl_vlan_t vlan_id, opennsl_port_t hw_por
 {
     opennsl_error_t rc = OPENNSL_E_NONE;
     struct netdev_bcmsdk *netdev = netdev_from_hw_id(hw_unit, hw_port);
+
+    if (!netdev) {
+        return OPENNSL_E_NONE;
+    }
+
     opennsl_field_stat_t stat_ifp[2]= {opennslFieldStatPackets, opennslFieldStatBytes};
 
     netdev->l3_stat_fp_entries = (opennsl_field_entry_t *) xzalloc(sizeof(opennsl_field_entry_t) \
@@ -2303,6 +2297,11 @@ int
 netdev_bcmsdk_populate_l3_stats(int hw_unit, int hw_port, struct netdev_stats *stats)
 {
     struct netdev_bcmsdk *netdev = netdev_from_hw_id(hw_unit, hw_port);
+
+    if (!netdev) {
+        return OPENNSL_E_NONE;
+    }
+
     int *fp_stat_ids = netdev->l3_stat_fp_ids;
     opennsl_error_t rc = OPENNSL_E_NONE;
     uint64 l3_fp_packet_stats[NUM_L3_FP_STATS];
@@ -2330,6 +2329,9 @@ netdev_bcmsdk_populate_l3_stats(int hw_unit, int hw_port, struct netdev_stats *s
 
     for(i = 0; i< NUM_L3_FP_STATS; i++)
     {
+        if (fp_stat_ids[i] <= 0) {
+            continue;
+        }
         rc = opennsl_field_stat_get(hw_unit, fp_stat_ids[i], opennslFieldStatPackets,
                 &l3_fp_packet_stats[i]);
         if (OPENNSL_FAILURE(rc)) {
