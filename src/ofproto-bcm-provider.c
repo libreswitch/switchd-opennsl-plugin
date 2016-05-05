@@ -45,6 +45,7 @@
 #include "qos-asic-provider.h"
 #include "ops-mac-learning.h"
 #include "ops-mirrors.h"
+#define DEFAULT_VID  (1)
 
 VLOG_DEFINE_THIS_MODULE(ofproto_bcm_provider);
 
@@ -1501,7 +1502,7 @@ bundle_set(struct ofproto *ofproto_, void *aux,
 
         /* Check for mode changes first. */
         if (mode_changed) {
-            if (bundle->vlan_mode == PORT_VLAN_ACCESS) {
+            if (bundle->vlan_mode == PORT_VLAN_ACCESS && s->vlan_mode == PORT_VLAN_TRUNK) {
                 /* Was ACCESS type, becoming one of the TRUNK types. */
                 if (bundle->vlan != -1) {
                     bcmsdk_del_access_ports(bundle->vlan, temp_pbm);
@@ -1510,6 +1511,7 @@ bundle_set(struct ofproto *ofproto_, void *aux,
                 /* Add all new trunk VLANs. */
                 config_all_vlans(s->vlan_mode, s->vlan,
                                  new_trunks, temp_pbm);
+                bcmsdk_add_native_untagged_ports(DEFAULT_VID, temp_pbm, false);
 
                 /* Should have nothing else to do... */
                 goto done;
@@ -1519,7 +1521,7 @@ bundle_set(struct ofproto *ofproto_, void *aux,
                  * or native-untagged), becoming ACCESS type. */
                 unconfig_all_vlans(bundle->vlan_mode, bundle->vlan,
                                    bundle->trunks, temp_pbm);
-
+                bcmsdk_del_native_untagged_ports(DEFAULT_VID, temp_pbm, false);
                 /* Add new access VLAN. */
                 if (s->vlan != -1) {
                     bcmsdk_add_access_ports(s->vlan, temp_pbm);
@@ -1557,6 +1559,14 @@ bundle_set(struct ofproto *ofproto_, void *aux,
                     }
                     break;
                 case PORT_VLAN_ACCESS:
+                     if (bundle->vlan != -1) {
+                        bcmsdk_del_access_ports(bundle->vlan, temp_pbm);
+                     }
+
+                    /* Add all new trunk VLANs. */
+                     config_all_vlans(s->vlan_mode, s->vlan,
+                                 new_trunks, temp_pbm);
+                    break;
                 case PORT_VLAN_TRUNK:
                 default:
                     break;
@@ -1566,16 +1576,23 @@ bundle_set(struct ofproto *ofproto_, void *aux,
                 switch (s->vlan_mode) {
                 case PORT_VLAN_NATIVE_TAGGED:
                     if (s->vlan != -1) {
+                        bcmsdk_del_native_untagged_ports(s->vlan, temp_pbm, false);
                         bcmsdk_add_native_tagged_ports(s->vlan, temp_pbm);
                     }
                     break;
                 case PORT_VLAN_NATIVE_UNTAGGED:
+                    if (bundle->vlan == 1) {
+                        bcmsdk_del_native_untagged_ports(DEFAULT_VID, temp_pbm, false);
+                    }
+
                     if (s->vlan != -1) {
                         bcmsdk_add_native_untagged_ports(s->vlan, temp_pbm, false);
                     }
                     break;
-                case PORT_VLAN_ACCESS:
                 case PORT_VLAN_TRUNK:
+                    bcmsdk_add_native_untagged_ports(DEFAULT_VID, temp_pbm, false);
+                    break;
+                case PORT_VLAN_ACCESS:
                 default:
                     break;
                 }
