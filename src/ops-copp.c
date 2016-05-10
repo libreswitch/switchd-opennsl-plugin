@@ -127,7 +127,7 @@ char ops_copp_all_packet_stat_buffer[COPP_MAX_PACKET_STAT_BUFFER_SIZE
  * Array of strings for names for CPU queue numbers
  */
 char* ops_cpu_queue_name[OPS_COPP_QOS_QUEUE_MAX + 1] = {
-                                                          "Execption",
+                                                          "Acl-logging",
                                                           "Default",
                                                           "Snooping",
                                                           "Sflow",
@@ -4119,6 +4119,10 @@ copp_packet_class_mapper(enum copp_protocol_class ops_class)
             return PLUGIN_COPP_STP_PACKET;
         case COPP_UNKNOWN_IP_UNICAST:
             return PLUGIN_COPP_UNKNOWN_IP_UNICAST_PACKET;
+        case COPP_IPv4_OPTIONS:
+            return PLUGIN_COPP_IPV4_OPTIONS_PACKET;
+        case COPP_IPv6_OPTIONS:
+            return PLUGIN_COPP_IPV6_OPTIONS_PACKET;
         default:
             return PLUGIN_COPP_MAX_CLASSES;
     }
