@@ -108,7 +108,7 @@ ops_classifier_init(int unit)
 {
     int rc;
     opennsl_field_qset_t qset;
-    //int knet_acl_log_filter_id;
+    int knet_acl_log_filter_id;
 
      /* Initialize QSET */
     OPENNSL_FIELD_QSET_INIT(qset);
@@ -138,8 +138,8 @@ ops_classifier_init(int unit)
     /* This call is commented out until an updated version of OpenNSL is
      * available.  That new version will enable ACL logging to co-exist with
      * other features that use copy-to-cpu actions from the TCAM. */
-    //bcmsdk_knet_acl_logging_filter_create("AclLog", &knet_acl_log_filter_id);
-    //VLOG_DBG("ACL logging knet filter id: %d", knet_acl_log_filter_id);
+    bcmsdk_knet_acl_logging_filter_create("AclLog", &knet_acl_log_filter_id);
+    VLOG_DBG("ACL logging knet filter id: %d", knet_acl_log_filter_id);
 
     /* Initialize the classifier hash map */
     hmap_init(&classifier_map);
@@ -485,11 +485,8 @@ ops_cls_set_action(int                          unit,
     }
 
     if (cls_entry->act_flags & OPS_CLS_ACTION_LOG) {
-        uint8_t entry_id;
-
-        entry_id = MIN(entry, (uint8_t)(-1));
         rc = opennsl_field_action_add(unit, entry, opennslFieldActionCopyToCpu,
-                                      1, entry_id);
+                                      1, ACL_LOG_RULE_ID);
         if (OPENNSL_FAILURE(rc)) {
             VLOG_ERR("Failed to set copy action at entry 0x%x: rc=%s", entry,
                      opennsl_errmsg(rc));
@@ -1810,12 +1807,6 @@ acl_log_handle_rx_event(opennsl_pkt_t *pkt)
         pkt_info.valid_fields |= ACL_LOG_NODE;
         pkt_info.in_cos        = pkt->cos;
         pkt_info.valid_fields |= ACL_LOG_IN_COS;
-
-        /* provide any available info on which ACE this packet matched */
-        if (pkt->reserved29 < (uint8_t)(-1)) {
-            pkt_info.entry_num = pkt->reserved29;
-            pkt_info.valid_fields |= ACL_LOG_ENTRY_NUM;
-        }
 
         /* fill in fields related to packet data */
         pkt_info.total_pkt_len = pkt->tot_len;

@@ -21,6 +21,9 @@
 
 #include "ops-cls-asic-plugin.h"
 
+#define ACL_LOG_RULE_ID 1 /**< This value distinguishes an ACL logging packet
+                            from other packets that match an FP rule. */
+
 /************************************************************************//**
  * @defgroup ops-switchd-classifier-api classifier plug-in interface
  *
