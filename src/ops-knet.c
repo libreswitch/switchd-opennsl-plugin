@@ -32,6 +32,7 @@
 #include "platform-defines.h"
 #include "ops-debug.h"
 #include "ops-knet.h"
+#include "ops-classifier.h"
 #include "eventlog.h"
 
 VLOG_DEFINE_THIS_MODULE(ops_knet);
@@ -362,8 +363,10 @@ void bcmsdk_knet_acl_logging_filter_create(char *knet_dst_if_name,
      * parts of the system should need to see them. */
     knet_filter.priority = KNET_FILTER_PRIO_ACL_LOGGING;
     knet_filter.dest_type = OPENNSL_KNET_DEST_T_OPENNSL_RX_API;
+    knet_filter.m_fp_rule = ACL_LOG_RULE_ID;
     knet_filter.flags |= OPENNSL_KNET_FILTER_F_STRIP_TAG;
-    knet_filter.match_flags |= OPENNSL_KNET_FILTER_M_REASON;
+    knet_filter.match_flags |= OPENNSL_KNET_FILTER_M_REASON
+                            /* | OPENNSL_KNET_FILTER_M_FP_RULE */ ;
     OPENNSL_RX_REASON_SET(knet_filter.m_reason, opennslRxReasonFilterMatch);
 
     rc = opennsl_knet_filter_create(0, &knet_filter);
