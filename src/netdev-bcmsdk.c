@@ -137,6 +137,13 @@ struct netdev_bcmsdk {
 
     opennsl_field_entry_t *l3_stat_fp_entries;
     int *l3_stat_fp_ids;
+
+    /* Store the current features of the netdev */
+    enum netdev_features current_features;
+    /* Store the carrier of the netdev */
+    bool carrier;
+    /* Store the enable_state of the netdev */
+    bool enable_state;
 };
 
 static int netdev_bcmsdk_qualify_ingress_unicast_entries(int unit,
@@ -323,6 +330,9 @@ netdev_bcmsdk_construct(struct netdev *netdev_)
 
     netdev->l3_stat_fp_entries = NULL;
     netdev->l3_stat_fp_ids = NULL;
+    netdev->current_features = 0;
+    netdev->carrier = false;
+    netdev->enable_state = false;
 
     ovs_mutex_unlock(&netdev->mutex);
 
@@ -847,6 +857,7 @@ netdev_bcmsdk_get_carrier(const struct netdev *netdev_, bool *carrier)
     ovs_mutex_lock(&netdev->mutex);
     bcmsdk_get_link_status(netdev->hw_unit, netdev->hw_id, &status);
     *carrier = status;
+    netdev->carrier = status;
     ovs_mutex_unlock(&netdev->mutex);
 
     return 0;
@@ -1230,6 +1241,7 @@ netdev_bcmsdk_get_features(const struct netdev *netdev_,
         *current |= NETDEV_F_PAUSE_ASYM;
     }
 
+    netdev->current_features = *current;
     return rc;
 }
 
@@ -1254,8 +1266,10 @@ netdev_bcmsdk_update_flags(struct netdev *netdev_,
     if (!rc) {
         if (state) {
             *old_flagsp |= NETDEV_UP;
+            netdev->enable_state = true;
         } else {
             *old_flagsp &= ~NETDEV_UP;
+            netdev->enable_state = false;
         }
 
         /* Set the new state to that which is desired. */
@@ -1267,7 +1281,6 @@ netdev_bcmsdk_update_flags(struct netdev *netdev_,
     }
 
     ovs_mutex_unlock(&netdev->mutex);
-
     return rc;
 }
 
@@ -1341,34 +1354,27 @@ netdev_bcmsdk_get_sflow_intf_info(int hw_unit, int hw_id, uint32_t *index,
                                   uint64_t *speed, uint32_t *direction,
                                   uint32_t *status)
 {
-    int state = 0;
-    bool link_state = false;
-    enum netdev_features current, adv, supp, peer;
     struct netdev_bcmsdk *netdev = netdev_from_hw_id(hw_unit, hw_id);
-
     *index = hw_id; /* physical port number */
 
-    if (netdev &&
-        !netdev_bcmsdk_get_features(&netdev->up, &current, &adv, &supp, &peer)) {
-        *speed = netdev_features_to_bps(current, 0);
-        *direction = (netdev_features_is_full_duplex(current) ? 1 : 2);
+    if (netdev && netdev->current_features) {
+        *speed = netdev_features_to_bps(netdev->current_features, 0);
+        *direction = (netdev_features_is_full_duplex(netdev->current_features) ?
+                      SFLOW_CNTR_SAMPLE_DIRECTION_FULL_DUPLEX:
+                      SFLOW_CNTR_SAMPLE_DIRECTION_HALF_DUPLEX);
     } else {
         *speed = SFLOW_CNTR_SAMPLE_SPEED_DEFAULT;
         *direction = SFLOW_CNTR_SAMPLE_DIRECTION_DEFAULT;
     }
-
-    if (!bcmsdk_get_enable_state(hw_unit, hw_id, &state)) {
-        if (state) {
-            *status = SFLOW_CNTR_SAMPLE_ADMIN_STATE_UP; /* ifAdminStatus up. */
-        }
-        if (netdev && !netdev_bcmsdk_get_carrier(&netdev->up, &link_state)) {
-            if (link_state) {
-                *status |= SFLOW_CNTR_SAMPLE_OPER_STATE_UP; /* ifOperStatus up. */
-            }
+    if (netdev && netdev->enable_state) {
+        *status = SFLOW_CNTR_SAMPLE_ADMIN_STATE_UP; /* ifAdminStatus up. */
+        if (netdev && netdev->carrier) {
+            *status |= SFLOW_CNTR_SAMPLE_OPER_STATE_UP; /* ifOperStatus up. */
         }
     } else {
         *status = SFLOW_CNTR_SAMPLE_STATE_DOWN;
     }
+
 }
 
 /* Helper functions. */

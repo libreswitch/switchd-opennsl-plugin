@@ -59,11 +59,13 @@
 #define PORT_BUF_LEN 6 /* maximum char in a L4 port */
 
 /* Constants used in sFlow counter samples */
-#define SFLOW_CNTR_SAMPLE_SPEED_DEFAULT     100000000
-#define SFLOW_CNTR_SAMPLE_DIRECTION_DEFAULT 0
-#define SFLOW_CNTR_SAMPLE_STATE_DOWN        0
-#define SFLOW_CNTR_SAMPLE_ADMIN_STATE_UP    1
-#define SFLOW_CNTR_SAMPLE_OPER_STATE_UP     2
+#define SFLOW_CNTR_SAMPLE_SPEED_DEFAULT         100000000
+#define SFLOW_CNTR_SAMPLE_DIRECTION_DEFAULT     0
+#define SFLOW_CNTR_SAMPLE_DIRECTION_FULL_DUPLEX 1
+#define SFLOW_CNTR_SAMPLE_DIRECTION_HALF_DUPLEX 2
+#define SFLOW_CNTR_SAMPLE_STATE_DOWN            0
+#define SFLOW_CNTR_SAMPLE_ADMIN_STATE_UP        1
+#define SFLOW_CNTR_SAMPLE_OPER_STATE_UP         2
 
 struct ops_sflow_port_stats {
     uint64_t in_octets;

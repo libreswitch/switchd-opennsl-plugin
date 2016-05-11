@@ -339,7 +339,6 @@ ops_sflow_get_port_counters(void *arg, SFLPoller *poller,
     hw_unit = (poller->bridgePort & 0xFFFF0000) >> 16;
     hw_port = poller->bridgePort & 0x0000FFFF;
 
-
     netdev_bcmsdk_get_sflow_intf_info(hw_unit, hw_port, &index, &speed,
                                       &direction, &status);
     bcmsdk_get_sflow_port_stats(hw_unit, hw_port, &stats);
@@ -704,7 +703,7 @@ ops_sflow_alloc(void)
     SFLAgent *sfl_agent;
 
     if (ovsthread_once_start(&once)) {
-        ovs_mutex_init_recursive(&mutex);
+        ovs_mutex_init(&mutex);
         ovsthread_once_done(&once);
     }
 
@@ -1104,7 +1103,7 @@ ops_sflow_collector(struct unixctl_conn *conn, int argc, const char *argv[],
 
 /* Send a UDP pkt to collector ip (input) on a port (optional input, default
  * port is 6343). Test purposes only. */
-    static void
+static void
 ops_sflow_send_test_pkt(struct unixctl_conn *conn, int argc, const char *argv[],
         void *aux OVS_UNUSED)
 {
@@ -1156,7 +1155,6 @@ static void sflow_main()
 {
     unixctl_command_register("sflow/set-rate", "[port-id | global] ingress-rate egress-rate", 2, 3, ops_sflow_set_rate, NULL);
     unixctl_command_register("sflow/show-rate", "[port-id]", 0 , 1, ops_sflow_show, NULL);
-
     unixctl_command_register("sflow/enable-agent", "[yes|no]", 1 , 1, ops_sflow_agent_fn, NULL);
     unixctl_command_register("sflow/set-collector-ip", "collector-ip [port]", 1 , 2, ops_sflow_collector, NULL);
     unixctl_command_register("sflow/send-test-pkt", "collector-ip [port]", 1 , 2, ops_sflow_send_test_pkt, NULL);
@@ -1165,6 +1163,7 @@ static void sflow_main()
 void
 ops_sflow_run(struct bcmsdk_provider_node *ofproto)
 {
+
     time_t now;
     SFLPoller *pl;
     SFLReceiver *rcv;
@@ -1191,11 +1190,21 @@ ops_sflow_run(struct bcmsdk_provider_node *ofproto)
                 }
             }
         }
+        /*
+         * A mutex lock/unlock is needed before calling the sflow_receiver_tick
+         * which flushes the receiver and sends the packets to the sFlow
+         * collectors. This was needed to avoid race conditions when
+         * FLOW/CNTR packets are being populated into the receiver's buffer
+         * and the data gets unexpectedly flushed out causing datagram to be
+         * malformed.
+         */
+        ovs_mutex_lock(&mutex);
         /* receivers use ticks to flush send data */
         rcv = ops_sflow_agent->receivers;
         for(; rcv != NULL; rcv = rcv->nxt) {
             sfl_receiver_tick(rcv, now);
         }
+        ovs_mutex_unlock(&mutex);
     }
 }
 
