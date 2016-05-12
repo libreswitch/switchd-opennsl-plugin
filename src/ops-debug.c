@@ -1626,8 +1626,8 @@ done:
 #define DIAGNOSTIC_BUFFER_LEN 64000
 #define L3INTERFACE "l3interface"
 #define VLANINTERFACE "vlaninterface"
-#define LAGINTERFACE "lag"
-#define SUBINTERFACE "sub-interface"
+#define LAGINTERFACE "laginterface"
+#define SUBINTERFACE "subinterface"
 #define LOOPBACK "loopback"
 #define COPP "copp"
 #define SFLOW "sflow"
