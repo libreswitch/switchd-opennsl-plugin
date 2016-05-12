@@ -404,7 +404,6 @@ netdev_vlansub_bcmsdk_set_config(struct netdev *netdev_, const struct smap *args
                 netdev->hw_unit = parent_netdev->hw_unit;
                 memcpy(netdev->hwaddr, parent_netdev->hwaddr, ETH_ALEN);
                 netdev->subintf_vlan_id = vlanid;
-                netdev->knet_if_id = parent_netdev->knet_if_id;
             }
             /* netdev_from_name() opens a reference, so we need to close it here. */
             netdev_close(parent);
@@ -677,11 +676,22 @@ void
 handle_bcmsdk_knet_subinterface_filters(struct netdev *netdev_, bool enable)
 {
     struct netdev_bcmsdk *netdev = netdev_bcmsdk_cast(netdev_);
+    struct netdev *parent = NULL;
+    struct netdev_bcmsdk *parent_netdev = NULL;
     if (enable == true && netdev->knet_subinterface_filter_id == 0) {
         VLOG_DBG("Create subinterface knet filter\n");
         netdev->hw_unit = 0;
-        bcmsdk_knet_subinterface_filter_create(netdev->hw_unit, netdev->hw_id,
-                netdev->knet_if_id, &(netdev->knet_subinterface_filter_id));
+        parent = netdev_from_name(netdev->parent_netdev_name);
+        if (parent != NULL) {
+            parent_netdev = netdev_bcmsdk_cast(parent);
+            if (parent_netdev != NULL) {
+                ovs_mutex_lock(&parent_netdev->mutex);
+                bcmsdk_knet_subinterface_filter_create(netdev->hw_unit, netdev->hw_id,
+                        parent_netdev->knet_if_id, &(netdev->knet_subinterface_filter_id));
+                ovs_mutex_unlock(&parent_netdev->mutex);
+            }
+            netdev_close(parent);
+        }
     } else if ((enable == false) && (netdev->knet_subinterface_filter_id != 0)) {
         VLOG_DBG("Destroy subinterface knet filter\n");
         bcmsdk_knet_filter_delete(netdev->up.name, netdev->hw_unit, netdev->knet_subinterface_filter_id);
