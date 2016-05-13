@@ -436,13 +436,13 @@ get_vlan_data(int vid, bool internal)
 
     // VLAN data hasn't been created yet.
     vlanp = malloc(sizeof(ops_vlan_data_t));
-    vlanp->user_created = 0;
     if (!vlanp) {
         VLOG_ERR("Failed to allocate memory for %s VLAN vid=%d",
                  internal ? "internal" : "", vid);
         return NULL;
     }
 
+    vlanp->user_created = 0;
     vlanp->vid = vid;
     vlanp->hw_created = 0;
 

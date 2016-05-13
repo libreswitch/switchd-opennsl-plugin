@@ -436,7 +436,8 @@ ops_cls_get_port_bitmap(struct ofproto *ofproto_,
                         int            *hw_unit,
                         opennsl_pbmp_t *pbmp)
 {
-    int unit, hw_port;
+    int unit = 0;
+    int hw_port;
     struct bcmsdk_provider_node *ofproto = bcmsdk_provider_node_cast(ofproto_);
 
     struct ofbundle *bundle = bundle_lookup(ofproto, aux);

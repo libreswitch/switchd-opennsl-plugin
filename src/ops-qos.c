@@ -974,7 +974,7 @@ ops_qos_hw_unit_init(int hw_unit)
 static opennsl_color_t
 ops_qos_get_opennsl_color(int color)
 {
-    int ret_color;
+    opennsl_color_t ret_color;
 
     switch (color) {
         case COS_COLOR_GREEN:

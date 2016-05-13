@@ -825,6 +825,7 @@ netdev_bcmsdk_set_hw_intf_config(struct netdev *netdev_, const struct smap *args
     if (!is_port_config_changed(&(netdev->pcfg), pcfg)) {
         VLOG_DBG("port config is not changed. Intf=%s, unit=%d port=%d",
                  netdev->up.name, netdev->hw_unit, netdev->hw_id);
+        free(pcfg);
         return 0;
     }
 
@@ -960,16 +961,7 @@ netdev_bcmsdk_set_l3_egress_id(const struct netdev *netdev_,
     memset(egress_object_id_key, 0, sizeof(egress_object_id_key));
     snprintf(egress_object_id_key, MAX_KEY_LENGTH, "%d", l3_egress_id);
 
-    /* add the egress id to hashmap */
-    egress_id_node = (struct ops_stats_egress_id *) xmalloc(sizeof(struct
-                                                       ops_stats_egress_id));
-    if (egress_id_node == NULL) {
-        VLOG_ERR("Failed allocating memory to ops_stats_egress_id structure "
-                 "for l3_egress_id%d", l3_egress_id);
-        return 1; /* Return error */
-    }
-
-        if(netdev_bcmsdk_egress_id_lookup(egress_object_id_key, netdev)) {
+    if (netdev_bcmsdk_egress_id_lookup(egress_object_id_key, netdev)) {
         return 0;
     }
 
@@ -990,6 +982,14 @@ netdev_bcmsdk_set_l3_egress_id(const struct netdev *netdev_,
         return 1; /* Return error */
     }
 
+    /* add the egress id to hashmap */
+    egress_id_node = (struct ops_stats_egress_id *) xmalloc(sizeof(struct
+                                                       ops_stats_egress_id));
+    if (egress_id_node == NULL) {
+        VLOG_ERR("Failed allocating memory to ops_stats_egress_id structure "
+                 "for l3_egress_id%d", l3_egress_id);
+        return 1; /* Return error */
+    }
     egress_id_node->egress_object_id = l3_egress_id;
     egress_id_node->egress_num_id = egr_num_id;
     egress_id_node->egress_stat_id = egr_stat_id;

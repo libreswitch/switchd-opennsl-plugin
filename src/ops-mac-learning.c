@@ -85,7 +85,9 @@ static uint32_t mlearn_table_hash_calc(const struct eth_addr mac,
                                        const uint16_t vlan,
                                        int hw_unit)
 {
-    int hash = hash_2words(hash_uint64_basis(eth_addr_vlan_to_uint64(mac, vlan), 0), hw_unit);
+    uint32_t hash =
+        hash_2words(hash_uint64_basis(eth_addr_vlan_to_uint64(mac, vlan), 0),
+                hw_unit);
     return (hash);
 }
 
