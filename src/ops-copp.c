@@ -149,7 +149,7 @@ char* ops_cpu_queue_name[OPS_COPP_QOS_QUEUE_MAX + 1] = {
 opennsl_field_group_t ops_copp_get_ingress_group_id_for_hw_unit (
                                                     int hardware_unit)
 {
-    if ((hardware_unit > OPS_COPP_MAX_UNITS) ||
+    if ((hardware_unit >= OPS_COPP_MAX_UNITS) ||
         (hardware_unit < 0))  {
         return(-1);
     }
@@ -166,7 +166,7 @@ opennsl_field_group_t ops_copp_get_ingress_group_id_for_hw_unit (
 opennsl_field_group_t ops_copp_get_egress_group_id_for_hw_unit (
                                                     int hardware_unit)
 {
-    if ((hardware_unit > OPS_COPP_MAX_UNITS) ||
+    if ((hardware_unit >= OPS_COPP_MAX_UNITS) ||
         (hardware_unit < 0))  {
         return(-1);
     }

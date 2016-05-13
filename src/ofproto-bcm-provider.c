@@ -563,7 +563,7 @@ bundle_add_port(struct ofbundle *bundle, ofp_port_t ofp_port,
 static void
 bundle_destroy(struct ofbundle *bundle)
 {
-    struct bcmsdk_provider_node *ofproto = bundle->ofproto;;
+    struct bcmsdk_provider_node *ofproto;
     struct bcmsdk_provider_ofport_node *port = NULL, *next_port;
     const char *type;
     int hw_unit, hw_port;
@@ -572,6 +572,7 @@ bundle_destroy(struct ofbundle *bundle)
     if (!bundle) {
         return;
     }
+    ofproto = bundle->ofproto;
     VLOG_DBG("%s, destroying bundle = %s", __FUNCTION__, bundle->name);
 
     LIST_FOR_EACH_SAFE (port, next_port, bundle_node, &bundle->ports) {
@@ -1139,6 +1140,7 @@ bundle_set(struct ofproto *ofproto_, void *aux,
         VLOG_DBG("%s: Allocated bond_hw_handle# %d for port %s",
                  __FUNCTION__, bundle->bond_hw_handle, s->name);
         if (s->bond_handle_alloc_only) {
+            bcmsdk_destroy_pbmp(all_pbm);
             return 0;
         }
     } else if ((-1 != bundle->bond_hw_handle) &&
@@ -1162,6 +1164,7 @@ bundle_set(struct ofproto *ofproto_, void *aux,
         port = get_ofp_port(bundle->ofproto, s->slaves[0]);
         if (!port) {
             VLOG_ERR("slave is not in the ports\n");
+            return ENODEV;
         }
 
         type = netdev_get_type(port->up.netdev);
@@ -1406,6 +1409,7 @@ bundle_set(struct ofproto *ofproto_, void *aux,
                 port = get_ofp_port(bundle->ofproto, s->slaves[i]);
                 if (!port) {
                     VLOG_ERR("slave is not in the ports\n");
+                    return ENODEV;
                 }
                 VLOG_DBG("%s Adding port %s from VLAN",
                          __FUNCTION__,netdev_get_name(port->up.netdev));
@@ -1575,7 +1579,7 @@ bundle_set(struct ofproto *ofproto_, void *aux,
                 bcmsdk_add_native_untagged_ports(DEFAULT_VID, temp_pbm, false);
 
                 /* Should have nothing else to do... */
-                goto done;
+                goto label_bcmsdk_destroy_pbmp;
 
             } else if (s->vlan_mode == PORT_VLAN_ACCESS) {
                 /* Was one of the TRUNK types (trunk, native-tagged,
@@ -1589,7 +1593,7 @@ bundle_set(struct ofproto *ofproto_, void *aux,
                 }
 
                 /* Should have nothing else to do... */
-                goto done;
+                goto label_bcmsdk_destroy_pbmp;
 
             } else {
                 /* Changing modes among one of the TRUNK types (trunk,
@@ -1670,7 +1674,7 @@ bundle_set(struct ofproto *ofproto_, void *aux,
                     bcmsdk_add_access_ports(s->vlan, temp_pbm);
                 }
                 /* For ACCESS ports, nothing more to do. */
-                goto done;
+                goto label_bcmsdk_destroy_pbmp;
                 break;
             case PORT_VLAN_NATIVE_TAGGED:
                 if (bundle->vlan != -1) {
@@ -1711,6 +1715,8 @@ bundle_set(struct ofproto *ofproto_, void *aux,
                                       bundle->vlan_mode, s->vlan_mode);
         }
     }
+
+label_bcmsdk_destroy_pbmp:
 
     /* Done with temp_pbm. */
     bcmsdk_destroy_pbmp(temp_pbm);
