@@ -172,7 +172,7 @@ static void ops_mac_entry_add(
     if (!found) {
         if (actual_size < (hmap_entry->buffer).size) {
             struct mlearn_hmap_node *mlearn_node =
-                                    &((hmap_entry->buffer).nodes[actual_size + 1]);
+                                    &((hmap_entry->buffer).nodes[actual_size]);
             VLOG_DBG("%s: move_event, port: %d, oper: %d, hw_unit: %d, vlan: %d, MAC: %s",
                      __FUNCTION__, port_id, event, hw_unit, vlan,
                      ether_ntoa((struct ether_addr *)mac));
