@@ -669,13 +669,12 @@ fp_entries_show (int unit, opennsl_field_group_t group, struct ds *ds)
                                            &stat_id);
         ds_put_format(ds, "\tStatistics: ");
         if(stat_id > 0) {
-            ds_put_format(ds, "\n\t    Stat id = %d for entry %d\n", stat_id,
-                          entry_array[entry_index]);
+            ds_put_format(ds, "\n\t    Stat id = %d\n", stat_id);
             for(stat_index=0; stat_index< MAX_STAT_TYPES;stat_index++){
                 ret = opennsl_field_stat_get(unit, stat_id,
                                              stat_arr[stat_index],&stat_value);
                 if (!OPENNSL_FAILURE(ret)) {
-                    ds_put_format(ds, "\t    stat type :%s value is %llu\n",
+                    ds_put_format(ds, "\t    stat type: %s value: %llu\n",
                                      stat_type_str[stat_index], stat_value);
                 }
             }

@@ -23,10 +23,19 @@
  */
 
 /* Return code */
-#define OPS_CLS_OK   0
-#define OPS_CLS_FAIL 1
+enum ops_cls_status_code {
+    OPS_CLS_OK = 0,
+    OPS_CLS_FAIL,
+    OPS_CLS_HW_UNSUPPORTED_ERR,
+    OPS_CLS_LIST_PARSE_ERR
+};
 
-#define OPS_CLS_ERROR(rc) ((OPENNSL_FAILURE(rc)) || ((rc) == OPS_CLS_FAIL))
+inline int ops_cls_error (int rc) {
+    return (OPENNSL_FAILURE(rc) ||
+            rc == OPS_CLS_FAIL ||
+            rc == OPS_CLS_HW_UNSUPPORTED_ERR ||
+            rc == OPS_CLS_LIST_PARSE_ERR);
+}
 
 struct ops_cls_hw_info {
     bool in_asic;                              /* classifer already in asic */
