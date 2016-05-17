@@ -112,7 +112,8 @@ ops_sflow_options_equal(const struct ofproto_sflow_options *oso1,
             (oso1->polling_interval == oso2->polling_interval) &&
             (oso1->header_len == oso2->header_len) &&
             (oso1->max_datagram == oso2->max_datagram) &&
-            string_is_equal((char *)oso1->agent_ip, (char *)oso2->agent_ip));
+            string_is_equal((char *)oso1->agent_ip, (char *)oso2->agent_ip) &&
+            sset_equals(&oso1->ports, &oso2->ports));
 }
 
 /* Ethernet Hdr (18 bytes)
@@ -316,7 +317,8 @@ ops_sflow_set_per_interface (const int unit, const int port, bool set)
             return;
         }
 
-        ingress_rate = egress_rate = sampler->sFlowFsPacketSamplingRate;
+        ingress_rate = egress_rate = sflow_options->sampling_rate;
+
         rc = opennsl_port_sample_rate_set(unit, port, ingress_rate, egress_rate);
         if (OPENNSL_FAILURE(rc)) {
             VLOG_ERR("Failed to set sampling rate on port: %d, (error-%s).",
@@ -465,13 +467,75 @@ ops_sflow_set_polling_interval(struct bcmsdk_provider_node *ofproto, int interva
     }
 }
 
+/* Function updates 'ports' list within sflow_options.
+ * TODO: fix for LAG */
+void
+sflow_options_update_ports_list(const char *port_name, bool sflow_is_enabled)
+{
+    if (sflow_options == NULL) {
+        VLOG_DBG("sflow_options is not initialized. Incorrect call.");
+        return;
+    }
+
+    if (port_name == NULL) {
+        VLOG_DBG("NULL port name is passed to function.");
+        return;
+    }
+
+    if (sflow_is_enabled) {
+        /* sflow is enabled on 'port_name'. Remove it from list in
+         * sflow_options. */
+        sset_find_and_delete(&sflow_options->ports, port_name);
+    } else {
+        /* sflow is disabled on 'port_name'. If not already present, add it to
+         * ports list. */
+        if (sset_contains(&sflow_options->ports, port_name) == false) {
+            sset_add(&sflow_options->ports, port_name);
+        }
+    }
+}
+
+/* Given a front panel port number, verify if sFlow is disabled on that
+ * port.
+ *  true - sFlow is disabled on it
+ *  false - sFlow is enabled on it
+ */
+static bool
+sflow_is_disabled_on_port(opennsl_port_t fp_port)
+{
+    const char *port_name;
+    int hw_unit, hw_port;
+
+    if (sflow_options == NULL) {
+        VLOG_ERR("sFlow options are NULL. Incorrect call to function: %s", __FUNCTION__);
+        return false;
+    }
+
+    SSET_FOR_EACH(port_name, &sflow_options->ports) {
+        hw_unit = hw_port = -1;
+        netdev_bcmsdk_get_hw_info_from_name(port_name, &hw_unit, &hw_port);
+
+        /* virtual interface, continue */
+        if (hw_port == -1) {
+            continue;
+        }
+
+        if (hw_port == fp_port) {
+            VLOG_DBG("Found port:%d on which sFlow is disabled", hw_port);
+            return true;
+        }
+    }
+
+    return false;
+}
+
 /* Set sampling rate in sFlow Agent and also in ASIC. */
 void
 ops_sflow_set_sampling_rate(const int unit, const int port,
                             const int ingress_rate, const int egress_rate)
 {
     int rc;
-    opennsl_port_t tempPort = 0;
+    opennsl_port_t fp_port = 0;
     opennsl_port_config_t port_config;
     SFLSampler  *sampler;
     uint32_t    dsIndex;
@@ -503,8 +567,14 @@ ops_sflow_set_sampling_rate(const int unit, const int port,
 
     } else { /* set globally, on all ports */
         /* Iterate over all front-panel (e - ethernet) ports */
-        OPENNSL_PBMP_ITER (port_config.e, tempPort) {
-            opennsl_port_sample_rate_set(unit, tempPort, ingress_rate,
+        OPENNSL_PBMP_ITER (port_config.e, fp_port) {
+
+            /* sFlow is disabled on this port. */
+            if (sflow_is_disabled_on_port(fp_port)) {
+                continue;
+            }
+
+            opennsl_port_sample_rate_set(unit, fp_port, ingress_rate,
                                     egress_rate);
             if (OPENNSL_FAILURE(rc)) {
                 VLOG_ERR("Failed to set sampling rate on port: %d, (error-%s)",
@@ -609,12 +679,7 @@ ops_sflow_show_all(struct ds *ds, int argc, const char *argv[])
     int port=0;
     int ingress_rate, egress_rate;
     int rc;
-
-    ds_put_format(ds, "\t\t SFLOW SETTINGS\n");
-    ds_put_format(ds, "\t\t ==============\n");
-
-    ds_put_format(ds, "\tPORT\tINGRESS RATE\tEGRESS RATE\n");
-    ds_put_format(ds, "\t====\t============\t===========\n");
+    char out[32];
 
     if (argc > 1) {
         port = atoi(argv[1]);
@@ -640,8 +705,13 @@ ops_sflow_show_all(struct ds *ds, int argc, const char *argv[])
                       EV_KV("error", "%s", opennsl_errmsg(rc)));
             return;
         }
-    ds_put_format(ds, "\t%2d\t%6d\t\t%6d\n", port, ingress_rate, egress_rate);
+        ds_put_format(ds, "%-14s:%d\n", "Port", port);
+        ds_put_format(ds, "%-14s:%d\n", "Ingress Rate", ingress_rate);
+        ds_put_format(ds, "%-14s:%d\n", "Egress Rate", egress_rate);
     } else {
+        ds_put_format(ds, "\t\t\tPort Number(Ingress Rate, Egress Rate)\n");
+        ds_put_format(ds, "\t\t\t======================================\n");
+
         OPENNSL_PBMP_ITER (port_config.e, tempPort) {
             rc = opennsl_port_sample_rate_get(0, tempPort, &ingress_rate, &egress_rate);
             if (OPENNSL_FAILURE(rc)) {
@@ -652,7 +722,12 @@ ops_sflow_show_all(struct ds *ds, int argc, const char *argv[])
                           EV_KV("error", "%s", opennsl_errmsg(rc)));
                 return;
             }
-            ds_put_format(ds, "\t%2d\t%6d\t\t%6d\n", tempPort, ingress_rate, egress_rate);
+            snprintf(out, 31, "%d(%d,%d)", tempPort, ingress_rate, egress_rate);
+            ds_put_format(ds, "%15s  ", out);
+
+            if (tempPort%5 == 0) {
+                ds_put_format(ds, "\n");
+            }
         }
     }
     return;
@@ -759,8 +834,12 @@ ops_sflow_agent_enable(struct bcmsdk_provider_node *ofproto,
 
         if (oso) {
             memcpy(sflow_options, oso, sizeof *oso);
+
             sset_init(&sflow_options->targets);
             sset_clone(&sflow_options->targets, &oso->targets);
+
+            sset_init(&sflow_options->ports);
+            sset_clone(&sflow_options->ports, &oso->ports);
         } else {
             ops_sflow_options_init(sflow_options);
         }
@@ -855,7 +934,8 @@ ops_sflow_agent_enable(struct bcmsdk_provider_node *ofproto,
 
     sfl_sampler_set_sFlowFsPacketSamplingRate(sampler, rate);
 
-    ops_sflow_set_sampling_rate(0, 0, rate, rate);  // download the rate to ASIC
+    /* Enable sampling globally */
+    ops_sflow_set_sampling_rate(0, 0, rate, rate);
 
     sfl_sampler_set_sFlowFsMaximumHeaderSize(sampler, header);
     sfl_sampler_set_sFlowFsReceiver(sampler, SFLOW_RECEIVER_INDEX);
@@ -913,22 +993,6 @@ ops_sflow_agent_disable(struct bcmsdk_provider_node *ofproto)
         sfl_agent_release(ops_sflow_agent);
         ops_sflow_agent = NULL;
     }
-}
-
-static void
-ops_sflow_agent_fn(struct unixctl_conn *conn, int argc, const char *argv[],
-                void *aux OVS_UNUSED)
-{
-    if (strncmp(argv[1], "yes", 3) == 0) {
-        ops_sflow_agent_enable(NULL, NULL);
-    } else if (strncmp(argv[1], "no", 2) == 0) {
-        ops_sflow_agent_disable(NULL);
-
-    } else {
-        /* Error condition */
-    }
-
-    unixctl_command_reply(conn, '\0');
 }
 
 void
@@ -1169,7 +1233,6 @@ static void sflow_main()
 {
     unixctl_command_register("sflow/set-rate", "[port-id | global] ingress-rate egress-rate", 2, 3, ops_sflow_set_rate, NULL);
     unixctl_command_register("sflow/show-rate", "[port-id]", 0 , 1, ops_sflow_show, NULL);
-    unixctl_command_register("sflow/enable-agent", "[yes|no]", 1 , 1, ops_sflow_agent_fn, NULL);
     unixctl_command_register("sflow/set-collector-ip", "collector-ip [port]", 1 , 2, ops_sflow_collector, NULL);
     unixctl_command_register("sflow/send-test-pkt", "collector-ip [port]", 1 , 2, ops_sflow_send_test_pkt, NULL);
 }
