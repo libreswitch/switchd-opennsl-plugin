@@ -785,6 +785,13 @@ ops_cls_install_rule_in_asic(int                            unit,
         hw_info = &cls->port_cls;
     }
 
+    /* According to vswitch.xml:
+     * 'If no action is specified the ACE will not be programmed in hw.'
+     */
+    if (!cls_entry->act_flags) {
+        return rc;
+    }
+
     rc = opennsl_field_entry_create(unit, ip_group, &entry);
     if (OPENNSL_FAILURE(rc)) {
         VLOG_ERR("Failed to create entry for classifier %s rc=%s", cls->name,
