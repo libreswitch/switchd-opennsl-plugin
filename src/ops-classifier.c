@@ -181,7 +181,7 @@ ops_cls_lookup(const struct uuid *cls_id)
 }
 
 /*
- * Copy classifier entries and store in hash
+ * Copy classifier rule entries and store in list
  */
 static void
 ops_cls_populate_entries(struct ops_classifier  *cls,
@@ -199,6 +199,20 @@ ops_cls_populate_entries(struct ops_classifier  *cls,
                 sizeof(struct ops_cls_list_entry_actions));
 
         list_push_back(list, &entry->node);
+    }
+}
+
+/*
+ * Clean up classifier rule entries
+ */
+static void
+ops_cls_cleanup_entries(struct ovs_list *list)
+{
+    struct ops_cls_entry *entry = NULL, *next_entry;
+
+    LIST_FOR_EACH_SAFE (entry, next_entry,  node, list) {
+        list_remove(&entry->node);
+        free(entry);
     }
 }
 
@@ -334,6 +348,8 @@ ops_cls_delete_orig_entries(struct ops_classifier *cls)
     ops_cls_delete_rule_entries(&cls->route_cls.rule_index_list);
     ops_cls_delete_stats_entries(&cls->route_cls.stats_index_list);
     ops_cls_delete_range_entries(&cls->route_cls.range_index_list);
+
+    ops_cls_cleanup_entries(&cls->cls_entry_list);
 }
 
 /*
@@ -354,6 +370,8 @@ ops_cls_delete_updated_entries(struct ops_classifier *cls)
     ops_cls_delete_rule_entries(&cls->route_cls.rule_index_update_list);
     ops_cls_delete_stats_entries(&cls->route_cls.stats_index_update_list);
     ops_cls_delete_range_entries(&cls->route_cls.range_index_update_list);
+
+    ops_cls_cleanup_entries(&cls->cls_entry_update_list);
 }
 
 
@@ -401,10 +419,12 @@ ops_cls_update_entries(struct ops_classifier *cls)
     /* move the installed update entries to original list */
     ops_cls_update_hw_info(&cls->port_cls);
     ops_cls_update_hw_info(&cls->route_cls);
+    list_move(&cls->cls_entry_list, &cls->cls_entry_update_list);
 
     /* reinitialize update list for next update */
     ops_cls_init_update_list(&cls->port_cls);
     ops_cls_init_update_list(&cls->route_cls);
+    list_init(&cls->cls_entry_update_list);
 }
 
 /*
@@ -1333,6 +1353,9 @@ ops_cls_opennsl_apply(struct ops_cls_list            *list,
     int fail_index = 0; /* rule index to PI on failure */
     bool in_asic;
 
+    VLOG_DBG("Apply classifier "UUID_FMT" (%s)",
+              UUID_ARGS(&list->list_id), list->list_name);
+
     OPENNSL_PBMP_CLEAR(port_bmp);
     cls = ops_cls_lookup(&list->list_id);
     if (!cls) {
@@ -1416,6 +1439,8 @@ ops_cls_opennsl_remove(const struct uuid                *list_id,
     int fail_index = 0; /* rule index to PI on failure */
     bool in_asic = false;
 
+    VLOG_DBG("Remove classifier "UUID_FMT"", UUID_ARGS(list_id));
+
     OPENNSL_PBMP_CLEAR(port_bmp);
     cls = ops_cls_lookup(list_id);
     if (!cls) {
@@ -1484,6 +1509,9 @@ ops_cls_opennsl_replace(const struct uuid               *list_id_orig,
     bool *in_asic_orig = false;
     bool *in_asic_new = false;
 
+    VLOG_DBG("Replace classifier "UUID_FMT" by "UUID_FMT"",
+              UUID_ARGS(list_id_orig), UUID_ARGS(&list_new->list_id));
+
     cls_orig = ops_cls_lookup(list_id_orig);
     if (!cls_orig) {
         VLOG_ERR("Classifier "UUID_FMT" not in hash map",
@@ -1502,7 +1530,7 @@ ops_cls_opennsl_replace(const struct uuid               *list_id_orig,
             goto replace_fail;
         }
     } else {
-        VLOG_DBG("Replace classifier "UUID_FMT" (%s) exist in haspmap",
+        VLOG_DBG("Replace classifier "UUID_FMT" (%s) exist in hashmap",
                   UUID_ARGS(&list_new->list_id), list_new->list_name);
     }
 
@@ -1584,6 +1612,9 @@ ops_cls_opennsl_list_update(struct ops_cls_list                 *list,
     int fail_index = 0; /* rule index to PI on failure */
     struct ops_cls_interface_info intf_info;
 
+    VLOG_DBG("Update classifier "UUID_FMT" (%s)", UUID_ARGS(&list->list_id),
+             list->list_name);
+
     cls = ops_cls_lookup(&list->list_id);
     if (!cls) {
         VLOG_ERR ("Failed to find classifier %s in hashmap", list->list_name);
@@ -1596,6 +1627,8 @@ ops_cls_opennsl_list_update(struct ops_cls_list                 *list,
     if (cls->route_cls.in_asic) {
         intf_info.flags = OPS_CLS_INTERFACE_L3ONLY;
     }
+
+   VLOG_DBG("Total rules %d in classifier update", list->num_entries);
 
    if (list->num_entries > 0) {
         /*
@@ -1683,6 +1716,8 @@ ops_cls_opennsl_statistics_get(const struct uuid              *list_id,
     opennsl_field_stat_t stats_type = opennslFieldStatPackets;
     struct ovs_list *stats_index_listp;
 
+    VLOG_DBG("Get stats classifier "UUID_FMT"", UUID_ARGS(list_id));
+
     cls = ops_cls_lookup(list_id);
     if (!cls) {
         VLOG_ERR("Classifier "UUID_FMT" not in hash map",  UUID_ARGS(list_id));
@@ -1749,6 +1784,8 @@ ops_cls_opennsl_statistics_clear(const struct uuid               *list_id,
     uint64 value = 0;
     struct ops_cls_stats_entry *sentry = NULL, *next_sentry;
     struct ovs_list *stats_index_listp;
+
+    VLOG_DBG("Clear stats classifier "UUID_FMT" ", UUID_ARGS(list_id));
 
     cls = ops_cls_lookup(list_id);
     if (!cls) {
