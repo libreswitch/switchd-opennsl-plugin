@@ -25,6 +25,7 @@
 #include <netdev-provider.h>
 #include <openvswitch/vlog.h>
 #include <openflow/openflow.h>
+#include <vswitch-idl.h>
 #include <openswitch-idl.h>
 #include <openswitch-dflt.h>
 
@@ -41,6 +42,7 @@
 #include "ops-sflow.h"
 #include "eventlog.h"
 #include "mac-learning-plugin.h"
+#include "ops-fp.h"
 
 VLOG_DEFINE_THIS_MODULE(netdev_bcmsdk);
 
@@ -86,7 +88,9 @@ struct netdev_bcmsdk {
 
     int hw_unit;
     int hw_id;
+    int parent_hw_id;
     char *parent_netdev_name;
+    int subint_ref_count;
     int l3_intf_id;
     int knet_if_id;             /* BCM KNET interface ID. */
     int knet_bpdu_filter_id;                 /* BCM KNET BPDU filter ID. */
@@ -179,44 +183,6 @@ netdev_bcmsdk_qualify_ingress_entry(int unit, opennsl_field_entry_t *entry_id, i
 
 static int netdev_bcmsdk_construct(struct netdev *);
 
-/* FP groups for l3 intf stats */
-opennsl_field_group_t l3intf_ingress_stats_fp_group = 0;
-opennsl_field_group_t l3intf_egress_stats_fp_group = 0;
-
-/*
-* ops_l3intf_ingress_stats_group_id_for_hw_unit
-*
-* This function returns the group-id for the L3 inteface ingress stats FP rules for
-* the given hardware unit.
-*/
-opennsl_field_group_t
-ops_l3intf_ingress_stats_group_id_for_hw_unit(int unit)
-{
-    if (!l3intf_ingress_stats_fp_group || unit < 0) {
-        return(-1);
-    }
-
-    return(l3intf_ingress_stats_fp_group);
-}
-
-/*
-* ops_l3intf_egress_stats_group_id_for_hw_unit
-*
-* This function returns the group-id for the L3 inteface egress stats FP rules for
-* the given hardware unit.
-*/
-opennsl_field_group_t
-ops_l3intf_egress_stats_group_id_for_hw_unit(int unit)
-{
-    if (!l3intf_egress_stats_fp_group || unit < 0) {
-        return(-1);
-    }
-
-    return(l3intf_egress_stats_fp_group);
-}
-
-static int netdev_bcmsdk_construct(struct netdev *);
-
 static bool
 is_bcmsdk_class(const struct netdev_class *class)
 {
@@ -237,8 +203,14 @@ netdev_bcmsdk_get_hw_info(struct netdev *netdev, int *hw_unit, int *hw_id,
     struct netdev_bcmsdk *nb = netdev_bcmsdk_cast(netdev);
     ovs_assert(is_bcmsdk_class(netdev_get_class(netdev)));
 
+    const char *type = netdev_get_type(netdev);
     *hw_unit = nb->hw_unit;
-    *hw_id = nb->hw_id;
+    if (strcmp(type, OVSREC_INTERFACE_TYPE_VLANSUBINT) == 0) {
+        *hw_id = nb->parent_hw_id;
+    } else {
+        *hw_id = nb->hw_id;
+    }
+
     if (hwaddr) {
         memcpy(hwaddr, nb->hwaddr, ETH_ADDR_LEN);
     }
@@ -346,7 +318,9 @@ netdev_bcmsdk_construct(struct netdev *netdev_)
 
     netdev->hw_unit = -1;
     netdev->hw_id = -1;
+    netdev->parent_hw_id = -1;
     netdev->parent_netdev_name = NULL;
+    netdev->subint_ref_count = 0;
     netdev->knet_if_id = 0;
     netdev->port_info = NULL;
     netdev->intf_initialized = false;
@@ -431,7 +405,7 @@ netdev_vlansub_bcmsdk_set_config(struct netdev *netdev_, const struct smap *args
         if (parent != NULL) {
             parent_netdev = netdev_bcmsdk_cast(parent);
             if (parent_netdev != NULL) {
-                netdev->hw_id = parent_netdev->hw_id;
+                netdev->parent_hw_id = parent_netdev->hw_id;
                 netdev->parent_netdev_name = xstrdup(parent_intf_name);
                 netdev->hw_unit = parent_netdev->hw_unit;
                 memcpy(netdev->hwaddr, parent_netdev->hwaddr, ETH_ALEN);
@@ -710,24 +684,30 @@ handle_bcmsdk_knet_subinterface_filters(struct netdev *netdev_, bool enable)
     struct netdev_bcmsdk *netdev = netdev_bcmsdk_cast(netdev_);
     struct netdev *parent = NULL;
     struct netdev_bcmsdk *parent_netdev = NULL;
-    if (enable == true && netdev->knet_subinterface_filter_id == 0) {
-        VLOG_DBG("Create subinterface knet filter\n");
+
+    parent = netdev_from_name(netdev->parent_netdev_name);
+    if (parent != NULL) {
+        parent_netdev = netdev_bcmsdk_cast(parent);
         netdev->hw_unit = 0;
-        parent = netdev_from_name(netdev->parent_netdev_name);
-        if (parent != NULL) {
-            parent_netdev = netdev_bcmsdk_cast(parent);
-            if (parent_netdev != NULL) {
-                ovs_mutex_lock(&parent_netdev->mutex);
-                bcmsdk_knet_subinterface_filter_create(netdev->hw_unit, netdev->hw_id,
-                        parent_netdev->knet_if_id, &(netdev->knet_subinterface_filter_id));
-                ovs_mutex_unlock(&parent_netdev->mutex);
+        if (enable == true) {
+            if (parent_netdev->subint_ref_count == 0) {
+                VLOG_DBG("Create subinterface knet filter\n");
+                bcmsdk_knet_subinterface_filter_create(netdev->hw_unit, netdev->parent_hw_id,
+                        parent_netdev->knet_if_id, &(parent_netdev->knet_subinterface_filter_id));
+                parent_netdev->subint_ref_count++;
+            } else {
+                parent_netdev->subint_ref_count++;
             }
-            netdev_close(parent);
+        } else if (enable == false) {
+            parent_netdev->subint_ref_count--;
+            if (parent_netdev->subint_ref_count == 0) {
+                VLOG_DBG("Destroy subinterface knet filter\n");
+                bcmsdk_knet_filter_delete(netdev->up.name,
+                                          netdev->hw_unit,
+                                          parent_netdev->knet_subinterface_filter_id);
+            }
         }
-    } else if ((enable == false) && (netdev->knet_subinterface_filter_id != 0)) {
-        VLOG_DBG("Destroy subinterface knet filter\n");
-        bcmsdk_knet_filter_delete(netdev->up.name, netdev->hw_unit, netdev->knet_subinterface_filter_id);
-        netdev->knet_subinterface_filter_id = 0;
+        netdev_close(parent);
     }
 }
 
@@ -1862,10 +1842,11 @@ netdev_bcmsdk_register(void)
 }
 
 /* This function creates FP stat entries, which are used for various
- * IPv4/IPv6 specific statistics.
+ * IPv4/IPv6 specific statistics. All entries are part of the common group
+ * maintained for l3 related feature.
  */
 int
-netdev_bcmsdk_l3intf_fp_stats_init(opennsl_vlan_t vlan_id, opennsl_port_t hw_port, int hw_unit)
+netdev_bcmsdk_l3intf_fp_stats_create(opennsl_vlan_t vlan_id, opennsl_port_t hw_port, int hw_unit)
 {
     opennsl_error_t rc = OPENNSL_E_NONE;
     struct netdev_bcmsdk *netdev = netdev_from_hw_id(hw_unit, hw_port);
@@ -1883,50 +1864,19 @@ netdev_bcmsdk_l3intf_fp_stats_init(opennsl_vlan_t vlan_id, opennsl_port_t hw_por
     opennsl_field_entry_t *fp_entries = netdev->l3_stat_fp_entries;
     int *stat_ids = netdev->l3_stat_fp_ids;
 
-    opennsl_field_qset_t rx_stat_qset;
-    opennsl_field_qset_t tx_stats_qset;
-
-    OPENNSL_FIELD_QSET_INIT(rx_stat_qset);
-    OPENNSL_FIELD_QSET_ADD (rx_stat_qset, opennslFieldQualifyIpType);
-    OPENNSL_FIELD_QSET_ADD (rx_stat_qset, opennslFieldQualifyL3Ingress);
-    OPENNSL_FIELD_QSET_ADD (rx_stat_qset, opennslFieldQualifyPacketRes);
-
-    OPENNSL_FIELD_QSET_INIT(tx_stats_qset);
-    OPENNSL_FIELD_QSET_ADD (tx_stats_qset, opennslFieldQualifyIpType);
-    OPENNSL_FIELD_QSET_ADD (tx_stats_qset, opennslFieldQualifyDstPort);
-    OPENNSL_FIELD_QSET_ADD (tx_stats_qset, opennslFieldQualifyPacketRes);
-
-    /* Initialize fp groups if group_ids are 0 */
-    if(l3intf_ingress_stats_fp_group == 0)
-    {
-        rc = opennsl_field_group_create(hw_unit, rx_stat_qset, FP_STATS_GROUP_PRIORITY,
-                                        &l3intf_ingress_stats_fp_group);
-        if (OPENNSL_FAILURE(rc)) {
-            VLOG_DBG("Failed to create FP ingress stats group for l3 intf \
-                      Unit=%d port=%d Vlanid=%d. rc=%s",
-                      hw_unit, hw_port, vlan_id, opennsl_errmsg(rc));
-            l3intf_ingress_stats_fp_group = 0;
-            l3intf_egress_stats_fp_group = 0;
-            return rc;
-        }
-    }
-    if(l3intf_egress_stats_fp_group == 0)
-    {
-        rc = opennsl_field_group_create(hw_unit, tx_stats_qset, FP_STATS_GROUP_PRIORITY,
-                                        &l3intf_egress_stats_fp_group);
-        if (OPENNSL_FAILURE(rc)) {
-            VLOG_DBG("Failed to create FP egress stats group for l3 intf \
-                      Unit=%d port=%d Vlanid=%d. rc=%s",
-                      hw_unit, hw_port, vlan_id, opennsl_errmsg(rc));
-            l3intf_ingress_stats_fp_group = 0;
-            l3intf_egress_stats_fp_group = 0;
-            return rc;
-        }
-    }
-
-    rc = netdev_bcmsdk_qualify_ingress_unicast_entries(hw_unit, fp_entries, stat_ids, &(stat_ifp[0]), vlan_id);
+    rc = ops_create_l3_fp_group(hw_unit);
     if (OPENNSL_FAILURE(rc)) {
-        VLOG_DBG("Error while qualifing FP ucast ingress stat entries \
+        VLOG_ERR("Failed to create FP group for L3 features \
+                Unit=%d port=%d rc=%s",
+                hw_unit, hw_port, opennsl_errmsg(rc));
+        return rc;
+    }
+
+    rc = netdev_bcmsdk_qualify_ingress_unicast_entries(hw_unit, fp_entries,
+                                                       stat_ids, &(stat_ifp[0]),
+                                                       vlan_id);
+    if (OPENNSL_FAILURE(rc)) {
+        VLOG_ERR("Error while qualifing FP ucast ingress stat entries \
                   Unit=%d Vlanid=%d. rc=%s",
                   hw_unit, vlan_id, opennsl_errmsg(rc));
         netdev_bcmsdk_l3intf_fp_stats_destroy(hw_port, hw_unit);
@@ -1935,7 +1885,7 @@ netdev_bcmsdk_l3intf_fp_stats_init(opennsl_vlan_t vlan_id, opennsl_port_t hw_por
     rc = netdev_bcmsdk_qualify_ingress_mcast_entries(hw_unit, fp_entries,
             stat_ids, &(stat_ifp[0]), vlan_id);
     if (OPENNSL_FAILURE(rc)) {
-        VLOG_DBG("Error while qualifing FP mcast ingress stat entries \
+        VLOG_ERR("Error while qualifing FP mcast ingress stat entries \
                   Unit=%d Vlanid=%d. rc=%s",
                   hw_unit, vlan_id, opennsl_errmsg(rc));
         netdev_bcmsdk_l3intf_fp_stats_destroy(hw_port, hw_unit);
@@ -1944,7 +1894,7 @@ netdev_bcmsdk_l3intf_fp_stats_init(opennsl_vlan_t vlan_id, opennsl_port_t hw_por
     rc = netdev_bcmsdk_qualify_egress_unicast_entries(hw_unit, fp_entries,
             stat_ids, &(stat_ifp[0]), hw_port);
     if (OPENNSL_FAILURE(rc)) {
-        VLOG_DBG("Error while qualifing FP ucast egress stat entries \
+        VLOG_ERR("Error while qualifing FP ucast egress stat entries \
                   Unit=%d portid=%d. rc=%s",
                   hw_unit, hw_port, opennsl_errmsg(rc));
         netdev_bcmsdk_l3intf_fp_stats_destroy(hw_port, hw_unit);
@@ -1953,7 +1903,7 @@ netdev_bcmsdk_l3intf_fp_stats_init(opennsl_vlan_t vlan_id, opennsl_port_t hw_por
     rc = netdev_bcmsdk_qualify_egress_mcast_entries(hw_unit, fp_entries,
             stat_ids, &(stat_ifp[0]), hw_port);
     if (OPENNSL_FAILURE(rc)) {
-        VLOG_DBG("Error while qualifing FP mcast egress stat entries \
+        VLOG_ERR("Error while qualifing FP mcast egress stat entries \
                   Unit=%d portid=%d. rc=%s",
                   hw_unit, hw_port, opennsl_errmsg(rc));
         netdev_bcmsdk_l3intf_fp_stats_destroy(hw_port, hw_unit);
@@ -2072,8 +2022,8 @@ netdev_bcmsdk_l3intf_fp_stats_destroy(opennsl_port_t hw_port, int hw_unit)
         }
         if(fp_entries && fp_entries[i] > 0)
         {
-            rc = opennsl_field_entry_destroy(hw_unit, fp_entries[i]);
-
+            VLOG_DBG("%s Destroy Field entry for port %d", __FUNCTION__, hw_port);
+            rc = ops_destroy_l3_fp_entry(hw_unit, fp_entries[i]);
             if (OPENNSL_FAILURE(rc)) {
                 VLOG_ERR("Error while destroying FP stats \
                         Unit=%d portid=%d. rc=%s",
@@ -2103,51 +2053,57 @@ netdev_bcmsdk_qualify_ingress_entry(int unit, opennsl_field_entry_t *entry_id, i
 
 {
     opennsl_error_t rc = OPENNSL_E_NONE;
-    rc = opennsl_field_entry_create(unit, l3intf_ingress_stats_fp_group, entry_id);
+    VLOG_INFO("%s Add entry to group = %d, vlan_id = %d", __FUNCTION__,
+                                  l3_fp_grp_info[unit].l3_fp_grpid, vlan_id);
+    rc = opennsl_field_entry_create(unit,
+                                    l3_fp_grp_info[unit].l3_fp_grpid,
+                                    entry_id);
     if (OPENNSL_FAILURE(rc)) {
-        VLOG_DBG("Failed to create FP ingress stat entry \
+        VLOG_ERR("Failed to create FP ingress stat entry \
                   Unit=%d Vlanid=%d. IpType=%d PacketRes=%d rc=%s",
                   unit, vlan_id, ip_type, packet_res, opennsl_errmsg(rc));
         return rc;
     }
     rc = opennsl_field_qualify_IpType(unit, *entry_id, ip_type);
     if (OPENNSL_FAILURE(rc)) {
-        VLOG_DBG("Failed to qualify IpType for FP ingress stat entry \
+        VLOG_ERR("Failed to qualify IpType for FP ingress stat entry \
                   Unit=%d Vlanid=%d. IpType=%d PacketRes=%d rc=%s",
                   unit, vlan_id, ip_type, packet_res, opennsl_errmsg(rc));
         return rc;
     }
     rc = opennsl_field_qualify_L3Ingress(unit, *entry_id, vlan_id, 0xff);
     if (OPENNSL_FAILURE(rc)) {
-        VLOG_DBG("Failed to qualify L3Ingress for FP ingress stat entry \
+        VLOG_ERR("Failed to qualify L3Ingress for FP ingress stat entry \
                   Unit=%d Vlanid=%d. IpType=%d PacketRes=%d rc=%s",
                   unit, vlan_id, ip_type, packet_res, opennsl_errmsg(rc));
         return rc;
     }
     rc = opennsl_field_qualify_PacketRes(unit, *entry_id, packet_res, 0xff);
     if (OPENNSL_FAILURE(rc)) {
-        VLOG_DBG("Failed to qualify PacketRes for FP ingress stat entry \
+        VLOG_ERR("Failed to qualify PacketRes for FP ingress stat entry \
                   Unit=%d Vlanid=%d. IpType=%d PacketRes=%d rc=%s",
                   unit, vlan_id, ip_type, packet_res, opennsl_errmsg(rc));
         return rc;
     }
-    rc = opennsl_field_stat_create(unit, l3intf_ingress_stats_fp_group, 2, stat_ifp, stat_id);
+    rc = opennsl_field_stat_create(unit,
+                                   l3_fp_grp_info[unit].l3_fp_grpid,
+                                   2, stat_ifp, stat_id);
     if (OPENNSL_FAILURE(rc)) {
-        VLOG_DBG("Failed to create stat id for FP ingress stat entry \
+        VLOG_ERR("Failed to create stat id for FP ingress stat entry \
                   Unit=%d Vlanid=%d. IpType=%d PacketRes=%d rc=%s",
                   unit, vlan_id, ip_type, packet_res, opennsl_errmsg(rc));
         return rc;
     }
     rc = opennsl_field_entry_stat_attach(unit, *entry_id, *stat_id);
     if (OPENNSL_FAILURE(rc)) {
-        VLOG_DBG("Failed to attach stat to FP ingress stat entry \
+        VLOG_ERR("Failed to attach stat to FP ingress stat entry \
                   Unit=%d Vlanid=%d. IpType=%d PacketRes=%d rc=%s",
                   unit, vlan_id, ip_type, packet_res, opennsl_errmsg(rc));
         return rc;
     }
     rc = opennsl_field_entry_install(unit, *entry_id);
     if (OPENNSL_FAILURE(rc)) {
-        VLOG_DBG("Failed to install stat to FP ingress stat entry \
+        VLOG_ERR("Failed to install stat to FP ingress stat entry \
                   Unit=%d Vlanid=%d. IpType=%d PacketRes=%d rc=%s",
                   unit, vlan_id, ip_type, packet_res, opennsl_errmsg(rc));
         return rc;
@@ -2162,51 +2118,58 @@ netdev_bcmsdk_qualify_egress_entry(int unit, opennsl_field_entry_t *entry_id, in
 
 {
     opennsl_error_t rc = OPENNSL_E_NONE;
-    rc = opennsl_field_entry_create(unit, l3intf_egress_stats_fp_group, entry_id);
+    VLOG_DBG("%s Add entry to group = %d, port = %d",
+              __FUNCTION__, l3_fp_grp_info[unit].l3_fp_grpid,
+              portid);
+    rc = opennsl_field_entry_create(unit,
+                                    l3_fp_grp_info[unit].l3_fp_grpid,
+                                    entry_id);
     if (OPENNSL_FAILURE(rc)) {
-        VLOG_DBG("Failed to create FP egress stat entry \
+        VLOG_ERR("Failed to create FP egress stat entry \
                   Unit=%d portid=%d. IpType=%d PacketRes=%d rc=%s",
                   unit, portid, ip_type, packet_res, opennsl_errmsg(rc));
         return rc;
     }
     rc = opennsl_field_qualify_IpType(unit, *entry_id, ip_type);
     if (OPENNSL_FAILURE(rc)) {
-        VLOG_DBG("Failed to qualify IpType for FP egress stat entry \
+        VLOG_ERR("Failed to qualify IpType for FP egress stat entry \
                   Unit=%d portid=%d. IpType=%d PacketRes=%d rc=%s",
                   unit, portid, ip_type, packet_res, opennsl_errmsg(rc));
         return rc;
     }
     rc = opennsl_field_qualify_DstPort(unit, *entry_id, 0, 0, portid, 0xff);
     if (OPENNSL_FAILURE(rc)) {
-        VLOG_DBG("Failed to Qualify DstPort for FP egress stat entry \
+        VLOG_ERR("Failed to Qualify DstPort for FP egress stat entry \
                   Unit=%d portid=%d. IpType=%d PacketRes=%d rc=%s",
                   unit, portid, ip_type, packet_res, opennsl_errmsg(rc));
         return rc;
     }
     rc = opennsl_field_qualify_PacketRes(unit, *entry_id, packet_res, 0xff);
     if (OPENNSL_FAILURE(rc)) {
-        VLOG_DBG("Failed to qualify PacketRes for FP egress stat entry \
+        VLOG_ERR("Failed to qualify PacketRes for FP egress stat entry \
                   Unit=%d portid=%d. IpType=%d PacketRes=%d rc=%s",
                   unit, portid, ip_type, packet_res, opennsl_errmsg(rc));
         return rc;
     }
-    rc = opennsl_field_stat_create(unit, l3intf_egress_stats_fp_group, 2, stat_ifp, stat_id);
+    rc = opennsl_field_stat_create(unit,
+                                   l3_fp_grp_info[unit].l3_fp_grpid,
+                                   2, stat_ifp, stat_id);
     if (OPENNSL_FAILURE(rc)) {
-        VLOG_DBG("Failed to create stat id for FP egress stat entry \
+        VLOG_ERR("Failed to create stat id for FP egress stat entry \
                   Unit=%d portid=%d. IpType=%d PacketRes=%d rc=%s",
                   unit, portid, ip_type, packet_res, opennsl_errmsg(rc));
         return rc;
     }
     rc = opennsl_field_entry_stat_attach(unit, *entry_id, *stat_id);
     if (OPENNSL_FAILURE(rc)) {
-        VLOG_DBG("Failed to attach stat to FP egress stat entry \
+        VLOG_ERR("Failed to attach stat to FP egress stat entry \
                   Unit=%d portid=%d. IpType=%d PacketRes=%d rc=%s",
                   unit, portid, ip_type, packet_res, opennsl_errmsg(rc));
         return rc;
     }
     rc = opennsl_field_entry_install(unit, *entry_id);
     if (OPENNSL_FAILURE(rc)) {
-        VLOG_DBG("Failed to install FP egress stat entry \
+        VLOG_ERR("Failed to install FP egress stat entry \
                   Unit=%d portid=%d. IpType=%d PacketRes=%d rc=%s",
                   unit, portid, ip_type, packet_res, opennsl_errmsg(rc));
         return rc;
@@ -2359,7 +2322,7 @@ netdev_bcmsdk_populate_l3_stats(int hw_unit, int hw_port, struct netdev_stats *s
     /* Global L3 Statistics */
     rc = netdev_bcmsdk_get_l3_stats(&netdev->up, stats);
     if (OPENNSL_FAILURE(rc)) {
-        VLOG_DBG("Error while fetching global l3 interface packtet statistics.\
+        VLOG_ERR("Error while fetching global l3 interface packtet statistics.\
                 Unit=%d port=%d. rc=%s",
                 hw_unit, hw_port, opennsl_errmsg(rc));
         return rc;
@@ -2383,7 +2346,7 @@ netdev_bcmsdk_populate_l3_stats(int hw_unit, int hw_port, struct netdev_stats *s
         rc = opennsl_field_stat_get(hw_unit, fp_stat_ids[i], opennslFieldStatPackets,
                 &l3_fp_packet_stats[i]);
         if (OPENNSL_FAILURE(rc)) {
-            VLOG_DBG("Error while fetching l3 interface FP packet statistics.\
+            VLOG_ERR("Error while fetching l3 interface FP packet statistics.\
                     Unit=%d port=%d. rc=%s",
                     hw_unit, hw_port, opennsl_errmsg(rc));
             return rc;
@@ -2392,7 +2355,7 @@ netdev_bcmsdk_populate_l3_stats(int hw_unit, int hw_port, struct netdev_stats *s
                 &l3_fp_bytes_stats[i]);
 
         if (OPENNSL_FAILURE(rc)) {
-            VLOG_DBG("Error while fetching l3 interface FP bytes statistics.\
+            VLOG_ERR("Error while fetching l3 interface FP bytes statistics.\
                     Unit=%d port=%d. rc=%s",
                     hw_unit, hw_port, opennsl_errmsg(rc));
             return rc;

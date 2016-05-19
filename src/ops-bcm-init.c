@@ -141,6 +141,40 @@ ops_rx_init(int unit)
 
 } // ops_rx_init
 
+void
+ops_event_log_init(void)
+{
+    /* Event log initialization for subinterface */
+    if (event_log_init("SUBINTERFACE") < 0) {
+        VLOG_ERR("Event log initialization failed for SUBINTERFACE");
+    }
+
+    /* Event log initialization for LAG */
+    if(event_log_init("LAG") < 0) {
+        VLOG_ERR("Event log initialization failed for LAG");
+    }
+
+    /* Event log initialization for Vlan Interface */
+    if(event_log_init("VLANINTERFACE") < 0) {
+        VLOG_ERR("Event log initialization failed for VLANINTERFACE");
+    }
+
+    /* Event log initialization for L3 interface */
+    if (event_log_init("L3INTERFACE") < 0) {
+        VLOG_ERR("Event log initialization failed for L3INTERFACE");
+    }
+
+    /* Event log initialization for ECMP */
+    if (event_log_init("ECMP") < 0) {
+        VLOG_ERR("Event log initialization failed for ECMP");
+    }
+
+    /* Event log initialization for sFlow */
+    if (event_log_init("SFLOW") < 0) {
+        VLOG_ERR("Event log initialization failed for SFLOW");
+    }
+}
+
 int
 ops_bcm_appl_init(void)
 {
@@ -153,32 +187,8 @@ ops_bcm_appl_init(void)
         VLOG_ERR("Mac learning init failed");
         return (1);
     }
-    rc = event_log_init("SUBINTERFACE");
-    if(rc < 0) {
-        VLOG_ERR("Event log initialization failed for SUBINTERFACE");
-    }
-    rc = event_log_init("LAG");
-    if(rc < 0) {
-        VLOG_ERR("Event log initialization failed for LAG");
-    }
-    rc = event_log_init("VLANINTERFACE");
-    if(rc < 0) {
-        VLOG_ERR("Event log initialization failed for VLANINTERFACE");
-    }
-    rc = event_log_init("L3INTERFACE");
-    if(rc < 0) {
-        VLOG_ERR("Event log initialization failed for L3INTERFACE");
-    }
-    rc = event_log_init("ECMP");
-    if(rc < 0) {
-        VLOG_ERR("Event log initialization failed for ECMP");
-    }
-    sleep(2);
-    rc = event_log_init("VLAN");
-    if (rc < 0) {
-        VLOG_ERR("Event log initialization failed for VLAN");
-    }
 
+    ops_event_log_init();
 
     /* Initialize QoS global data structures */
     rc = ops_qos_global_init();
@@ -256,6 +266,12 @@ ops_bcm_appl_init(void)
         rc = ops_classifier_init(unit);
         if (rc) {
             VLOG_ERR("Classifier subsystem init failed");
+            return 1;
+        }
+
+        rc = ops_l3_fp_init(unit);
+        if (rc) {
+            VLOG_ERR("FP subsystem init failed");
             return 1;
         }
     }
