@@ -69,21 +69,8 @@ static void netdev_change_seq_changed(const struct netdev *) __attribute__((__un
 void
 init(void) {
 
-    int retval;
     struct plugin_extension_interface opennsl_extension;
     struct plugin_extension_interface copp_opennsl_extension;
-
-    /* Event log initialization for sFlow */
-    retval = event_log_init("SFLOW");
-    if (retval < 0) {
-        VLOG_ERR("Event log initialization failed for SFLOW");
-    }
-
-    /* Event log initialization for LAG */
-    retval = event_log_init("LAG");
-    if (retval < 0) {
-        VLOG_ERR("Event log initialization failed for LAG");
-    }
 
     opennsl_extension.plugin_name = ASIC_PLUGIN_INTERFACE_NAME;
     opennsl_extension.major = ASIC_PLUGIN_INTERFACE_MAJOR;
