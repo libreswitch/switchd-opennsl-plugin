@@ -266,6 +266,12 @@ ops_bcm_appl_init(void)
             VLOG_ERR("Classifier subsystem init failed");
             return 1;
         }
+
+        rc = ops_l3_fp_init(unit);
+        if (rc) {
+            VLOG_ERR("FP subsystem init failed");
+            return 1;
+        }
     }
 
     return 0;

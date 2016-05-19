@@ -67,7 +67,7 @@ extern int netdev_bcmsdk_remove_l3_egress_id(const struct netdev *netdev,
                                              const int l3_egress_id);
 
 extern int
-netdev_bcmsdk_l3intf_fp_stats_init(opennsl_vlan_t vlan_id,
+netdev_bcmsdk_l3intf_fp_stats_create(opennsl_vlan_t vlan_id,
                                    opennsl_port_t hw_port,
                                    int hw_unit);
 
@@ -83,4 +83,9 @@ extern opennsl_field_group_t ops_l3intf_ingress_stats_group_id_for_hw_unit(int u
 
 extern opennsl_field_group_t ops_l3intf_egress_stats_group_id_for_hw_unit(int unit);
 
+extern int
+netdev_bcmsdk_get_subint_count(struct netdev *netdev_);
+
+extern void
+netdev_bcmsdk_update_subint_count(struct netdev *netdev, bool increment);
 #endif /* netdev-bcmsdk.h */

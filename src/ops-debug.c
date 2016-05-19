@@ -102,7 +102,7 @@ char cmd_ops_usage[] =
 "   l3ecmp [<entry>] - display an ecmp egress object info.\n"
 "   lag [<lagid>] - displays OpenSwitch LAG info.\n"
 "   stg [hw] <stgid> - displays Spanning Tree Group Info. \n"
-"   fp [<copp-ingress-group> | <copp-egress-group> | <ospf-group> | <acl-ingress-group>]- displays programmed fp rules.\n"
+"   fp [<copp-ingress-group> | <copp-egress-group> | <ospf-group> | <acl-ingress-group> | <l3-group> | <l3-subinterface>]- displays programmed fp rules.\n"
 "   copp-stats - displays all the CoPP configuration and statistics.\n"
 "   copp-config <packet class name> <CPU queue class> <Rate> <Burst> - Modifies the CoPP rule for a control packet class \n"
 "   cpu-queue-stats - displays the per cpu queue statistics.\n"
@@ -315,6 +315,66 @@ handle_ops_debug(struct ds *ds, int arg_idx, int argc, const char *argv[])
         }
     }
 } // handle_ops_debug
+
+static void
+fp_subinterface_entry_show(int unit, opennsl_field_group_t group, struct ds *ds)
+{
+    int ret = 0;
+    uint8_t data = 0;
+    uint8_t data_mask = 0;
+    enum_to_str_t *fp_action_iter = NULL;
+    int action_index = 0, fp_action_list_size;
+
+    opennsl_field_qset_t  qset;
+    uint32 p0 = 0, p1 = 0;
+    opennsl_pbmp_t pbmp, pbmp_mask;
+    char pfmt[_SHR_PBMP_FMT_LEN];
+
+    fp_action_list_size = (sizeof(fp_action_list)/sizeof(enum_to_str_t));
+
+    ds_put_format(ds, "Group ID = %d\n", group);
+
+    OPENNSL_FIELD_QSET_INIT(qset);
+    ret = opennsl_field_group_get(unit, group, &qset);
+    if (OPENNSL_FAILURE(ret)) {
+        VLOG_ERR(" Error fetching the qualifier set");
+        return;
+    }
+    if( OPENNSL_FIELD_QSET_TEST(qset, opennslFieldQualifyInPorts)) {
+        ret = opennsl_field_qualify_InPorts_get(unit,
+                l3_fp_grp_info[unit].subint_fp_entry_id, &pbmp, &pbmp_mask);
+        if (!OPENNSL_FAILURE(ret)) {
+            ds_put_format(ds, "\t     Inports - %s\n", _SHR_PBMP_FMT(pbmp, pfmt));
+            ds_put_format(ds, "\t        mask - %s\n",
+                    _SHR_PBMP_FMT(pbmp_mask, pfmt));
+        }
+    }
+    if( OPENNSL_FIELD_QSET_TEST(qset, opennslFieldQualifyMyStationHit)) {
+        ret = opennsl_field_qualify_MyStationHit_get(unit,
+                l3_fp_grp_info[unit].subint_fp_entry_id, &data, &data_mask);
+        if (!OPENNSL_FAILURE(ret)) {
+            ds_put_format(ds, "\tMyStationHit - %s\n", (data == 0)?"NOT HIT": "HIT");
+        }
+    }
+    /*Checking for the actions available in the entry*/
+    for(action_index = 0;action_index < fp_action_list_size;action_index++){
+        fp_action_iter = &fp_action_list[action_index];
+        ret = opennsl_field_action_get(0,l3_fp_grp_info[unit].subint_fp_entry_id,
+                fp_action_iter->action_type, &p0, &p1);
+        if (!OPENNSL_FAILURE(ret)) {
+            ds_put_format(ds, "\t      Action - %s\n",fp_action_iter->api_str);
+            if (fp_action_iter->action_type ==
+                    opennslFieldActionCosQCpuNew) {
+                ds_put_format(ds, "\t    CPUQueueNumber %u mask %u\n",
+                        p0,p1);
+            } else if (fp_action_iter->action_type ==
+                    opennslFieldActionRpDrop) {
+                ds_put_format(ds, "\t   Value %u mask %u\n",
+                        p0,p1);
+            }
+        }
+    }
+}
 
 static void
 fp_entries_show (int unit, opennsl_field_group_t group, struct ds *ds)
@@ -773,6 +833,86 @@ ops_fp_dump_ospf_rules (struct ds *ds)
          * for the given group and hardware unit.
          */
         fp_entries_show(unit, group_id, ds);
+    }
+}
+
+/*
+ * ops_fp_dump_l3_rules
+ *
+ * This function dumps the "fp show" output for Subinterface and stats rules
+ * for all hardware units.
+ */
+static void
+ops_fp_dump_l3_rules (struct ds *ds)
+{
+    int                   unit = 0;
+
+    /*
+     * If "ds" is not a valid pointer, then return
+     * from this function.
+     */
+    if (!ds) {
+        return;
+    }
+
+    /*
+     * Iterate over all the hardware units available.
+     */
+    for(unit =0; unit < MAX_SWITCH_UNITS; unit++) {
+
+        /*
+         * If the group-id is invalid, then do not dump the
+         * "fp show" for that hardware unit.
+         */
+        if (l3_fp_grp_info[unit].l3_fp_grpid == -1) {
+            continue;
+        }
+
+        /*
+         * Call the "fp show" function to dump the fp rules
+         * for the given group and hardware unit.
+         */
+        fp_entries_show(unit, l3_fp_grp_info[unit].l3_fp_grpid, ds);
+    }
+}
+
+/*
+ * ops_fp_dump_l3_subinterface
+ *
+ * This function dumps the "fp show" output for Subinterface rules
+ * for all hardware units.
+ */
+static void
+ops_fp_dump_l3_subinterface(struct ds *ds)
+{
+    int                   unit = 0;
+
+    /*
+     * If "ds" is not a valid pointer, then return
+     * from this function.
+     */
+    if (!ds) {
+        return;
+    }
+
+    /*
+     * Iterate over all the hardware units available.
+     */
+    for(unit =0; unit < MAX_SWITCH_UNITS; unit++) {
+
+        /*
+         * If the group-id is invalid, then do not dump the
+         * "fp show" for that hardware unit.
+         */
+        if (l3_fp_grp_info[unit].l3_fp_grpid == -1) {
+            continue;
+        }
+
+        /*
+         * Call the "fp show" function to dump the fp rules
+         * for the given group and hardware unit.
+         */
+        fp_subinterface_entry_show(unit, l3_fp_grp_info[unit].l3_fp_grpid, ds);
     }
 }
 
@@ -1236,6 +1376,10 @@ bcm_plugin_debug(struct unixctl_conn *conn, int argc,
                     ops_fp_dump_copp_egress_rules(&ds);
                 } else if (!strcmp(option, "acl-ingress-group")) {
                     ops_fp_dump_acl_ingress_rules(&ds);
+                } else if (!strcmp(option, "l3-group")) {
+                    ops_fp_dump_l3_rules(&ds);
+                } else if (!strcmp(option, "l3-subinterface")) {
+                    ops_fp_dump_l3_subinterface(&ds);
                 }
             } else {
                 ops_fp_show_dump(&ds);

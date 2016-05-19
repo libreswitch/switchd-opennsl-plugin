@@ -51,6 +51,7 @@
 #include "seq.h"
 #include "ops-classifier.h"
 #include "mac-learning-plugin.h" /* PORT_NAME_SIZE */
+#include "ops-fp.h"
 
 /* Private header for ACL data structure */
 #include "ops-classifier-private.h"
@@ -145,7 +146,7 @@ ops_classifier_init(int unit)
     OPENNSL_FIELD_QSET_ADD(qset, opennslFieldQualifyL3Routable);
     OPENNSL_FIELD_QSET_ADD(qset, opennslFieldQualifyEtherType);
 
-    rc = opennsl_field_group_create(unit, qset, OPS_GROUP_PRI_IPv4, &ip_group[unit]);
+    rc = opennsl_field_group_create(unit, qset, FP_GROUP_PRIORITY_1, &ip_group[unit]);
     if (OPENNSL_FAILURE(rc)) {
         VLOG_ERR("Failed to create group: unit=%d, group= %d,  rc=%s",
                  unit, ip_group[unit], opennsl_errmsg(rc));

@@ -44,16 +44,25 @@
 #include <opennsl/stat.h>
 #include "netdev.h"
 #include "eventlog.h"
+#include "ops-fp.h"
+#include "ops-pbmp.h"
 
 VLOG_DEFINE_THIS_MODULE(ops_routing);
 /* ecmp resiliency flag */
 bool ecmp_resilient_flag = false;
 
 #define VLAN_ID_MAX_LENGTH   5
+static opennsl_error_t
+ops_subinterface_fp_entry_create(opennsl_port_t hw_port, int hw_unit);
 
+struct ops_l3_fp_info l3_fp_grp_info[MAX_SWITCH_UNITS];
 static int
 ops_update_l3ecmp_egress_resilient(int unit, opennsl_l3_egress_ecmp_t *ecmp,
                  int intf_count, opennsl_if_t *egress_obj, void *user_data);
+
+static opennsl_error_t
+ops_update_subint_fp_entry(int hw_unit, opennsl_port_t hw_port, bool add);
+
 opennsl_if_t local_nhid;
 /* fake MAC to create a local_nhid */
 opennsl_mac_t LOCAL_MAC =  {0x0,0x0,0x01,0x02,0x03,0x04};
@@ -320,7 +329,7 @@ ops_routing_ospf_init(int unit)
     OPENNSL_FIELD_QSET_ADD (qualifierSet, opennslFieldQualifyDstIp);
 
     retval = opennsl_field_group_create(unit, qualifierSet,
-                                        OPS_ROUTING_INGRESS_OSPF_GROUP_PRIORITY,
+                                        FP_GROUP_PRIORITY_2,
                                         &ospf_data->ospf_group_id);
     if (OPENNSL_FAILURE(retval)) {
         VLOG_ERR("Failed at OSPF opennsl_field_group_create :: "
@@ -1049,7 +1058,16 @@ ops_routing_enable_l3_subinterface(int hw_unit, opennsl_port_t hw_port,
             hw_unit, hw_port, vlan_id, vrf_id);
 
     VLOG_DBG("Create knet filter\n");
-    handle_bcmsdk_knet_subinterface_filters(netdev, true);
+    if (netdev_bcmsdk_get_subint_count(netdev) == 0) {
+        handle_bcmsdk_knet_subinterface_filters(netdev, true);
+        VLOG_DBG("Create FP to stop switching");
+        rc = ops_subinterface_fp_entry_create(hw_port, hw_unit);
+        if (OPENNSL_FAILURE(rc)) {
+            VLOG_ERR("FP creation failed");
+            goto failed_l3_intf_create;
+        }
+    }
+    netdev_bcmsdk_update_subint_count(netdev, true);
 
     return l3_intf;
 
@@ -1073,6 +1091,15 @@ failed_allocating_l3_intf:
     }
 
 failed_vlan_creation:
+    /* Delete subinterface entry from group*/
+    rc = ops_update_subint_fp_entry(hw_unit, hw_port, false);
+    if (OPENNSL_FAILURE(rc)) {
+        VLOG_ERR("Failed to delete port to entry = %d for group = %d,\
+                Unit=%d port=%d rc=%s",
+                l3_fp_grp_info[hw_unit].subint_fp_entry_id,
+                l3_fp_grp_info[hw_unit].l3_fp_grpid,
+                hw_unit, hw_port, opennsl_errmsg(rc));
+    }
     return NULL;
 }
 
@@ -1155,8 +1182,21 @@ ops_routing_disable_l3_subinterface(int hw_unit, opennsl_port_t hw_port,
 
     SW_L3_DBG("Disabled L3 on unit=%d port=%d vrf=%d", hw_unit, hw_port, vrf_id);
 
+    netdev_bcmsdk_update_subint_count(netdev, false);
+
     VLOG_DBG("Delete subinterface knet filter\n");
-    handle_bcmsdk_knet_subinterface_filters(netdev, false);
+    if (netdev_bcmsdk_get_subint_count(netdev) == 0) {
+        handle_bcmsdk_knet_subinterface_filters(netdev, false);
+        /* Delete subinterface entry from group*/
+        rc = ops_update_subint_fp_entry(hw_unit, hw_port, false);
+        if (OPENNSL_FAILURE(rc)) {
+            VLOG_ERR("Failed to delete port to entry = %d for group = %d,\
+                    Unit=%d port=%d rc=%s",
+                    l3_fp_grp_info[hw_unit].subint_fp_entry_id,
+                    l3_fp_grp_info[hw_unit].l3_fp_grpid,
+                    hw_unit, hw_port, opennsl_errmsg(rc));
+        }
+    }
 }
 
 opennsl_l3_intf_t *
@@ -3009,3 +3049,314 @@ ops_l3ecmp_egress_dump(struct ds *ds, int ecmpid)
         }
     }
 } /* ops_l3ecmp_egress_dump */
+
+/* Create group for l3 feature. A common group is maintained for
+ * l3 related feature and stats with the highest priority.
+ * This group is used to create feature specific rules.
+ */
+opennsl_error_t
+ops_create_l3_fp_group(int hw_unit)
+{
+    /* FP groups for subinterface and L3 stats*/
+    opennsl_error_t rc = OPENNSL_E_NONE;
+    /* Qset for l3 feature */
+    opennsl_field_qset_t l3_qset;
+
+
+    VLOG_DBG("Create group, Check group = %d", l3_fp_grp_info[hw_unit].l3_fp_grpid);
+    /* If group is already created then don't create again */
+    if (l3_fp_grp_info[hw_unit].l3_fp_grpid == -1) {
+
+        OPENNSL_FIELD_QSET_INIT(l3_qset);
+        /* for subinterface */
+        OPENNSL_FIELD_QSET_ADD (l3_qset,
+                                opennslFieldQualifyMyStationHit);
+        OPENNSL_FIELD_QSET_ADD (l3_qset, opennslFieldQualifyInPorts);
+
+        /* RX counter stats */
+        OPENNSL_FIELD_QSET_ADD (l3_qset, opennslFieldQualifyIpType);
+        OPENNSL_FIELD_QSET_ADD (l3_qset, opennslFieldQualifyL3Ingress);
+        OPENNSL_FIELD_QSET_ADD (l3_qset, opennslFieldQualifyPacketRes);
+
+        /* TX counter stats */
+        OPENNSL_FIELD_QSET_ADD (l3_qset, opennslFieldQualifyIpType);
+        OPENNSL_FIELD_QSET_ADD (l3_qset, opennslFieldQualifyDstPort);
+        OPENNSL_FIELD_QSET_ADD (l3_qset, opennslFieldQualifyPacketRes);
+
+        VLOG_DBG("%s, Create FP for unit = %d", __FUNCTION__, hw_unit);
+        rc = opennsl_field_group_create(hw_unit, l3_qset,
+                                        FP_GROUP_PRIORITY_0,
+                                        &l3_fp_grp_info[hw_unit].l3_fp_grpid);
+        if (OPENNSL_FAILURE(rc)) {
+            VLOG_ERR("Failed to create FP group Unit=%d, rc=%s",
+                    hw_unit, opennsl_errmsg(rc));
+            return rc;
+        }
+        VLOG_DBG("%s, Created FP Group = %d for unit = %d",
+                 __FUNCTION__, l3_fp_grp_info[hw_unit].l3_fp_grpid, hw_unit);
+    }
+
+    return rc;
+}
+
+/*
+ * FP creation to stop subinterface switching traffic.
+ */
+static opennsl_error_t
+ops_subinterface_fp_entry_create(opennsl_port_t hw_port, int hw_unit)
+{
+    /* FP groups for subinterface */
+    opennsl_error_t rc = OPENNSL_E_NONE;
+    opennsl_pbmp_t pbm;
+    opennsl_pbmp_t pbm_mask;
+
+    rc = ops_create_l3_fp_group(hw_unit);
+    if (OPENNSL_FAILURE(rc)) {
+        VLOG_ERR("Failed to create FP group for L3 features \
+                Unit=%d port=%d rc=%s",
+                hw_unit, hw_port, opennsl_errmsg(rc));
+        return rc;
+    }
+
+    /* If the entry was not created then create the entry,
+       else update the port bit map and reinstall the entry */
+    if (l3_fp_grp_info[hw_unit].subint_fp_entry_id == -1) {
+
+        /* add hw_port to the rule */
+        OPENNSL_PBMP_CLEAR(pbm);
+        OPENNSL_PBMP_CLEAR(pbm_mask);
+        OPENNSL_PBMP_PORT_ADD(pbm, hw_port);
+        OPENNSL_PBMP_PORT_ADD(pbm_mask, hw_port);
+
+        VLOG_DBG("%s, Create entry unit = %d, port %d",
+                __FUNCTION__, hw_unit, hw_port);
+        rc =  opennsl_field_entry_create(hw_unit,
+                l3_fp_grp_info[hw_unit].l3_fp_grpid,
+                &l3_fp_grp_info[hw_unit].subint_fp_entry_id);
+        if (OPENNSL_FAILURE(rc)) {
+            VLOG_ERR("Failed to create FP entry for subinterface \
+                    Unit=%d port=%d rc=%s",
+                    hw_unit, hw_port, opennsl_errmsg(rc));
+            return rc;
+        }
+
+        VLOG_DBG("%s, Create qualify my station hit unit = %d, port %d",
+                __FUNCTION__, hw_unit, hw_port);
+        rc = opennsl_field_qualify_MyStationHit(hw_unit,
+                l3_fp_grp_info[hw_unit].subint_fp_entry_id,
+                0x0, 0x1); /* NOT hit */
+        if (OPENNSL_FAILURE(rc)) {
+            VLOG_ERR("Failed to set qualify for my station hit \
+                    Unit=%d port=%d rc=%s",
+                    hw_unit, hw_port, opennsl_errmsg(rc));
+            ops_destroy_l3_fp_entry(hw_unit,
+            l3_fp_grp_info[hw_unit].subint_fp_entry_id);
+            return rc;
+        }
+
+        VLOG_DBG("%s, Create qualify Inport unit = %d, port %d",
+                __FUNCTION__, hw_unit, hw_port);
+        rc = opennsl_field_qualify_InPorts(hw_unit,
+                l3_fp_grp_info[hw_unit].subint_fp_entry_id,
+                pbm, pbm_mask);
+        if (OPENNSL_FAILURE(rc)) {
+            VLOG_ERR("Failed to set qualify for InPort \
+                    Unit=%d port=%d rc=%s",
+                    hw_unit, hw_port, opennsl_errmsg(rc));
+            ops_destroy_l3_fp_entry(hw_unit,
+                                             l3_fp_grp_info[hw_unit].subint_fp_entry_id);
+            return rc;
+        }
+
+        VLOG_DBG("%s, Set action unit = %d, port %d",
+                __FUNCTION__, hw_unit, hw_port);
+        rc = opennsl_field_action_add(hw_unit,
+                l3_fp_grp_info[hw_unit].subint_fp_entry_id,
+                opennslFieldActionDrop, 0, 0);
+        if (OPENNSL_FAILURE(rc)) {
+            VLOG_ERR("Failed to set action to drop all packets \
+                    Unit=%d port=%d rc=%s",
+                    hw_unit, hw_port, opennsl_errmsg(rc));
+            ops_destroy_l3_fp_entry(hw_unit,
+                                             l3_fp_grp_info[hw_unit].subint_fp_entry_id);
+            return rc;
+        }
+
+        rc = opennsl_field_entry_install(hw_unit, l3_fp_grp_info[hw_unit].subint_fp_entry_id);
+        if (OPENNSL_FAILURE(rc)) {
+            VLOG_ERR("Failed to install group = %d entry = %d\
+                    Unit=%d port=%d rc=%s",
+                    l3_fp_grp_info[hw_unit].l3_fp_grpid,
+                    l3_fp_grp_info[hw_unit].subint_fp_entry_id,
+                    hw_unit, hw_port, opennsl_errmsg(rc));
+            ops_destroy_l3_fp_entry(hw_unit,
+                                    l3_fp_grp_info[hw_unit].subint_fp_entry_id);
+            return rc;
+        }
+        VLOG_DBG("%s ADD hw_port = %d, added",
+                 __FUNCTION__, hw_port);
+    } else {
+
+        VLOG_DBG("Entry already created now update the entry = %d, with port = %d",
+                  l3_fp_grp_info[hw_unit].subint_fp_entry_id, hw_port);
+        /* Add multiple subinterfaces to the entry*/
+        rc = ops_update_subint_fp_entry(hw_unit, hw_port, true);
+        if (OPENNSL_FAILURE(rc)) {
+            VLOG_ERR("Failed to add port to entry = %d for group = %d,\
+                    Unit=%d port=%d rc=%s",
+                    l3_fp_grp_info[hw_unit].subint_fp_entry_id,
+                    l3_fp_grp_info[hw_unit].l3_fp_grpid,
+                    hw_unit, hw_port, opennsl_errmsg(rc));
+            return rc;
+        }
+    }
+
+    VLOG_DBG("%s, Group entry  = %d install success unit = %d, port %d",
+               __FUNCTION__,
+               l3_fp_grp_info[hw_unit].subint_fp_entry_id,
+               hw_unit, hw_port);
+
+    return rc;
+}
+
+static opennsl_error_t
+ops_update_subint_fp_entry(int hw_unit, opennsl_port_t hw_port, bool add)
+{
+    opennsl_error_t rc = OPENNSL_E_NONE;
+    opennsl_pbmp_t pbm;
+    opennsl_pbmp_t pbm_mask;
+    char pfmt[_SHR_PBMP_FMT_LEN];
+
+    VLOG_DBG("%s, Get Inport bitmask unit = %d",
+            __FUNCTION__, hw_unit);
+    rc = opennsl_field_qualify_InPorts_get(hw_unit,
+            l3_fp_grp_info[hw_unit].subint_fp_entry_id,
+            &pbm, &pbm_mask);
+    if (OPENNSL_FAILURE(rc)) {
+        VLOG_ERR("Failed to set qualify for InPort \
+                Unit=%d port=%d rc=%s",
+                hw_unit, hw_port, opennsl_errmsg(rc));
+    }
+    VLOG_DBG("%s, Get Inport bitmask unit = %d pbm = %s",
+            __FUNCTION__, hw_unit, _SHR_PBMP_FMT(pbm, pfmt));
+
+    if (add) {
+        /* add hw_port to the rule */
+        OPENNSL_PBMP_PORT_ADD(pbm, hw_port);
+        OPENNSL_PBMP_PORT_ADD(pbm_mask, hw_port);
+        VLOG_DBG("%s After adding hw_port = %d, added to pbm = %s",
+                 __FUNCTION__, hw_port, _SHR_PBMP_FMT(pbm, pfmt));
+    } else {
+        /* del hw_port to the rule */
+        OPENNSL_PBMP_PORT_REMOVE(pbm, hw_port);
+        OPENNSL_PBMP_PORT_REMOVE(pbm_mask, hw_port);
+        VLOG_DBG("%s After deleting hw_port = %d, pbm = %s",
+                __FUNCTION__, hw_port, _SHR_PBMP_FMT(pbm, pfmt));
+        if (OPENNSL_PBMP_IS_NULL(pbm)) {
+            VLOG_DBG("pbm is empty so delete the entry = %d",
+                    l3_fp_grp_info[hw_unit].subint_fp_entry_id);
+            rc = ops_destroy_l3_fp_entry(hw_unit,
+                    l3_fp_grp_info[hw_unit].subint_fp_entry_id);
+            if (OPENNSL_FAILURE(rc)) {
+                VLOG_ERR("Failed to delete FP entry for subinterface \
+                        Unit=%d rc=%s",
+                        hw_unit, opennsl_errmsg(rc));
+            }
+            l3_fp_grp_info[hw_unit].subint_fp_entry_id = -1;
+            return rc;
+        }
+    }
+    VLOG_DBG("%s, Create qualify Inport unit = %d, port %d",
+            __FUNCTION__, hw_unit, hw_port);
+    rc = opennsl_field_qualify_InPorts(hw_unit,
+            l3_fp_grp_info[hw_unit].subint_fp_entry_id,
+            pbm, pbm_mask);
+    if (OPENNSL_FAILURE(rc)) {
+        VLOG_ERR("Failed to set qualify for InPort \
+                Unit=%d port=%d rc=%s",
+                hw_unit, hw_port, opennsl_errmsg(rc));
+        ops_destroy_l3_fp_entry(hw_unit, l3_fp_grp_info[hw_unit].subint_fp_entry_id);
+        return rc;
+    }
+    VLOG_DBG("reinstall entry = %d", l3_fp_grp_info[hw_unit].subint_fp_entry_id);
+    rc = opennsl_field_entry_reinstall(hw_unit, l3_fp_grp_info[hw_unit].subint_fp_entry_id);
+    if (OPENNSL_FAILURE(rc)) {
+        VLOG_ERR("Failed to install group = %d entry = %d\
+                Unit=%d port=%d rc=%s",
+                l3_fp_grp_info[hw_unit].l3_fp_grpid,
+                l3_fp_grp_info[hw_unit].subint_fp_entry_id,
+                hw_unit, hw_port, opennsl_errmsg(rc));
+        ops_destroy_l3_fp_entry(hw_unit, l3_fp_grp_info[hw_unit].subint_fp_entry_id);
+        return rc;
+    }
+    return rc;
+}
+/*
+ * Function deletes the l3 group entries.
+ * If no entry exists then the group is deleted.
+ */
+opennsl_error_t
+ops_destroy_l3_fp_entry(int hw_unit, opennsl_field_entry_t entryid)
+{
+    opennsl_error_t rc = OPENNSL_E_NONE;
+    int entry_count = 0;
+
+    VLOG_DBG("%s, Delete entry %d, unit = %d",
+              __FUNCTION__,
+              l3_fp_grp_info[hw_unit].subint_fp_entry_id,
+              hw_unit);
+    rc = opennsl_field_entry_destroy(hw_unit, entryid);
+    if (OPENNSL_FAILURE(rc)) {
+        VLOG_ERR("Failed to delete FP entry for subinterface \
+                Unit=%d rc=%s",
+                hw_unit, opennsl_errmsg(rc));
+        return rc;
+    }
+
+    /* check if the group has more entries,
+       if not, then destroy the group */
+    rc = opennsl_field_entry_multi_get(hw_unit,
+                                       l3_fp_grp_info[hw_unit].l3_fp_grpid,
+                                       0, /* get all entries in the grp */
+                                       NULL, /* Array for entries */
+                                       &entry_count);
+    if (OPENNSL_FAILURE(rc)) {
+        VLOG_ERR("Failed to get FP entries for l3 feature group = %d \
+                Unit=%d entry_count = %d rc=%s",
+                l3_fp_grp_info[hw_unit].l3_fp_grpid,
+                hw_unit, entry_count, opennsl_errmsg(rc));
+        return rc;
+    }
+    VLOG_DBG("%s group = %d entry_count = %d\n",
+              __FUNCTION__, l3_fp_grp_info[hw_unit].l3_fp_grpid, entry_count);
+
+    if (entry_count == 0) {
+
+        VLOG_DBG("%s, Delete group = %d, unit = %d",
+                __FUNCTION__, l3_fp_grp_info[hw_unit].l3_fp_grpid, hw_unit);
+        rc = opennsl_field_group_destroy(hw_unit,
+                                         l3_fp_grp_info[hw_unit].l3_fp_grpid);
+        if (OPENNSL_FAILURE(rc)) {
+            VLOG_ERR("Failed to delete FP group for subinterface \
+                    Unit=%d rc=%s",
+                    hw_unit, opennsl_errmsg(rc));
+            return rc;
+        }
+        l3_fp_grp_info[hw_unit].l3_fp_grpid = -1;
+    }
+    return rc;
+}
+
+/*
+ * Function initializes l3 group and subinterface info.
+ */
+int
+ops_l3_fp_init(int hw_unit)
+{
+    VLOG_DBG("%s Hw_unit = %d", __FUNCTION__, hw_unit);
+    /* Group ID for l3 feature */
+    l3_fp_grp_info[hw_unit].l3_fp_grpid = -1;
+    /* Entry id for all subinterface */
+    l3_fp_grp_info[hw_unit].subint_fp_entry_id = -1;
+    return 0;
+}
