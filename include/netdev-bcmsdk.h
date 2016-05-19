@@ -92,4 +92,9 @@ extern opennsl_field_group_t ops_l3intf_ingress_stats_group_id_for_hw_unit(int u
 
 extern opennsl_field_group_t ops_l3intf_egress_stats_group_id_for_hw_unit(int unit);
 
+extern int
+netdev_bcmsdk_get_subint_count(struct netdev *netdev_);
+
+extern void
+netdev_bcmsdk_update_subint_count(struct netdev *netdev, bool increment);
 #endif /* netdev-bcmsdk.h */
