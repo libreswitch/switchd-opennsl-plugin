@@ -5,34 +5,40 @@
 
 - [Overview](#overview)
 - [Terminology](#terminology)
-        - [In OVSDB and ops-switchd](#in-ovsdb-and-ops-switchd)
-        - [In the switchd-opennsl-plugin](#in-the-switchd-opennsl-plugin)
-                - [In the netdev layer](#in-the-netdev-layer)
-                - [In the ofproto layer](#in-the-ofproto-layer)
-                - [In the bufmon layer](#in-the-bufmon-layer)
-                - [In OpenNSL API code](#in-opennsl-api-code)
+    - [In OVSDB and ops-switchd](#in-ovsdb-and-ops-switchd)
+    - [In the switchd-opennsl-plugin](#in-the-switchd-opennsl-plugin)
+    - [In the netdev layer](#in-the-netdev-layer)
+    - [In the ofproto layer](#in-the-ofproto-layer)
+    - [In the bufmon layer](#in-the-bufmon-layer)
+    - [In OpenNSL API code](#in-opennsl-api-code)
 - [Design](#design)
-        - [Physical interface configuration](#physical-interface-configuration)
-                - [Trunk/LAG configuration](#trunklag-configuration)
-        - [Layer 2 switching](#layer-2-switching)
-        - [Layer 2 mirroring](#layer-2-mirroring)
-        - [Layer 3 routing](#layer-3-routing)
+    - [Physical interface configuration](#physical-interface-configuration)
+        - [Trunk/LAG configuration](#trunk/lag-configuration)
+    - [Layer 2 switching](#layer-2-switching)
+    - [Layer 2 mirroring](#layer-2-mirroring)
+    - [Layer 3 routing](#layer-3-routing)
         - [Code details](#code-details)
-                - [Asynchronous notifications](#asynchronous-notifications)
-        - [Buffer monitoring](#buffer-monitoring)
-        - [Layer 3 loopback interface](#layer-3-loopback-interface)
-        - [Layer 3 subinterface](#layer-3-subinterface)
-        - [Layer 3 LAG interface](#layer-3-lag-interface)
-        - [Layer 3 interface statistics](#layer-3-interface-statistics)
-        - [Multicast traffic](#multicast-traffic)
-                - [OSPF](#ospf)
-        - [Control Plane Policing](#control-plane-policing)
-                - [Ingress traffic](#ingress-traffic)
-                - [Egress traffic](#egress-traffic)
-                - [CoPP classes](#copp-classes)
-                - [Policer mode](#policer-mode)
-        - [Spanning Tree Group](#spanning-tree-group)
-        - [sFlow](#sFlow)
+            - [Asynchronous notifications](#asynchronous-notifications)
+    - [Buffer monitoring](#buffer-monitoring)
+    - [Layer 3 loopback interface](#layer-3-loopback-interface)
+    - [Layer 3 subinterface](#layer-3-subinterface)
+    - [Layer 3 LAG interface](#layer-3-lag-interface)
+    - [Layer 3 interface statistics](#layer-3-interface-statistics)
+    - [Multicast traffic](#multicast-traffic)
+        - [OSPF](#ospf)
+    - [Control Plane Policing](#control-plane-policing)
+        - [Ingress traffic](#ingress-traffic)
+        - [Egress traffic](#egress-traffic)
+        - [CoPP classes](#copp-classes)
+        - [Policer mode](#policer-mode)
+    - [Spanning Tree Group](#spanning-tree-group)
+    - [sFlow](#sflow)
+    - [MAC Learning](#mac-learning)
+        - [Design considerations](#design-considerations)
+        - [High Level Design](#high-level-design)
+        - [Design detail](#design-detail)
+        - [Operations on MAC table](#operations-on-mac-table)
+        - [MAC Learning References](#mac-learning-references)
 - [References](#references)
 
 ## Overview
@@ -141,6 +147,10 @@ OpenSwitch supports both static and dynamic link aggregation. One or more physic
 Based on the user configuration, the ops-lacpd daemon updates the Interface:hw_bond_config column in the database. The switchd plugin configures trunks in the hardware based on this information.
 Trunk functionality is handled in the ofproto layer of the opennsl-plugin.
 
+-------------------------------------------------------------------------------
+
+-------------------------------------------------------------------------------
+
 ### Layer 2 switching
 In OpenSwitch, port VLAN information is stored in three important fields:
 * Port:tag
@@ -155,33 +165,53 @@ The vlan_mode field has four possible values:
 
 This functionality is handled in the ofproto layer.
 
+-------------------------------------------------------------------------------
+
+-------------------------------------------------------------------------------
+
 ### Layer 2 mirroring
-+Openswitch supports simple port mirroring.  Supported mirroring modes are **one to one** which means one source port can be mirrored to one destination port; **one to many** which means that one source port can be mirrored out to multiple destination ports; and **many to one** where many source ports can be mirrored out to one destination port.  Many to many mode is NOT supported.  A destination port can NOT also be a source port.  Both LAG sources and destinations are supported with the understanding that every time a LAG changes (an interface is added to the LAG or deleted from the LAG), the active mirror sessions which contain that LAG as a source, must first be made inactive (shutdown) and re-started again for correct operation.  In addition, further source packet granularity can be achieved by specifying whether received packets or transmitted packets or both types of packets are to be mirrored.  Currently, only a maximum of 4 mirror destination ports can be specified.  This is a hardware limitation.
+Openswitch supports simple port mirroring.  Supported mirroring modes are **one to one** which means one source port can be mirrored to one destination port; **one to many** which means that one source port can be mirrored out to multiple destination ports; and **many to one** where many source ports can be mirrored out to one destination port.  Many to many mode is NOT supported.  A destination port can NOT also be a source port.  Both LAG sources and destinations are supported with the understanding that every time a LAG changes (an interface is added to the LAG or deleted from the LAG), the active mirror sessions which contain that LAG as a source, must first be made inactive (shutdown) and re-started again for correct operation.  In addition, further source packet granularity can be achieved by specifying whether received packets or transmitted packets or both types of packets are to be mirrored.  Currently, only a maximum of 4 mirror destination ports can be specified.  This is a hardware limitation.
+
+-------------------------------------------------------------------------------
+
+-------------------------------------------------------------------------------
 
 ### Layer 3 routing
-The switchd plugin supports layer 3 routing for the IPv4 and IPv6 protocols. The ops-switchd daemon learns route/nexthop from the OVSDB and pushes it down to the switchd plugin. Plugin intern calls the opennsl API to populate the host, the longest prefix match (LPM), and the ECMP table in the ASIC. ECMP hashing currently supports 16-bit CRC-CCITT. By default, the hashing tuple is: source ip, destination ip, source port, and destination port. The tuple element can be included/excuded in the hash calculation by using the CLI.
+The switchd plugin supports layer 3 routing for the IPv4 and IPv6 protocols. The ops-switchd daemon learns route/nexthop from the OVSDB and pushes it down to the switchd plugin. Plugin intern calls the opennsl API to populate the host, the longest prefix match (LPM), and the ECMP table in the ASIC. ECMP hashing currently supports 16-bit CRC-CCITT. By default, the hashing tuple is: source ip, destination ip, source port, and destination port. The tuple element can be included/excuded in the hash calculation by using the CLI. ECMP resiliency is enabled by default when the dynamic mode and size are set to true and 64 respectively. Resiliency can be enabled or disabled through CLI.
 
 Layer 3 functionality is handled in the ofproto layer.
 
-### Code details
+#### Code details
 The most important entry point into the switchd plugin is the **bundle_set()** function. Configuration for the entire switch is passed in a structure called *struct ofproto_bundle_settings*.
 
 The switchd plugin must maintain a local copy of the switch configuration that was passed using the above structure. The **bundle_set()** function is always called with the entire switch configuration. The plugin code compares the switch configuration with its local state, and identifies all changes since the last call.
 
-#### Asynchronous notifications
+##### Asynchronous notifications
 The switchd plugin cannot directly modify the OVSDB. The ops-switchd layer is the only layer which can read/write to the database. Whenever the switchd plugin writes something to the database, it increases a counter in the *netdev structure* shared between the switchd plugin and the ops-switchd layer. Changing the counter also wakes up the ops-switchd layer's main thread if it is sleeping. When the ops-switchd layer notices a change in the counter value of a netdev device, it queries the entire state of that netdev from the switchd plugin, and updates the state in the OVSDB. Link state changes are updated using this mechanism.
 
 The ops-switchd layer collects basic interface statistics once every five seconds by default. This value can be increased as needed.
+
+-------------------------------------------------------------------------------
+
+-------------------------------------------------------------------------------
 
 ### Buffer monitoring
 OpenSwitch supports monitoring MMU buffer space consumption (buffer statistics and monitoring) inside the switch hardware. The bufmond Python script is responsible for adding counter details into the OVSDB bufmon table. The ops-switchd daemon configures switch hardware based on the buffer monitoring configuration in the OVSDB bufmon table.
 
 The switchd plugin uses the bufmon layer APIs to configure the switch hardware, and for statistics collection from the switch hardware. In switchd, the thread *bufmon_stats_thread* is responsible for periodically collecting statistics from the switch hardware, and it also monitors for threshold crossed trigger notifications from the switch hardware. The same thread notifies the switchd main thread to push counter statistics into the database.
 
+-------------------------------------------------------------------------------
+
+-------------------------------------------------------------------------------
+
 ### Layer 3 loopback interface
 The netdev class *l3loopback* is registered to handle layer 3 loopback interfaces. This class has a minimal set of APIs (alloc/construct/distruct/dealloc) registered to handle creation and deletion of layer 3 loopback interfaces. No other configurations are done in the ASIC via netdev for loopback interfaces.
 
 Via ofproto, only IP address configurations are allowed for loopback interfaces. When a loopback interface is deleted, the corresponding IP addresses are removed from the ASIC.
+
+-------------------------------------------------------------------------------
+
+-------------------------------------------------------------------------------
 
 ### Layer 3 subinterface
 The netdev class *subinterface* is registered to handle layer 3 subinterfaces. This class has APIs to handle basic netdev operations (alloc/construct/distruct/dealloc), and an API *set_config()* to handle configuration of subinterface 802.1q VLAN tag, a MAC address, and a parent hardware port ID.
@@ -206,6 +236,10 @@ The following actions are performed during subinterface VLAN config change:
 
 If a VLAN is deleted without deleting the subinterface, the VLAN is not deleted from the ASIC, and the parent port bit is left set in the trunk bitmap and subinterface bitmap.
 
+-------------------------------------------------------------------------------
+
+-------------------------------------------------------------------------------
+
 ### Layer 3 LAG interface
 
 Layer 3 LAG continues to use the registered class for *system* for its netdev functionality.
@@ -228,11 +262,23 @@ Destroing a layer 3 LAG:
 - If there are no ports in the LAG, then destroy the layer 3 bundle.
 - If the CLI destroys the LAG completely, then delete each knet, remove members from the internal VLAN and destroy the layer 3 interface.
 
+-------------------------------------------------------------------------------
+
+-------------------------------------------------------------------------------
+
 ### Layer 3 interface statistics
 For layer 3 interface statistics, FP packet qualification rules are programmed to count unicast and multicast IPv4 and IPv6 packet types. These FPs are programed when a layer 3 interface is created, and removed when an layer 3 interface is removed. These FPs have statistics objects associated with them that are periodically polled to get the number of layer 3 packets and bytes.
 
+-------------------------------------------------------------------------------
+
+-------------------------------------------------------------------------------
+
 ### Multicast traffic
 The plugin is responsible for programming the FP entries which enable the ASIC to forward well-known multicast packets to the CPU for further processing.
+
+-------------------------------------------------------------------------------
+
+-------------------------------------------------------------------------------
 
 #### OSPF
 The current implementation enables OSPF on a global level. This includes creating a group for OSPF and adding two FP entries with their corresponding stat entries. The FPs forward multicast packets with the following destination IP addresses:
@@ -241,6 +287,10 @@ The current implementation enables OSPF on a global level. This includes creatin
 - OSPF Designated Routers (224.0.0.6)
 
 This is a one-time setup that is done as part of the ops_l3_init process.
+
+-------------------------------------------------------------------------------
+
+-------------------------------------------------------------------------------
 
 ### Control Plane Policing
 Control plane policing (CoPP) protects usage of the CPU by prioritizing and rate-limiting control plane traffic as follows:
@@ -340,7 +390,10 @@ To support a new CoPP class:
 #### Policer mode
 A color blind tri-color single rate policer is used for CoPP. The committed rate is set as the rate limit numbers shown in the preceeding table. The committed burst size is currently configured to the same value as the rate limit. Packets marked red are dropped.
 
-### Spanning Tree Group(STG)
+-------------------------------------------------------------------------------
+
+-------------------------------------------------------------------------------
+### Spanning Tree Group
 The switchd-opennsl plugin supports spanning tree group creation/deletion/update. The ops-switchd daemon learns spanning tree instance updates(instance creation, vlan to instance mapping, instance-port states) from the OVSDB and pushes it down to the switchd opennsl plugin. Plugin intern calls the opennsl API to populate the STG table in the ASIC.
 
 
@@ -365,7 +418,11 @@ Following are the actions done on spanning tree instance port state update:
 - valid port states are Disabled(2'b00), Blocking(2'b01), Learning(2'b10), Forwarding(2'b11)
 - update the internal cache
 
-### sFlow(sFlow)
+-------------------------------------------------------------------------------
+
+-------------------------------------------------------------------------------
+
+### sFlow
 sFlow protocol samples ingress and egress packets from the physical interface
 on the switch and sends these samples as sFlow UDP datagrams to an external
 collector.
@@ -382,6 +439,154 @@ collector.
 -   The plugin also maintains the number of samples sent to the collector.
     These statistics are published to the database as part of the generic stats
     collection infrastructure.
+
+-----------------------------------------------------------------------------
+
+-----------------------------------------------------------------------------
+### MAC Learning
+--------------------------------------
+
+- [Design considerations](#design-considerations)
+- [High Level Design](#high-level-design)
+- [Design detail](#design-detail)
+- [Operations on MAC table](#operations-on-mac-table)
+- [MAC Learning References](#mac-learning-references)
+
+
+#### Design considerations
+--------------------------
+
+- Reliability
+   There is no dynamic memory allocation in the opennsl plugin layer to shorten the time to copy information given by the ASIC so that no entry is missed.
+- Performance
+  The callback function is running in a separate thread. There is a need to separate the data storage for the main and the callback thread so that the main thread can read and the callback thread can write to different buffers at the same time without any contention.
+- Efficiency
+ The data structure that is used must have search operation of O(1). This is required because when ASIC learns a MAC address on a port and later it moves to a different port in a relatively short time, the entry will be part of the same hmap. Hence, instead of adding a new entry in the hmap, the older entry is removed.
+
+The hash map used in the opennsl plugin only holds the delta of the recent changes. The final MAC Table is in the OVSDB.
+
+
+#### High level design
+----------------------
+
+```ditaa
+                                                                                       ops-switchd process
+  +--------------------------------------------------------------------------------------------------------+
+  |                                  +------------------------------------------------------------------+  |
+  |  +-------------+                 |                       opennsl plugin                             |  |
+  |  | vswitchd    |             1   |                                                                  |  |
+  |  | main        |-----------------|--------> init()                                                  |  |
+  |  | thread      |                 |            |                                                     |  |
+  |  +-------------+                 |            |                                                     |  |
+  |        ^                         |            |                                                     |  |
+  |        |                         |            |                                           2         |  |
+  |        |                         |            |                                        +------      |  |
+  |        |                         |            v                                        |     |      |  |
+  |        |                         |    mac_learning_init +-----> opennsl_l2_addr_reg(cb_fn)   |      |  |
+  |        |                         |                      |-----> opennsl_l2_traverse(cb_fun)  +----  |  |
+  |        |                         |                                                           |   |  |  |
+  |        |                         |                                                           v   |  |  |
+  |        |                         |   +--------------+                                 +--+  +--+ |  |  |
+  |        |           3             |   |              |                                 |  |  |--| |  |  |
+  |        +-------------------------|---|  bcm timer   |                                 |  |  |  | |  |  |
+  |        |                         |   |    thread    |                                 +--+  +--+ |  |  |
+  |        |                         |   +--------------+                                   HMAPS    |  |  |
+  |        |           3             |                                                               |  |  |
+  |        +-------------------------|---------------------------------------------------------------+  |  |
+  |                                  |                                                                  |  |
+  |                                  +------------------------------------------------------------------+  |
+  +--------------------------------------------------------------------------------------------------------+
+
+```
+
+The above diagram describes the interaction between the different functions and threads in the ops-switchd process.
+1. When the process starts, the main thread creates `bcm init thread` for the initialization that registers for callback functions in the SDK when a L2 address is added or deleted in the L2 table.
+2. When entries are changed in ASIC L2 table, the SDK creates new thread and calls the callback function. The callback function then adds entries in the hmap.
+3. The notification to the switchd main thread is triggered when either the current hmap in use is full or the timer thread times out, whichever event happens first.
+
+
+#### Design detail
+------------------
+
+The following are the details featured in this design:
+- ASIC Plugin changes (ops-switchd, ops-switchd-opennsl-plugin)
+   This comprises of the PD implementation of PI-PD API.
+- Registering for bcm callback (ops-switchd-opennsl-plugin)
+   MACs are learnt by ASIC and are stored in L2 Table in ASIC.
+- Callback function, updating the hmap (ops-switchd-opennsl-plugin)
+- Use of hmaps
+- Notifying switchd main thread (ops-switchd-opennsl-plugin)
+
+##### Details
+-------------
+
+1. ASIC Plugin changes
+```ditaa
+                                               switchd main thread
+    +----------------------------------------------------------------------------------------------------+
+    |      main() in ovs-vswitchd.c                      |            bcm_plugins.c                      |
+    |                                                    |                                               |
+    |      plugins_init() -------------------------------|---------------> init()                        |
+    |                                                    |                                               |
+    |                                                    |            get_mac_learning_hmap (added)      |
+    +----------------------------------------------------------------------------------------------------+
+```
+  Changes involves the addition of a platform-specific function in the ASIC plugin.
+
+2. Registering for BCM callback
+```ditaa
+    bcm_init thread
+
+    init()   --------> ops_mac_learning_init()  --------> opennsl_l2_addr_register & opennsl_l2_traverse()
+```
+
+   The bcm init thread is created by the switchd main thread for the initialization of the ASIC SDK. Initialization for mac learning involves registration of callback for learnt L2 addresses as well as initial traverse of current addresses in L2 table. Right now, there is no benefit of registering for `opennsl_l2_traverse` as whenever the ops-switchd process restarts, the ASIC is reset. But once the HA infrastructure is in place, this function will provide a way to mark and sweep entries when the ops-switchd process restarts, thereby avoiding reset of the hardware and instead applying only incremental changes to the database.
+
+3. Callback function and updating the hmap
+
+   Whenever any L2 entry is added or deleted in the ASIC L2 table, the SDK invokes the registered callback function (Point 2.). There can be thousands of entries changed in the L2 table leading to that many calls to callback function (the callback function does not handle bulk entries). Hence, the main criteria for this callback function is to spend the least amount of time.
+
+   The hash is the combination of MAC address, VLAN and hw_unit.
+
+4. Use of hmaps
+
+   The opennsl plugin writes to the hmap and the MAC learning plugin reads from the hmap. Since the opennsl plugin and MAC learning plugin are part of the same process (ops-switchd), using of two hmaps avoids using lock for reading the hmap. While writing to hmap, the lock is needed as the bcm init thread and the thread created for SDK callback can simultaneously write to the hmap. Using two hmap buffers also provide an advantage in case of burst of the incoming L2 entries that completely fills up the current hmap, leading to an immediate switch of the current hmap in use to avoid any loss of updates from the SDK.
+
+5. Notifying the switchd main thread
+
+   When the updates for L2 entries are received from the SDK, they are stored locally in the opennsl plugin. In order for it to be written in the OVSDB, the updates needs to be received by the switchd main thread. OVS uses seq_change to trigger notification to the thread waiting for that sequence change event.
+   The sequence change can occur in the two cases:
+   - The current hmap is full.
+   - The timer thread times out and there is at least an entry in the hmap.
+
+
+#### Operations on MAC table
+----------------------------
+
+Currently supported operations:
+
+- MAC Address (dynamic) learning
+   MAC address is learnt dynamically when a frame received has the source MAC address, VLAN that is not present in the MAC table for the port.
+   [For AS5712, the maximum number of MAC addresses supported in the L2 table is 32k]
+
+- MAC Move
+   MAC Move occurs when the same MAC address is learnt on a different port in the bridge for the same VLAN.
+
+- MAC address aging
+   Dynamically learnt MAC addresses are deleted from the MAC table if no frame is received for the same the MAC address and VLAN on the port by the time age-out timer expires.
+   If after the age out time interval (x seconds) the entry is active, the entry is first marked as inactive and after another age out interval, it is removed from the L2 table (2x seconds).
+
+#### Current hard coded values
+------------------------------
+
+- Two hmap buffers
+- The hmap buffer size is 16K (can be changed to an optimum value after having scale performance testing).
+- The timeout of the timer thread to invoke notification to the switchd main thread is one (1) minute.
+
+#### MAC Learning References
+----------------------------
+
+* [Feature design](/documents/dev/user/mac_learning_feature_design)
 
 ## References
 [OpenvSwitch Porting Guide](http://git.openvswitch.org/cgi-bin/gitweb.cgi?p=openvswitch;a=blob;f=PORTING)
