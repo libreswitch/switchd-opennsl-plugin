@@ -1831,6 +1831,12 @@ static void diag_dump_basic_cb(char *buf)
     ops_l3egress_dump(&ds, -1);
     ds_put_format(&ds, "\n\n");
 
+    ds_put_format(&ds, "KNET ID information: \n");
+    ops_knet_dump(&ds, KNET_DEBUG_NETIF);
+    ds_put_format(&ds, "\n\nKNET filter information: \n");
+    ops_knet_dump(&ds, KNET_DEBUG_FILTER);
+    ds_put_format(&ds, "\n\n");
+
     ds_put_format(&ds, "FP information: \n");
     ops_fp_show_dump(&ds);
     ds_put_format(&ds, "\n\n");
