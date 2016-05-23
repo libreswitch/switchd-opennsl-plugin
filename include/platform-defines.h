@@ -28,8 +28,8 @@
 
 /* OPS_TODO: these are no longer available in OpenNSL.
  * Maybe add build-time variable to customize these, if neeeded. */
-#define MAX_HW_PORTS         128
-#define MAX_PORTS(unit)      128
+#define MAX_HW_PORTS         136
+#define MAX_PORTS(unit)      136
 #define CPU_PORT(unit)       0
 
 #define VALID_HW_UNIT(hw_unit)      (((hw_unit) >= 0) && ((hw_unit) < MAX_SWITCH_UNITS))
