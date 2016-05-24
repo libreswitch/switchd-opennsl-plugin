@@ -55,6 +55,8 @@ def test_switchd_opennsl_plugin_intervlan_knet(topology, step):
 
     step("Configure vlan interface 10")
     sw1('configure terminal')
+    sw1('vlan 10')
+    sw1('no shutdown')
     sw1('int vlan 10')
     sw1('ip add 10.0.0.1/24')
     sw1('ipv6 add 1000::1/120')
@@ -81,6 +83,8 @@ def test_switchd_opennsl_plugin_intervlan_knet(topology, step):
     step("\nConfigure interface vlan20 and bring it 'up'")
     count = 0
     sw1('configure terminal')
+    sw1('vlan 20')
+    sw1('no shutdown')
     sw1('int vlan 20')
     sw1('ip add 20.0.0.1/24')
     sw1('no shutdown')

@@ -74,20 +74,20 @@ def test_switchd_opennsl_plugin_mac_move(topology, step):
     sw1('interface {sw1p3}'.format(**locals()))
     sw1('no shutdown')
 
-    step("Enabling interface vlan 10 on switch")
-    sw1('interface vlan 10')
-    sw1('no shutdown')
-
-    step("Enabling interface vlan 20 on switch")
-    sw1('interface vlan 20')
-    sw1('no shutdown')
-
     step("Configuring vlan 10")
     sw1('vlan 10')
     sw1('no shutdown')
 
     step("Configuring vlan 20")
     sw1('vlan 20')
+    sw1('no shutdown')
+
+    step("Enabling interface vlan 10 on switch")
+    sw1('interface vlan 10')
+    sw1('no shutdown')
+
+    step("Enabling interface vlan 20 on switch")
+    sw1('interface vlan 20')
     sw1('no shutdown')
 
     # Add interface 1 to vlan 10
