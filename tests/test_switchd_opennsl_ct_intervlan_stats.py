@@ -62,29 +62,6 @@ def ping_vlan(**kwargs):
     retCode = retStruct.returnCode()
     assert retCode==0, "Unable to enable interafce on switch1"
 
-
-    LogOutput('info', "Enabling interface vlan 10 on switch")
-    retStruct = InterfaceEnable(deviceObj=switch, enable=True, vlan=10)
-    retCode = retStruct.returnCode()
-    assert retCode==0, "Unable to enable interface on switch"
-
-    LogOutput('info', "Enabling interface vlan 20 on switch")
-    retStruct = InterfaceEnable(deviceObj=switch, enable=True, vlan=20)
-    retCode = retStruct.returnCode()
-    assert retCode==0, "Unable to enable interface on switch"
-
-    interface1=int(switch.linkPortMapping['lnk01'])
-
-    interface2=int(switch.linkPortMapping['lnk02'])
-
-    interface3=int(switch.linkPortMapping['lnk03'])
-
-    interface4=int(switch.linkPortMapping['lnk04'])
-
-    returnStructure = switch.VtyshShell(enter=True)
-    returnCode = returnStructure.returnCode()
-    assert returnCode==0, "Failed to get vtysh config prompt"
-
     returnStructure = switch.ConfigVtyShell(enter=True)
 
     LogOutput('info', "Configuring VLAN 10")
@@ -111,6 +88,28 @@ def ping_vlan(**kwargs):
     returnStructure = switch.DeviceInteract(command="exit")
     retCode = returnStructure['returnCode']
     assert retCode==0, "Failed to exit vlan"
+
+    LogOutput('info', "Enabling interface vlan 10 on switch")
+    retStruct = InterfaceEnable(deviceObj=switch, enable=True, vlan=10)
+    retCode = retStruct.returnCode()
+    assert retCode==0, "Unable to enable interface on switch"
+
+    LogOutput('info', "Enabling interface vlan 20 on switch")
+    retStruct = InterfaceEnable(deviceObj=switch, enable=True, vlan=20)
+    retCode = retStruct.returnCode()
+    assert retCode==0, "Unable to enable interface on switch"
+
+    interface1=int(switch.linkPortMapping['lnk01'])
+
+    interface2=int(switch.linkPortMapping['lnk02'])
+
+    interface3=int(switch.linkPortMapping['lnk03'])
+
+    interface4=int(switch.linkPortMapping['lnk04'])
+
+    returnStructure = switch.ConfigVtyShell(enter=True)
+    returnCode = returnStructure.returnCode()
+    assert returnCode==0, "Failed to get vtysh config prompt"
 
     LogOutput('info', "Configuring interface %d to VLAN 10"%interface1)
     returnStructure =switch.DeviceInteract(command="interface %d"%interface1)
