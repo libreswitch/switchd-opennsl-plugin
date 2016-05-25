@@ -93,7 +93,7 @@ opennsl_rx_t opennsl_rx_callback(int unit, opennsl_pkt_t *pkt, void *cookie)
 
     /* ACL logging packet */
     if (OPENNSL_RX_REASON_GET(pkt->rx_reasons, opennslRxReasonFilterMatch)
-          /* && (pkt->rx_matched == ACL_LOG_RULE_ID) */) {
+          && (pkt->rx_matched == ACL_LOG_RULE_ID)) {
         /* Copy relevant parts of the metadata and header to an ACL logging
         * buffer */
         acl_log_handle_rx_event(pkt);
