@@ -53,6 +53,12 @@
 #define OPS_OPENNSL_HSP_SCHED_L1_COUNT     10
 #define OPS_OPENNSL_CPU_SCHED_L2_COUNT     44
 
+/* Minimum and Maximum value of Packet COS */
+#define OPS_MIN_PACKET_COS                 0
+#define OPS_MAX_PACKET_COS                 15
+
+/* Reserved packet cos for CoPP and should not be used by any other feature */
+#define OPS_COPP_UNKNOWN_IP_COS_RESERVED OPS_MAX_PACKET_COS
 
 /* COS map structure */
 typedef struct ops_cos_map_entry_s {

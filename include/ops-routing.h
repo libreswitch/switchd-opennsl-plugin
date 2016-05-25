@@ -27,6 +27,7 @@
 #include <opennsl/field.h>
 #include <netinet/in.h>
 #include <ofproto/ofproto.h>
+#include "ops-qos.h"
 
 #define IPV4_PREFIX_LEN     32
 #define IPV6_PREFIX_LEN     128

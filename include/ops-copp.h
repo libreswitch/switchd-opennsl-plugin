@@ -24,6 +24,7 @@
 #include <opennsl/field.h>
 #include "platform-defines.h"
 #include "copp-asic-provider.h"
+#include "ops-qos.h"
 
 /*
  * Function pointer structure for qualifying control plane packets in ingress.
