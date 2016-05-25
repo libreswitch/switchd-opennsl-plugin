@@ -32,5 +32,5 @@ extern int ops_mac_learning_init();
 extern void ops_mac_learn_cb(int unit, opennsl_l2_addr_t *l2addr,
                              int operation, void *userdata);
 extern int ops_mac_learning_get_hmap(struct mlearn_hmap **mhmap);
-
+int ops_l2_addr_flush_handler(mac_flush_params_t *settings);
 #endif /* __OPS_MAC_LEARNING_H__ */

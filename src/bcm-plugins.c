@@ -41,7 +41,7 @@
 
 VLOG_DEFINE_THIS_MODULE(bcm_plugin);
 
-struct asic_plugin_interface opennsl_interface ={
+struct asic_plugin_interface opennsl_interface = {
     /* The new functions that need to be exported, can be declared here*/
     .create_stg = &create_stg,
     .delete_stg = &delete_stg,
@@ -51,6 +51,7 @@ struct asic_plugin_interface opennsl_interface ={
     .get_stg_port_state = &get_stg_port_state,
     .get_stg_default = &get_stg_default,
     .get_mac_learning_hmap = &ops_mac_learning_get_hmap,
+    .l2_addr_flush = &ops_l2_addr_flush_handler,
 };
 
 struct copp_asic_plugin_interface copp_opennsl_interface ={
