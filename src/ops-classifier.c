@@ -150,9 +150,6 @@ ops_classifier_init(int unit)
         VLOG_DBG("Created group %d successfully", ip_group);
     }
 
-    /* This call is commented out until an updated version of OpenNSL is
-     * available.  That new version will enable ACL logging to co-exist with
-     * other features that use copy-to-cpu actions from the TCAM. */
     bcmsdk_knet_acl_logging_filter_create("AclLog", &knet_acl_log_filter_id);
     VLOG_DBG("ACL logging knet filter id: %d", knet_acl_log_filter_id);
 
