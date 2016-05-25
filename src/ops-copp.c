@@ -2684,6 +2684,33 @@ int ops_copp_unknown_ip_unicast (uint32 unit)
      */
     ops_copp_packet_class_rx_index[unit]++;
 
+    /*
+     * Program the rx rule to send packets with priroty
+     * OPS_COPP_UNKNOWN_IP_COS_RESERVED to unknown IP cpuq
+     */
+    int_prio = OPS_COPP_UNKNOWN_IP_COS_RESERVED;
+    int_prio_mask = 0xff;
+
+    OPENNSL_RX_REASON_CLEAR_ALL(rx_reasons);
+    OPENNSL_RX_REASON_CLEAR_ALL(rx_reasons_mask);
+    retval  = opennsl_rx_cosq_mapping_set(unit,
+                                             ops_copp_packet_class_rx_index[unit],
+                                             rx_reasons, rx_reasons_mask,
+                                             int_prio, int_prio_mask, packet_type,
+                                             packet_type_mask, cpu_cosq);
+
+    if (OPENNSL_FAILURE(retval)) {
+        VLOG_ERR("     Packet class: Failed to program the packet"
+                 "class rule for glean packets  %s\n",
+                 opennsl_errmsg(retval));
+        return(OPS_COPP_FAILURE_CODE);
+    }
+
+    /*
+     * Increment the rx index counter
+     */
+    ops_copp_packet_class_rx_index[unit]++;
+
     return(OPS_COPP_SUCCESS_CODE);
 }
 
