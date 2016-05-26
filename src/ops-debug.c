@@ -1076,13 +1076,13 @@ hw_resource_show (int unit, opennsl_field_group_t group, struct ds *ds)
 } /* hw_resources_show */
 
 /*
- * ops_hw_dump_resources
+ * ops_hw_resource_dump
  *
  * This function dumps the "hw_resource_show" output for field group rules
  * for all hardware units. Currently only one hw unit available.
  */
 static void
-ops_hw_dump_resources (struct ds *ds, enum hw_resource_type type, const char *option)
+ops_hw_resource_dump (struct ds *ds, enum hw_resource_type type, const char *option)
 {
     int                   unit;
     opennsl_field_group_t group_id;
@@ -1148,6 +1148,29 @@ ops_hw_dump_resources (struct ds *ds, enum hw_resource_type type, const char *op
         ds_put_format(ds, "%-14s", option);
         hw_resource_show(unit, group_id, ds);
     }
+}
+
+/*
+ * ops_hw_resource_dump_all
+ *
+ * This function dumps the "hw_resource_show" output for all available features
+ */
+static void
+ops_hw_resource_dump_all (struct ds *ds)
+{
+    /* Ingress part */
+    ds_put_format(ds, "\nIngress:\n");
+    ds_put_format(ds, "%s", cmd_hw_resource_table_header);
+    ops_hw_resource_dump(ds, HW_RESOURCE_OSPF_INGRESS, "ospf");
+    ops_hw_resource_dump(ds, HW_RESOURCE_COPP_INGRESS, "copp");
+    ops_hw_resource_dump(ds, HW_RESOURCE_ACLV4_INGRESS, "aclv4");
+    ops_hw_resource_dump(ds, HW_RESOURCE_L3INTF_INGRESS, "l3intf");
+
+    /* Egress part */
+    ds_put_format(ds, "\nEgress:\n");
+    ds_put_format(ds, "%s", cmd_hw_resource_table_header);
+    ops_hw_resource_dump(ds, HW_RESOURCE_COPP_EGRESS, "copp");
+    ops_hw_resource_dump(ds, HW_RESOURCE_L3INTF_EGRESS, "l3intf");
 }
 
 static void
@@ -1460,26 +1483,26 @@ copp_config_help:
                             /* aclv4 only has ingress group for now */
                             ds_put_format(&ds, "\nIngress:\n");
                             ds_put_format(&ds, "%s", cmd_hw_resource_table_header);
-                            ops_hw_dump_resources(&ds, HW_RESOURCE_ACLV4_INGRESS, option);
+                            ops_hw_resource_dump(&ds, HW_RESOURCE_ACLV4_INGRESS, option);
                         } else if (!strcmp(option, "copp")) {
                             ds_put_format(&ds, "\nIngress:\n");
                             ds_put_format(&ds, "%s", cmd_hw_resource_table_header);
-                            ops_hw_dump_resources(&ds, HW_RESOURCE_COPP_INGRESS, option);
+                            ops_hw_resource_dump(&ds, HW_RESOURCE_COPP_INGRESS, option);
                             ds_put_format(&ds, "\nEgress:\n");
                             ds_put_format(&ds, "%s", cmd_hw_resource_table_header);
-                            ops_hw_dump_resources(&ds, HW_RESOURCE_COPP_EGRESS, option);
+                            ops_hw_resource_dump(&ds, HW_RESOURCE_COPP_EGRESS, option);
                         } else if (!strcmp(option, "ospf")) {
                             /* ospf only has ingress group for now */
                             ds_put_format(&ds, "\nIngress:\n");
                             ds_put_format(&ds, "%s", cmd_hw_resource_table_header);
-                            ops_hw_dump_resources(&ds, HW_RESOURCE_OSPF_INGRESS, option);
+                            ops_hw_resource_dump(&ds, HW_RESOURCE_OSPF_INGRESS, option);
                         } else if (!strcmp(option, "l3intf")) {
                             ds_put_format(&ds, "\nIngress:\n");
                             ds_put_format(&ds, "%s", cmd_hw_resource_table_header);
-                            ops_hw_dump_resources(&ds, HW_RESOURCE_L3INTF_INGRESS, option);
+                            ops_hw_resource_dump(&ds, HW_RESOURCE_L3INTF_INGRESS, option);
                             ds_put_format(&ds, "\nEgress:\n");
                             ds_put_format(&ds, "%s", cmd_hw_resource_table_header);
-                            ops_hw_dump_resources(&ds, HW_RESOURCE_L3INTF_EGRESS, option);
+                            ops_hw_resource_dump(&ds, HW_RESOURCE_L3INTF_EGRESS, option);
                         } else {
                             ds_put_format(&ds, "Unsupported Hardware Resource command.\n\n"
                                     "Usage: ovs-appctl plugin/debug "
@@ -1489,18 +1512,7 @@ copp_config_help:
                         }
                     } else {
                         /* If no options are given, dump all */
-                        /* Ingress part */
-                        ds_put_format(&ds, "\nIngress:\n");
-                        ds_put_format(&ds, "%s", cmd_hw_resource_table_header);
-                        ops_hw_dump_resources(&ds, HW_RESOURCE_OSPF_INGRESS, "ospf");
-                        ops_hw_dump_resources(&ds, HW_RESOURCE_COPP_INGRESS, "copp");
-                        ops_hw_dump_resources(&ds, HW_RESOURCE_ACLV4_INGRESS, "aclv4");
-                        ops_hw_dump_resources(&ds, HW_RESOURCE_L3INTF_INGRESS, "l3intf");
-                        /* Egress part */
-                        ds_put_format(&ds, "\nEgress:\n");
-                        ds_put_format(&ds, "%s", cmd_hw_resource_table_header);
-                        ops_hw_dump_resources(&ds, HW_RESOURCE_COPP_EGRESS, "copp");
-                        ops_hw_dump_resources(&ds, HW_RESOURCE_L3INTF_EGRESS, "l3intf");
+                        ops_hw_resource_dump_all(&ds);
                     }
                     goto done;
         } else {
@@ -1807,6 +1819,7 @@ done:
 #define LOOPBACK "loopback"
 #define COPP "copp"
 #define SFLOW "sflow"
+#define HWRESOURCE "hw-resource"
 
 static void diag_dump_basic_cb(char *buf)
 {
@@ -1900,6 +1913,16 @@ lag_diag_dump_basic_cb(char *buf)
 
 }
 
+static void
+hw_resource_diag_dump_basic_cb(char *buf)
+{
+    struct ds ds = DS_EMPTY_INITIALIZER;
+
+    /* populate basic diagnostic data to buffer  */
+    ds_put_format(&ds, "\nHardware resource usage:\n");
+    ops_hw_resource_dump_all(&ds);
+    snprintf(buf, ds.length, "%s", ds_cstr(&ds));
+}
 
 /* _diag_dump_callback */
 /**
@@ -1927,6 +1950,8 @@ static void diag_dump_callback(const char *feature , char **buf)
             sflow_diag_dump_basic_cb(*buf);
         } else if (!strncmp(feature, LAGINTERFACE, strlen(LAGINTERFACE))) {
             lag_diag_dump_basic_cb(*buf);
+        } else if (!strncmp(feature, HWRESOURCE, strlen(HWRESOURCE))) {
+            hw_resource_diag_dump_basic_cb(*buf);
         }
     } else {
         VLOG_ERR("Memory allocation failed for feature %s , %d bytes",
