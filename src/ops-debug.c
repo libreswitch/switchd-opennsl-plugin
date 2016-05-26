@@ -50,6 +50,7 @@
 #include "ops-sflow.h"
 #include "ops-classifier.h"
 #include "netdev-bcmsdk.h"
+#include "mac-learning-plugin.h"
 
 VLOG_DEFINE_THIS_MODULE(ops_debug);
 
@@ -1590,13 +1591,17 @@ no_filter(opennsl_l2_addr_t *result __attribute__((unused)),
 static int
 process_mac_table_cb(int unit, opennsl_l2_addr_t *addr, void *ptr)
 {
+    char port_name[PORT_NAME_SIZE];
     l2_traverse_data_t *user_data = (l2_traverse_data_t *)ptr;
-    struct ops_port_info *p_info = PORT_INFO(unit, addr->port);
 
-    if (p_info == NULL || p_info->name == NULL) {
+    memset((void*)port_name, 0, sizeof(port_name));
+    netdev_port_name_from_hw_id(unit, addr->port, port_name);
+
+    if (!strlen(port_name)) {
         return 0;
     }
-    if (user_data->filter(addr, user_data->match, p_info->name)) {
+
+    if (user_data->filter(addr, user_data->match, port_name)) {
         ds_put_format(user_data->ds,
                       "%4d %02x:%02x:%02x:%02x:%02x:%02x %7s %5d %s\n",
                       addr->vid,
@@ -1608,7 +1613,7 @@ process_mac_table_cb(int unit, opennsl_l2_addr_t *addr, void *ptr)
                       addr->mac[5],
                       (addr->flags & OPENNSL_L2_STATIC) == 0 ? "DYNAMIC" : "STATIC ",
                       addr->tgid,
-                      p_info->name);
+                      port_name);
     }
 
     return 0;

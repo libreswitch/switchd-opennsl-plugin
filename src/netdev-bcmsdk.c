@@ -287,6 +287,17 @@ netdev_from_hw_id(int hw_unit, int hw_id)
                 netdev->port_info->lanes_split_status == true) {
                 continue;
             }
+
+            /*
+             * If the port is a subport and the parent is not split,
+             * then skip it.
+             */
+            if (netdev->is_split_subport &&
+                netdev->split_parent_portp &&
+                netdev->split_parent_portp->lanes_split_status == false) {
+                continue;
+            }
+
             found = true;
             break;
         }
@@ -307,8 +318,8 @@ void netdev_port_name_from_hw_id(int hw_unit,
 
     netdev = netdev_from_hw_id(hw_unit, hw_id);
 
-    if (netdev && netdev->port_info) {
-        strncpy(str, netdev->port_info->name, PORT_NAME_SIZE);
+    if (netdev) {
+        strncpy(str, netdev->up.name, PORT_NAME_SIZE);
     }
 }
 
