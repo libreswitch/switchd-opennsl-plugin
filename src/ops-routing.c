@@ -49,6 +49,8 @@ VLOG_DEFINE_THIS_MODULE(ops_routing);
 /* ecmp resiliency flag */
 bool ecmp_resilient_flag = false;
 
+#define VLAN_ID_MAX_LENGTH   5
+
 static int
 ops_update_l3ecmp_egress_resilient(int unit, opennsl_l3_egress_ecmp_t *ecmp,
                  int intf_count, opennsl_if_t *egress_obj, void *user_data);
@@ -81,10 +83,29 @@ static ops_ospf_data_t *ospf_data = NULL;
 static opennsl_l3_route_t ipv4_default_route;
 static opennsl_l3_route_t ipv6_default_route;
 
+/* List of internal VLANs */
+struct shash internal_vlans;
+
+/* ops_routing_is_internal_vlan
+ *
+ * This function checks if the vlan is an internal VLAN.
+ */
+bool
+ops_routing_is_internal_vlan (opennsl_vlan_t vlan)
+{
+    char vlan_str[VLAN_ID_MAX_LENGTH];
+    snprintf(vlan_str, VLAN_ID_MAX_LENGTH, "%d", vlan);
+
+    if (shash_find(&internal_vlans, vlan_str)) {
+        return true;
+    }
+    return false;
+}
+
 /*
  * ops_routing_get_ospf_group_id_by_hw_unit
  *
-'* This function returns the group-id for the OSPF ingress FP rules for
+ * This function returns the group-id for the OSPF ingress FP rules for
  * the given hardware unit.
  */
 opennsl_field_group_t
@@ -478,6 +499,7 @@ ops_l3_init(int unit)
     int hash_cfg = 0;
     opennsl_error_t rc = OPENNSL_E_NONE;
     opennsl_l3_egress_t egress_object;
+    shash_init(&internal_vlans);
 
     rc = opennsl_switch_control_set(unit, opennslSwitchL3IngressMode, 1);
     if (OPENNSL_FAILURE(rc)) {
@@ -909,6 +931,7 @@ ops_routing_enable_l3_interface(int hw_unit, opennsl_port_t hw_port,
     opennsl_error_t rc = OPENNSL_E_NONE;
     opennsl_pbmp_t pbmp;
     opennsl_l3_intf_t *l3_intf;
+    char vlan_str[VLAN_ID_MAX_LENGTH];
 
     VLOG_DBG("%s unit=%d port=%d vlan=%d vrf=%d",
              __FUNCTION__, hw_unit, hw_port, vlan_id, vrf_id);
@@ -949,7 +972,8 @@ ops_routing_enable_l3_interface(int hw_unit, opennsl_port_t hw_port,
 
     SW_L3_DBG("Enabled L3 on unit=%d port=%d vlan=%d vrf=%d",
             hw_unit, hw_port, vlan_id, vrf_id);
-
+    snprintf(vlan_str, VLAN_ID_MAX_LENGTH, "%d", vlan_id);
+    shash_add_once(&internal_vlans, vlan_str, &vlan_id);
     handle_bcmsdk_knet_l3_port_filters(netdev, vlan_id, true);
     return l3_intf;
 
@@ -1056,6 +1080,7 @@ ops_routing_disable_l3_interface(int hw_unit, opennsl_port_t hw_port,
 {
     opennsl_error_t rc = OPENNSL_E_NONE;
     opennsl_vlan_t vlan_id = l3_intf->l3a_vid;
+    char vlan_str[VLAN_ID_MAX_LENGTH];
 
     VLOG_DBG("%s unit=%d vlan=%d",__FUNCTION__, hw_unit, vlan_id);
     rc = opennsl_l3_intf_delete(hw_unit, l3_intf);
@@ -1079,6 +1104,10 @@ ops_routing_disable_l3_interface(int hw_unit, opennsl_port_t hw_port,
     }
 
     SW_L3_DBG("Disabled L3 on unit=%d", hw_unit);
+
+    snprintf(vlan_str, VLAN_ID_MAX_LENGTH, "%d", vlan_id);
+    shash_find_and_delete(&internal_vlans, vlan_str);
+
     handle_bcmsdk_knet_l3_port_filters(netdev, vlan_id, false);
 }
 

@@ -183,5 +183,6 @@ extern opennsl_field_group_t ops_routing_get_ospf_group_id_by_hw_unit (
                                                                 int unit);
 extern void ops_l3_mac_move_add(int unit, opennsl_l2_addr_t *l2addr, void *userdata);
 extern void ops_l3_mac_move_delete(int unit, opennsl_l2_addr_t *l2addr, void *userdata);
+extern bool ops_routing_is_internal_vlan(opennsl_vlan_t vlan);
 
 #endif /* __OPS_ROUTING_H__ */

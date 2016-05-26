@@ -42,7 +42,8 @@
 
 VLOG_DEFINE_THIS_MODULE(ops_sflow);
 
-#define DIAGNOSTIC_BUFFER_LEN 16000
+#define DIAGNOSTIC_BUFFER_LEN   16000
+#define VLAN_HEADER_SIZE        4
 
 /* sFlow parameters - TODO make these per ofproto */
 SFLAgent *ops_sflow_agent = NULL;
@@ -236,6 +237,22 @@ void ops_sflow_write_sampled_pkt(opennsl_pkt_t *pkt)
      * (tot_len).
      */
     header->frame_length = pkt->tot_len;
+
+    if (pkt->vlan && ops_routing_is_internal_vlan(pkt->vlan)) {
+        VLOG_DBG("Internal VLAN from sampled packet (in hex): %02X%02X",
+                 pkt->pkt_data[0].data[14],
+                 pkt->pkt_data[0].data[15]);
+
+        /* Strip internal VLAN ID from the packet and
+         * right shift DMAC and SMAC by 4 bytes. */
+
+        uint8 *new_data = pkt->pkt_data[0].data;
+        pkt->pkt_data[0].data = pkt->pkt_data[0].data + VLAN_HEADER_SIZE;
+        /* Copy SMAC and DMAC (12 bytes) */
+        memmove(pkt->pkt_data[0].data, new_data, 2 * ETHER_ADDR_LEN);
+        /* We stripped VLAN header so reduce frame_length by 4 */
+        header->frame_length = header->frame_length - VLAN_HEADER_SIZE;
+    }
 
     /* Ethernet FCS stripped off. */
     header->stripped = 4;
