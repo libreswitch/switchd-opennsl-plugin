@@ -25,6 +25,7 @@
 #include "netdev-bcmsdk.h"
 #include "platform-defines.h"
 #include <netinet/ether.h>
+#include "ops-lag.h"
 
 VLOG_DEFINE_THIS_MODULE(ops_mac_learning);
 static struct vlog_rate_limit mac_learning_rl = VLOG_RATE_LIMIT_INIT(5, 20);
@@ -102,6 +103,29 @@ static bool ops_mac_table_is_full(const struct mlearn_hmap *mlearn_hmap)
 }
 
 /*
+ * Function: ops_mac_learning_get_port_name
+ *
+ * This function is to get the port name based on opennsl_l2_addr_t params
+ */
+void ops_mac_learning_get_port_name(int hw_unit, uint32_t flags,
+                                    const int port_id, opennsl_trunk_t tgid,
+                                    char *port_name)
+{
+    if (!port_name) {
+        return;
+    }
+
+    /*
+     * To change to OPENNSL_L2_TRUNK_MEMBER later.
+     */
+    if (flags & 128) {
+        ops_lag_get_port_name(hw_unit, tgid, port_name);
+    } else {
+        netdev_port_name_from_hw_id(hw_unit, port_id, port_name);
+    }
+}
+
+/*
  * Function: ops_mac_entry_add
  *
  * This function is used to add the entries in the all_macs_learnt hmap.
@@ -113,9 +137,11 @@ static void ops_mac_entry_add(
         const uint8_t mac[ETH_ADDR_LEN],
         const int16_t vlan,
         const int port_id,
+        opennsl_trunk_t tgid,
         int hw_unit,
         const mac_event event,
-        bool move_event)
+        bool move_event,
+        uint32_t flags)
 {
     struct mlearn_hmap_node *entry = NULL;
     struct eth_addr mac_eth;
@@ -129,7 +155,7 @@ static void ops_mac_entry_add(
     actual_size = (hmap_entry->buffer).actual_size;
     memset((void*)port_name, 0, sizeof(port_name));
 
-    netdev_port_name_from_hw_id(hw_unit, port_id, port_name);
+    ops_mac_learning_get_port_name(hw_unit, flags, port_id, tgid, port_name);
 
     if (!strlen(port_name)) {
         VLOG_ERR("%s: not able to find port name for port_id: %d "
@@ -267,9 +293,11 @@ ops_mac_learn_cb(int   unit,
                               l2addr->mac,
                               l2addr->vid,
                               l2addr->port,
+                              l2addr->tgid,
                               unit,
                               MLEARN_ADD,
-                              (l2addr->flags & OPENNSL_L2_MOVE_PORT));
+                              (l2addr->flags & OPENNSL_L2_MOVE_PORT),
+                              l2addr->flags);
             ovs_mutex_unlock(&mlearn_mutex);
             ops_l3_mac_move_add(unit, l2addr, userdata);
             break;
@@ -279,9 +307,11 @@ ops_mac_learn_cb(int   unit,
                                l2addr->mac,
                                l2addr->vid,
                                l2addr->port,
+                               l2addr->tgid,
                                unit,
                                MLEARN_DEL,
-                               (l2addr->flags & OPENNSL_L2_MOVE_PORT));
+                               (l2addr->flags & OPENNSL_L2_MOVE_PORT),
+                               l2addr->flags);
              ovs_mutex_unlock(&mlearn_mutex);
              ops_l3_mac_move_delete(unit, l2addr, userdata);
             break;
@@ -320,9 +350,11 @@ ops_l2_traverse_cb (int unit,
                        l2addr->mac,
                        l2addr->vid,
                        l2addr->port,
+                       l2addr->tgid,
                        unit,
                        MLEARN_ADD,
-                       false);
+                       false,
+                       l2addr->flags);
      ovs_mutex_unlock(&mlearn_mutex);
      return (0);
 }

@@ -1134,7 +1134,7 @@ bundle_set(struct ofproto *ofproto_, void *aux,
         (s->hw_bond_should_exist || (s->bond_handle_alloc_only))) {
         /* Create a h/w LAG if there is more than one member present
            in the bundle or if requested by upper layer. */
-        bcmsdk_create_lag(&bundle->bond_hw_handle);
+        bcmsdk_create_lag(&bundle->bond_hw_handle, s->name);
         log_event("LAG_CREATE",
                    EV_KV("interface", "%s", bundle->name));
         VLOG_DBG("%s: Allocated bond_hw_handle# %d for port %s",
