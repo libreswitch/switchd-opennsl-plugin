@@ -33,6 +33,7 @@ def l3_fp_stats_test(**kwargs):
     switch = kwargs.get('switch', None)
     host1 = kwargs.get('host1',None)
     host2 = kwargs.get('host2',None)
+    PacketLost = 15
 
     #Enabling interfaces on switch
 
@@ -46,9 +47,9 @@ def l3_fp_stats_test(**kwargs):
     retCode = retStruct.returnCode()
     assert retCode==0, "Unable to enable interface on switch1"
 
-    interface1=int(switch.linkPortMapping['lnk01'])
+    interface1=str(switch.linkPortMapping['lnk01'])
 
-    interface2=int(switch.linkPortMapping['lnk02'])
+    interface2=str(switch.linkPortMapping['lnk02'])
 
     returnStructure = switch.VtyshShell(enter=True)
     returnCode = returnStructure.returnCode()
@@ -57,7 +58,7 @@ def l3_fp_stats_test(**kwargs):
     returnStructure = switch.ConfigVtyShell(enter=True)
 
     LogOutput('info', "Configuring L3 on interface 1")
-    returnStructure =switch.DeviceInteract(command="interface 1")
+    returnStructure =switch.DeviceInteract(command="interface %s"% interface1)
     retCode = returnStructure['returnCode']
     assert retCode==0, "Failed to enter interface context for interface 1"
     returnStructure =switch.DeviceInteract(command="no shutdown")
@@ -75,7 +76,7 @@ def l3_fp_stats_test(**kwargs):
     assert retCode==0, "Failed to exit interface"
 
     LogOutput('info', "Configuring L3 on interface 2")
-    returnStructure =switch.DeviceInteract(command="interface 2")
+    returnStructure =switch.DeviceInteract(command="interface %s" % interface2)
     retCode = returnStructure['returnCode']
     assert retCode==0, "Failed to enter interface context for interface 1"
     returnStructure =switch.DeviceInteract(command="no shutdown")
@@ -147,19 +148,22 @@ def l3_fp_stats_test(**kwargs):
         caseReturnCode = 1
 
     #Ping From Host1 to Host 2
-    retStruct = host1.Ping(ipAddr="3.3.3.2", packetCount=10)
+    retStruct = host1.Ping(ipAddr="3.3.3.2", packetCount=20)
     retCode = retStruct.returnCode()
-    assert retCode==0, "\n##### Failed to do IPv4 ping 10 packets, Case Failed #####"
+    assert retStruct.data['packet_loss'] <= PacketLost, \
+    "\n##### Failed to do IPv4 ping 20 packets, Case Failed #####"
     LogOutput('info',"\n##### Ping 10 packets Passed, Case Passed #####\n\n")
 
-    retStruct = host1.Ping(ipAddr="2000::10", packetCount=10, ipv6Flag=True)
+    retStruct = host1.Ping(ipAddr="2000::10", packetCount=20, ipv6Flag=True)
     retCode = retStruct.returnCode()
-    assert retCode==0, "\n##### Failed to do IPv6 ping, Case Failed #####"
+    assert retStruct.data['packet_loss'] <= PacketLost, \
+    "\n##### Failed to do IPv4 ping 10 packets, Case Failed #####"
     LogOutput('info',"\n##### Ping Passed, Case Passed #####\n\n")
 
     time.sleep(7)
 
-    returnStructure = switch.DeviceInteract(command="ovs-vsctl list interface 1")
+    returnStructure = switch.DeviceInteract(
+        command="ovs-vsctl list interface %s" %interface1)
     buf = returnStructure.get('buffer')
     for curLine in buf.split('\n'):
         if "ipv4_uc_rx_packets" in curLine:
@@ -186,7 +190,8 @@ def l3_fp_stats_test(**kwargs):
             assert int(pkts) >= 8, "\n##### Failed stats #####"
             LogOutput('info',"\n##### Passed stats #####\n\n")
 
-    returnStructure = switch.DeviceInteract(command="ovs-vsctl list interface 2")
+    returnStructure = switch.DeviceInteract(
+        command="ovs-vsctl list interface %s"%interface2)
     buf = returnStructure.get('buffer')
     for curLine in buf.split('\n'):
         if "ipv4_uc_rx_packets" in curLine:
