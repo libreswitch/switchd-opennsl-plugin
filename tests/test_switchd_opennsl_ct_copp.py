@@ -1246,9 +1246,6 @@ def fp_ingress_test_ipv4_options_rule(**kwargs):
     ipv4_options_dict['Ingress'] = dict()
     ipv4_options_dict['Ingress']['data'] = ''
     ipv4_options_dict['Ingress']['mask'] = ''
-    ipv4_options_dict['DstIpLocal'] = dict()
-    ipv4_options_dict['DstIpLocal']['data'] = '0x01'
-    ipv4_options_dict['DstIpLocal']['mask'] = '0x01'
     ipv4_options_dict['IpType'] = dict()
     ipv4_options_dict['IpType']['data'] = 'IPv4 options'
     ipv4_options_dict['IpType']['mask'] = ''
@@ -1312,9 +1309,6 @@ def fp_ingress_test_ipv6_options_rule(**kwargs):
     ipv6_options_dict['Ingress'] = dict()
     ipv6_options_dict['Ingress']['data'] = ''
     ipv6_options_dict['Ingress']['mask'] = ''
-    ipv6_options_dict['DstIpLocal'] = dict()
-    ipv6_options_dict['DstIpLocal']['data'] = '0x01'
-    ipv6_options_dict['DstIpLocal']['mask'] = '0x01'
     ipv6_options_dict['IpType'] = dict()
     ipv6_options_dict['IpType']['data'] = 'IPv6 options'
     ipv6_options_dict['IpType']['mask'] = ''
