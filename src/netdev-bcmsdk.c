@@ -454,7 +454,7 @@ netdev_bcmsdk_set_hw_intf_info(struct netdev *netdev_, const struct smap *args)
     struct netdev_bcmsdk *p_netdev = NULL;
     struct ops_port_info *p_info = NULL;
     struct ether_addr ZERO_MAC = {{0}};
-    struct ether_addr *ether_mac = NULL;
+    struct ether_addr *ether_mac = &ZERO_MAC;
     int rc = 0;
 
     const char *hw_unit = smap_get(args, INTERFACE_HW_INTF_INFO_MAP_SWITCH_UNIT);
