@@ -9,7 +9,7 @@
 #
 #     http://www.apache.org/licenses/LICENSE-2.0
 #
-# Unless required by applicable law or agreed to in writing, software
+# Unless required by applicable law or agreed to in writing, softkware
 # distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
 # WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 # License for the specific language governing permissions and limitations
@@ -23,7 +23,7 @@ from opstestfw.switch.OVS import *
 # Topology definition
 topoDict = {"topoExecution": 1000,
             "topoType": "physical",
-            "topoTarget": "dut01",
+            "topoTarget": "dut01 dut02",
             "topoDevices": "dut01 dut02",
             "topoLinks": "lnk01:dut01:dut02, \
                           lnk02:dut01:dut02, \
