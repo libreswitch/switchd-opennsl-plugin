@@ -1395,10 +1395,20 @@ ops_qos_set_port_trust_cfg(int hw_unit, int hw_port,
 {
     int qos_ing_map_id, qos_egr_map_id;
     opennsl_error_t rc = OPENNSL_E_NONE;
+    opennsl_gport_t gport;
 
     VLOG_DBG("set port trust: hw_unit %d port %d "
              "qos_trust %d",
               hw_unit, hw_port, cfg->qos_trust);
+
+    /* Get the gport for the physical port */
+    rc = opennsl_port_gport_get(hw_unit, hw_port, &gport);
+    if (OPENNSL_FAILURE(rc)) {
+        VLOG_ERR("ops_qos_set_port_trust_cfg: failed to get gport for "
+                 "hw unit %d, port %d, rc = %d, %s",
+                  hw_unit, hw_port, rc, opennsl_errmsg(rc));
+        return rc;
+    }
 
     /* For all cases, egress qos map id is set to NO CHANGE */
     qos_egr_map_id = OPS_EGR_QOS_MAP_ID_NO_CHANGE;
@@ -1411,7 +1421,7 @@ ops_qos_set_port_trust_cfg(int hw_unit, int hw_port,
              *    - Then set the ingress qos map to default COS map id
              */
             qos_ing_map_id = OPS_ING_QOS_MAP_ID_NONE;
-            rc = opennsl_qos_port_map_set(hw_unit, hw_port,
+            rc = opennsl_qos_port_map_set(hw_unit, gport,
                                           qos_ing_map_id, qos_egr_map_id);
 
             if (OPENNSL_FAILURE(rc)) {
@@ -1422,7 +1432,7 @@ ops_qos_set_port_trust_cfg(int hw_unit, int hw_port,
             }
 
             qos_ing_map_id = ops_qos_config.cos_map_id_default[hw_unit];
-            rc = opennsl_qos_port_map_set(hw_unit, hw_port,
+            rc = opennsl_qos_port_map_set(hw_unit, gport,
                                           qos_ing_map_id, qos_egr_map_id);
 
             if (OPENNSL_FAILURE(rc)) {
@@ -1445,7 +1455,7 @@ ops_qos_set_port_trust_cfg(int hw_unit, int hw_port,
              *    - Then set the ingress qos map to COS map id
              */
             qos_ing_map_id = OPS_ING_QOS_MAP_ID_NONE;
-            rc = opennsl_qos_port_map_set(hw_unit, hw_port,
+            rc = opennsl_qos_port_map_set(hw_unit, gport,
                                           qos_ing_map_id, qos_egr_map_id);
 
             if (OPENNSL_FAILURE(rc)) {
@@ -1456,7 +1466,7 @@ ops_qos_set_port_trust_cfg(int hw_unit, int hw_port,
             }
 
             qos_ing_map_id = ops_qos_config.cos_map_id[hw_unit];
-            rc = opennsl_qos_port_map_set(hw_unit, hw_port,
+            rc = opennsl_qos_port_map_set(hw_unit, gport,
                                           qos_ing_map_id, qos_egr_map_id);
 
             if (OPENNSL_FAILURE(rc)) {
@@ -1481,7 +1491,7 @@ ops_qos_set_port_trust_cfg(int hw_unit, int hw_port,
              *      (This is needed to handle non-IP packets)
              */
             qos_ing_map_id = OPS_ING_QOS_MAP_ID_NONE;
-            rc = opennsl_qos_port_map_set(hw_unit, hw_port,
+            rc = opennsl_qos_port_map_set(hw_unit, gport,
                                           qos_ing_map_id, qos_egr_map_id);
 
             if (OPENNSL_FAILURE(rc)) {
@@ -1492,7 +1502,7 @@ ops_qos_set_port_trust_cfg(int hw_unit, int hw_port,
             }
 
             qos_ing_map_id = ops_qos_config.dscp_map_id[hw_unit];
-            rc = opennsl_qos_port_map_set(hw_unit, hw_port,
+            rc = opennsl_qos_port_map_set(hw_unit, gport,
                                           qos_ing_map_id, qos_egr_map_id);
 
             if (OPENNSL_FAILURE(rc)) {
@@ -1503,7 +1513,7 @@ ops_qos_set_port_trust_cfg(int hw_unit, int hw_port,
             }
 
             qos_ing_map_id = ops_qos_config.cos_map_id_default[hw_unit];
-            rc = opennsl_qos_port_map_set(hw_unit, hw_port,
+            rc = opennsl_qos_port_map_set(hw_unit, gport,
                                           qos_ing_map_id, qos_egr_map_id);
 
             if (OPENNSL_FAILURE(rc)) {
@@ -1961,10 +1971,22 @@ ops_qos_dump_trust(struct ds *ds)
     int qos_ing_map_id, qos_egr_map_id;
     int unit = 0;
     int port = 1;
+    opennsl_gport_t gport;
     opennsl_error_t rc;
 
+    /* Get the gport for the physical port */
+    rc = opennsl_port_gport_get(unit, port, &gport);
+    if (OPENNSL_FAILURE(rc)) {
+        VLOG_ERR("ops_qos_dump_trust: failed to get gport for "
+                 "hw unit %d, port %d, rc = %d, %s",
+                  unit, port, rc, opennsl_errmsg(rc));
+
+        ds_put_format(ds, "Error in getting gport for QoS trust config\n\n");
+        return;
+    }
+
     /* Retrieve the QoS trust config from Broadcom ASIC */
-    rc = opennsl_qos_port_map_get(unit, port,
+    rc = opennsl_qos_port_map_get(unit, gport,
                                   &qos_ing_map_id, &qos_egr_map_id);
     if (OPENNSL_FAILURE(rc)) {
         VLOG_ERR("opennsl_qos_port_map_get failed for "
