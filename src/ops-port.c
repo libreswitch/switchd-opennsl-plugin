@@ -29,6 +29,8 @@
 #include <opennsl/port.h>
 
 #include "platform-defines.h"
+#include "ops-stats.h"
+#include "netdev-bcmsdk.h"
 #include "ops-debug.h"
 #include "ops-knet.h"
 #include "ops-vlan.h"
@@ -100,6 +102,21 @@ ops_get_link_up_pbm(int unit)
 
 /////////////////////// PHYSICAL INTERFACE CONFIG ///////////////////////////
 
+static opennsl_error_t
+split_port_linkspeed_update(int hw_unit, int hw_port, int lane_count, int speed)
+{
+    int i = 0, rc = 0;
+
+    // Linkscan thread update.
+    for (i = 0; i < lane_count; i++) {
+        rc = opennsl_port_speed_set (hw_unit, (hw_port + i), speed);
+        if (OPENNSL_FAILURE(rc)) {
+            return rc;
+        }
+    }
+
+    return OPENNSL_E_NONE;
+} // split_port_linkspeed_update
 
 static opennsl_error_t
 split_port_linkscan_update(int hw_unit, int hw_port, int lane_count, int active)
@@ -153,6 +170,9 @@ split_port_lane_config(struct ops_port_info *p_info, bool is_split_needed)
             // Don't exit here.  Keep trying to update the configuration anyway.
         }
 
+        split_port_linkscan_update(p_info->hw_unit, p_info->hw_port,
+                                   p_info->split_port_count, FALSE);
+
         // Change # of lanes first to make the previously inactive
         // split subports active again.
         rc = opennsl_port_control_set(p_info->hw_unit, p_info->hw_port,
@@ -163,6 +183,8 @@ split_port_lane_config(struct ops_port_info *p_info, bool is_split_needed)
             // No point in continuing if this fails.
             return -1;
         }
+        split_port_linkspeed_update(p_info->hw_unit, p_info->hw_port,
+                                    p_info->split_port_count, SPEED_10G);
 
         // Enable linkscan & counters for the previously inactive ports.
         split_port_linkscan_update(p_info->hw_unit, p_info->hw_port,
