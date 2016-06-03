@@ -139,5 +139,5 @@ extern int
 ops_sflow_set_collectors(struct sset *ops_targets);
 
 extern void
-sflow_diag_dump_basic_cb(char *buf);
+sflow_diag_dump_basic_cb(struct ds *ds);
 #endif /* __OPS_SFLOW_H__ */

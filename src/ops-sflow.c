@@ -667,16 +667,13 @@ ops_sflow_show_all(struct ds *ds, int argc, const char *argv[])
  * @param buf pointer to the buffer.
  */
 void
-sflow_diag_dump_basic_cb(char *buf)
+sflow_diag_dump_basic_cb(struct ds *ds)
 {
-    struct ds ds = DS_EMPTY_INITIALIZER;
-
     /* populate basic diagnostic data to buffer */
     /* sflow on all ports of switch */
-    ds_put_format(&ds, "Output for SFLOW information:\n");
-    ops_sflow_show_all(&ds, 0, NULL);
-    snprintf(buf , ds.length, "%s", ds_cstr(&ds));
-    ds_put_format(&ds, "\n\n");
+    ds_put_format(ds, "Output for SFLOW information:\n");
+    ops_sflow_show_all(ds, 0, NULL);
+    ds_put_format(ds, "\n\n");
     return;
 }
 
