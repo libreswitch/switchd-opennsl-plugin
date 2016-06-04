@@ -1804,7 +1804,6 @@ done:
     ds_destroy(&ds);
 } // bcm_mac_debug
 
-#define DIAGNOSTIC_BUFFER_LEN 64000
 #define L3INTERFACE "l3interface"
 #define VLANINTERFACE "vlaninterface"
 #define LAGINTERFACE "laginterface"
@@ -1814,110 +1813,96 @@ done:
 #define SFLOW "sflow"
 #define QOS "qos"
 
-static void diag_dump_basic_cb(char *buf)
+static void diag_dump_basic_cb(struct ds *ds)
 {
-    struct ds ds = DS_EMPTY_INITIALIZER;
     /* populate basic diagnostic data to buffer  */
-    ds_put_format(&ds, "L3 interface information: \n");
-    ops_l3intf_dump(&ds, -1);
-    ds_put_format(&ds, "\n\n");
+    ds_put_format(ds, "L3 interface information: \n");
+    ops_l3intf_dump(ds, -1);
+    ds_put_format(ds, "\n\n");
 
-    ds_put_format(&ds, "VLAN information: \n");
-    ops_vlan_dump(&ds, -1);
-    ds_put_format(&ds, "\n\n");
+    ds_put_format(ds, "VLAN information: \n");
+    ops_vlan_dump(ds, -1);
+    ds_put_format(ds, "\n\n");
 
-    ds_put_format(&ds, "L3 ipv4 host information: \n");
-    ops_l3host_dump(&ds, FALSE);
-    ds_put_format(&ds, "\n\n");
+    ds_put_format(ds, "L3 ipv4 host information: \n");
+    ops_l3host_dump(ds, FALSE);
+    ds_put_format(ds, "\n\n");
 
-    ds_put_format(&ds, "L3 ipv6 host information: \n");
-    ops_l3host_dump(&ds, TRUE);
-    ds_put_format(&ds, "\n\n");
+    ds_put_format(ds, "L3 ipv6 host information: \n");
+    ops_l3host_dump(ds, TRUE);
+    ds_put_format(ds, "\n\n");
 
-    ds_put_format(&ds, "L3 ipv4 route information: \n");
-    ops_l3route_dump(&ds, FALSE);
-    ds_put_format(&ds, "\n\n");
+    ds_put_format(ds, "L3 ipv4 route information: \n");
+    ops_l3route_dump(ds, FALSE);
+    ds_put_format(ds, "\n\n");
 
-    ds_put_format(&ds, "L3 ipv6 route information: \n");
-    ops_l3route_dump(&ds, TRUE);
-    ds_put_format(&ds, "\n\n");
+    ds_put_format(ds, "L3 ipv6 route information: \n");
+    ops_l3route_dump(ds, TRUE);
+    ds_put_format(ds, "\n\n");
 
-    ds_put_format(&ds, "L3 egress information: \n");
-    ops_l3egress_dump(&ds, -1);
-    ds_put_format(&ds, "\n\n");
+    ds_put_format(ds, "L3 egress information: \n");
+    ops_l3egress_dump(ds, -1);
+    ds_put_format(ds, "\n\n");
 
-    ds_put_format(&ds, "KNET ID information: \n");
-    ops_knet_dump(&ds, KNET_DEBUG_NETIF);
-    ds_put_format(&ds, "\n\nKNET filter information: \n");
-    ops_knet_dump(&ds, KNET_DEBUG_FILTER);
-    ds_put_format(&ds, "\n\n");
+    ds_put_format(ds, "KNET ID information: \n");
+    ops_knet_dump(ds, KNET_DEBUG_NETIF);
+    ds_put_format(ds, "\n\nKNET filter information: \n");
+    ops_knet_dump(ds, KNET_DEBUG_FILTER);
+    ds_put_format(ds, "\n\n");
 
-    ds_put_format(&ds, "FP information: \n");
-    ops_fp_show_dump(&ds);
-    ds_put_format(&ds, "\n\n");
-
-    snprintf(buf, ds.length, "%s", ds_cstr(&ds));
+    ds_put_format(ds, "FP information: \n");
+    ops_fp_show_dump(ds);
+    ds_put_format(ds, "\n\n");
 }
 
-static void copp_diag_dump_cb(char *buf)
+static void copp_diag_dump_cb(struct ds *ds)
 {
     int queueid;
-    struct ds ds = DS_EMPTY_INITIALIZER;
     /* populate basic diagnostic data to buffer  */
 
-    ds_put_format(&ds, "Output for CoPP ingress rules information:\n");
-    ops_fp_dump_copp_ingress_rules(&ds);
-    ds_put_format(&ds, "\n\n");
+    ds_put_format(ds, "Output for CoPP ingress rules information:\n");
+    ops_fp_dump_copp_ingress_rules(ds);
+    ds_put_format(ds, "\n\n");
 
-    ds_put_format(&ds, "Output for CoPP egress rules information:\n");
-    ops_fp_dump_copp_egress_rules(&ds);
-    ds_put_format(&ds, "\n\n");
+    ds_put_format(ds, "Output for CoPP egress rules information:\n");
+    ops_fp_dump_copp_egress_rules(ds);
+    ds_put_format(ds, "\n\n");
 
-    ds_put_format(&ds, "Output for CoPP cpu queue stats:\n");
+    ds_put_format(ds, "Output for CoPP cpu queue stats:\n");
     for(queueid = OPS_COPP_QOS_QUEUE_MIN;
         queueid <= OPS_COPP_QOS_QUEUE_MAX; queueid++)
     {
-        ops_get_cpu_queue_stats(&ds, queueid);
+        ops_get_cpu_queue_stats(ds, queueid);
     }
-    ds_put_format(&ds, "\n\n");
+    ds_put_format(ds, "\n\n");
 
-    ds_put_format(&ds, "Output for CoPP stats:\n");
+    ds_put_format(ds, "Output for CoPP stats:\n");
     if (ops_get_all_packet_stats() > 0) {
-        ds_put_format(&ds, "%s", ops_copp_all_packet_stat_buffer);
+        ds_put_format(ds, "%s", ops_copp_all_packet_stat_buffer);
     }
-    ds_put_format(&ds, "\n\n");
 
-    snprintf(buf, ds.length, "%s", ds_cstr(&ds));
+    ds_put_format(ds, "\n\n");
 }
 
 static void
-lag_diag_dump_basic_cb(char *buf)
+lag_diag_dump_basic_cb(struct ds *ds)
 {
-    struct ds ds = DS_EMPTY_INITIALIZER;
-
     /* populate basic diagnostic data to buffer  */
-    ds_put_format(&ds, "LAG information:\n");
-    ops_lag_dump(&ds, -1);
-    ds_put_format(&ds, "\n\n");
-    snprintf(buf, ds.length, "%s", ds_cstr(&ds));
+    ds_put_format(ds, "LAG information:\n");
+    ops_lag_dump(ds, -1);
+    ds_put_format(ds, "\n\n");
 
-    diag_dump_basic_cb(buf+ds.length-1);
+    diag_dump_basic_cb(ds);
 
 }
 
-
 static void
-qos_diag_dump_basic_cb(char *buf)
+qos_diag_dump_basic_cb(struct ds *ds)
 {
-    struct ds ds = DS_EMPTY_INITIALIZER;
-
     /* Populate basic QoS diagnostic data to buffer */
-    ds_put_format(&ds, "QoS information:\n");
-    ops_qos_dump_all(&ds);
-    ds_put_format(&ds, "\n\n");
-
-    snprintf(buf, ds.length, "%s", ds_cstr(&ds));
-
+    ds_put_format(ds, "QoS information:\n");
+    ops_qos_dump_all(ds);
+    ds_put_format(ds, "\n\n");
 }
 
 /* _diag_dump_callback */
@@ -1931,28 +1916,32 @@ qos_diag_dump_basic_cb(char *buf)
  **/
 static void diag_dump_callback(const char *feature , char **buf)
 {
-    if (!buf)
-        return;
-    *buf =  xcalloc(1,DIAGNOSTIC_BUFFER_LEN);
-    if (*buf) {
-        if (!strncmp(feature, L3INTERFACE, strlen(L3INTERFACE)) ||
+    struct ds ds = DS_EMPTY_INITIALIZER;
+
+    if (!strncmp(feature, L3INTERFACE, strlen(L3INTERFACE)) ||
             !strncmp(feature, SUBINTERFACE, strlen(SUBINTERFACE)) ||
             !strncmp(feature, LOOPBACK, strlen(LOOPBACK)) ||
             !strncmp(feature, VLANINTERFACE, strlen(VLANINTERFACE))) {
-            diag_dump_basic_cb(*buf);
-        } else if (!strncmp(feature, COPP, strlen(COPP))) {
-            copp_diag_dump_cb(*buf);
-        } else if (!strncmp(feature, SFLOW, strlen(SFLOW))) {
-            sflow_diag_dump_basic_cb(*buf);
-        } else if (!strncmp(feature, LAGINTERFACE, strlen(LAGINTERFACE))) {
-            lag_diag_dump_basic_cb(*buf);
-        } else if (!strncmp(feature, QOS, strlen(QOS))) {
-            qos_diag_dump_basic_cb(*buf);
-        }
-    } else {
-        VLOG_ERR("Memory allocation failed for feature %s , %d bytes",
-                feature , DIAGNOSTIC_BUFFER_LEN);
+        diag_dump_basic_cb(&ds);
+    } else if (!strncmp(feature, COPP, strlen(COPP))) {
+        copp_diag_dump_cb(&ds);
+    } else if (!strncmp(feature, SFLOW, strlen(SFLOW))) {
+        sflow_diag_dump_basic_cb(&ds);
+    } else if (!strncmp(feature, LAGINTERFACE, strlen(LAGINTERFACE))) {
+        lag_diag_dump_basic_cb(&ds);
+    } else if (!strncmp(feature, QOS, strlen(QOS))) {
+        qos_diag_dump_basic_cb(&ds);
     }
+
+    *buf =  xcalloc(1,ds.length);
+    if (*buf) {
+        VLOG_INFO("diag-dump ds.length = %lu", ds.length);
+        snprintf(*buf, ds.length, "%s", ds_cstr(&ds));
+    } else {
+        VLOG_ERR("Memory allocation failed for feature %s , %lu bytes",
+                feature , ds.length);
+    }
+    ds_destroy(&ds);
     return ;
 }
 
