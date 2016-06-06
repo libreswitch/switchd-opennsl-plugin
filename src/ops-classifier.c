@@ -50,6 +50,7 @@
 #include "plugin-extensions.h"
 #include "seq.h"
 #include "ops-classifier.h"
+#include "mac-learning-plugin.h" /* PORT_NAME_SIZE */
 
 /* Private header for ACL data structure */
 #include "ops-classifier-private.h"
@@ -1870,6 +1871,7 @@ acl_log_handle_rx_event(opennsl_pkt_t *pkt)
      */
     if (cur_time >= (last_pkt_rxd_time + ACL_LOGGING_MIN_MS_BETWEEN_PKTS)) {
         struct acl_log_info pkt_info = { .valid_fields = 0 };
+        char   port_name[PORT_NAME_SIZE+1] = { 0 };
 
         VLOG_DBG("ACL logging packet of length %d received; "
                 "total packets received so far %lu", pkt->pkt_len, pkt_counter);
@@ -1878,6 +1880,11 @@ acl_log_handle_rx_event(opennsl_pkt_t *pkt)
         /* fill in the acl_log_info struct */
         /* first fill in fields only available from the ASIC */
         pkt_info.ingress_port  = pkt->src_port;
+        netdev_port_name_from_hw_id(pkt->unit, pkt->src_port,
+                                    port_name);
+        snprintf(pkt_info.ingress_port_name,
+                 sizeof(pkt_info.ingress_port_name), port_name);
+        pkt_info.ingress_port_name[sizeof(pkt_info.ingress_port_name)-1] = 0;
         pkt_info.valid_fields |= ACL_LOG_INGRESS_PORT;
         pkt_info.egress_port   = pkt->dest_port;
         pkt_info.valid_fields |= ACL_LOG_EGRESS_PORT;
