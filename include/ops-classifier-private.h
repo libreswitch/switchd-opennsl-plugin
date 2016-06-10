@@ -22,6 +22,12 @@
  * The header file contains data sturtures private to classifier code.
  */
 
+/* Max number of IPv4 ACL rules allowed in a IFP slice */
+#define MAX_INGRESS_IPv4_ACL_RULES  512
+
+#define OPS_ETHER_TYPE_IP      0x0800
+#define OPS_ETHER_TYPE_MASK    0xFFFF
+
 /* Return code */
 enum ops_cls_status_code {
     OPS_CLS_OK = 0,
@@ -92,5 +98,6 @@ enum ops_update_pbmp {
     OPS_PBMP_ADD = 0,
     OPS_PBMP_DEL,
 };
+
 
 #endif /* __OPS_CLASSIFIER_PRIVATE_H__ */
