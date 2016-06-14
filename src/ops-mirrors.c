@@ -105,7 +105,7 @@ bcmsdk_lag_mirror_endpoint_create (
     /* apparently this never fails */
     opennsl_mirror_destination_t_init(mdestp);
 
-    /* BCM_GPORT_TRUNK_SET(gport, lag_id); */
+    OPENNSL_GPORT_TRUNK_SET(gport, lag_id);
 
     mdestp->gport = gport;
     rc = opennsl_mirror_destination_create(0, mdestp);

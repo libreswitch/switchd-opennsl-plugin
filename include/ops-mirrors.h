@@ -39,7 +39,6 @@
 #include "ofproto-bcm-provider.h"
 #include "eventlog.h"
 #include "ops-stats.h"
-#include "ops-mirrors.h"
 
 extern int
 bcmsdk_mirrors_init(int unit);
