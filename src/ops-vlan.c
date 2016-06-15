@@ -149,6 +149,48 @@ ops_vlan_dump(struct ds *ds, int vid)
 
 } // ops_vlan_dump
 
+void
+ops_hw_vlan_dump(struct ds *ds)
+{
+    int unit;
+    char pfmt[_SHR_PBMP_FMT_LEN];
+    opennsl_vlan_data_t *vlan_list = NULL;
+    opennsl_error_t rc = OPENNSL_E_NONE;
+    int min_count = 0, vlan_count = 0;
+
+    for (unit = 0; unit <= MAX_SWITCH_UNIT_ID; unit++) {
+        ds_put_format(ds, "Unit %d linked up ports = %s\n", unit,
+                      _SHR_PBMP_FMT(ops_get_link_up_pbm(unit), pfmt));
+        rc = opennsl_vlan_list (unit, &vlan_list, &vlan_count);
+        if (OPENNSL_FAILURE(rc)) {
+            ds_put_format(ds, "Unit %d, hardware vlan get error, rc=%d (%s)\n",
+                    unit, rc, opennsl_errmsg(rc));
+            return ;
+        }
+        if (vlan_count) {
+            ds_put_format(ds, "Total VLAN's :%d\n", vlan_count);
+            for (min_count = 0; min_count < vlan_count; min_count++) {
+                 char pfmt[_SHR_PBMP_FMT_LEN];
+                 ds_put_format(ds, "\nVLAN : %d\n",
+                                   vlan_list[min_count].vlan_tag);
+                 ds_put_format(ds, "PBM: %s ",
+                     _SHR_PBMP_FMT(vlan_list[min_count].port_bitmap, pfmt));
+                 ds_put_format(ds, "UBM: %s ",
+                     _SHR_PBMP_FMT(vlan_list[min_count].ut_port_bitmap, pfmt));
+            }
+            rc = OPENNSL_E_NONE;
+            rc = opennsl_vlan_list_destroy(unit, vlan_list, vlan_count);
+            if (OPENNSL_FAILURE(rc)) {
+                ds_put_format(ds, "Unit %d, hardware vlan list error,"
+                                 " rc=%d (%s)\n", unit, rc, opennsl_errmsg(rc));
+                return ;
+            }
+        }
+        ds_put_format(ds, "\n\n");
+    }
+} // ops_hw_vlan_dump
+
+
 ////////////////////////////////// HW API //////////////////////////////////
 
 static opennsl_error_t
