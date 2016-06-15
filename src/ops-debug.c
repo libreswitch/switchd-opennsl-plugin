@@ -88,6 +88,7 @@ char cmd_ops_usage[] =
 "\n"
 "   debug [[+/-]<option> ...] [all/none] - enable/disable debugging.\n"
 "   vlan <vid> - displays OpenSwitch VLAN info.\n"
+"   hwvlan - displays hardware VLAN info.\n"
 "   knet [netif | filter] - displays knet information\n"
 "   l3intf [<interface id>] - display OpenSwitch interface info.\n"
 "   l3host - display OpenSwitch l3 host info.\n"
@@ -1222,6 +1223,10 @@ bcm_plugin_debug(struct unixctl_conn *conn, int argc,
             ops_vlan_dump(&ds, vid);
             goto done;
 
+        } else if (!strcmp(ch, "hwvlan")) {
+            ops_hw_vlan_dump(&ds);
+            goto done;
+
         } else if (!strcmp(ch, "stg")) {
             int stgid = -1;
 
@@ -1835,6 +1840,10 @@ static void diag_dump_basic_cb(struct ds *ds)
 
     ds_put_format(ds, "VLAN information: \n");
     ops_vlan_dump(ds, -1);
+    ds_put_format(ds, "\n\n");
+
+    ds_put_format(ds, "Hardware VLAN information: \n");
+    ops_hw_vlan_dump(ds);
     ds_put_format(ds, "\n\n");
 
     ds_put_format(ds, "L3 ipv4 host information: \n");
