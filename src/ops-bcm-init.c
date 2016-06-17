@@ -173,6 +173,12 @@ ops_bcm_appl_init(void)
     if(rc < 0) {
         VLOG_ERR("Event log initialization failed for ECMP");
     }
+    sleep(2);
+    rc = event_log_init("VLAN");
+    if (rc < 0) {
+        VLOG_ERR("Event log initialization failed for VLAN");
+    }
+
 
     /* Initialize QoS global data structures */
     rc = ops_qos_global_init();
