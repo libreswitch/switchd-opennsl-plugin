@@ -1833,6 +1833,7 @@ done:
 #define SFLOW "sflow"
 #define QOS "qos"
 #define HWRESOURCE "hw-resource"
+#define L2VLAN "l2vlan"
 
 static void diag_dump_basic_cb(struct ds *ds)
 {
@@ -1938,6 +1939,18 @@ qos_diag_dump_basic_cb(struct ds *ds)
     ds_put_format(ds, "\n\n");
 }
 
+static void
+ops_l2vlan_diag_dump(struct ds *ds)
+{
+    /*Populates basic L2VLAN diagnostic data to buffer */
+    ds_put_format(ds, "VLAN bitmaps information: \n");
+    ops_vlan_dump(ds, -1);
+    ds_put_format(ds, "\n\n");
+
+    ds_put_format(ds, "Hardware VLANi bitmaps information: \n");
+    ops_hw_vlan_dump(ds);
+    ds_put_format(ds, "\n\n");
+}
 /* _diag_dump_callback */
 /**
  * callback handler function for diagnostic dump basic
@@ -1966,6 +1979,8 @@ static void diag_dump_callback(const char *feature , char **buf)
         qos_diag_dump_basic_cb(&ds);
     } else if (!strncmp(feature, HWRESOURCE, strlen(HWRESOURCE))) {
         hw_resource_diag_dump_basic_cb(&ds);
+    } else if (!strncmp(feature, L2VLAN, strlen(L2VLAN))) {
+        ops_l2vlan_diag_dump(&ds);
     }
 
     *buf =  xcalloc(1,ds.length);
