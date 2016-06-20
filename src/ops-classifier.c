@@ -482,6 +482,12 @@ ops_cls_set_action(int                          unit,
 
     VLOG_DBG("Classifier list entry action flag: 0x%x", cls_entry->act_flags);
 
+    if (cls_entry->act_flags & OPS_CLS_ACTION_LOG &&
+        cls_entry->act_flags & OPS_CLS_ACTION_PERMIT) {
+        VLOG_ERR("Logging with permit action is unsupported");
+        return OPS_CLS_HW_UNSUPPORTED_ERR;
+    }
+
     if (cls_entry->act_flags & OPS_CLS_ACTION_DENY) {
         rc = opennsl_field_action_add(unit, entry, opennslFieldActionDrop,
                                       0, 0);
@@ -1030,7 +1036,7 @@ ops_cls_install_rule_in_asic(int                            unit,
     /* Set the actions */
     rc = ops_cls_set_action(unit, entry, cls, cls_entry, &stat_index,
                             &statEnabled);
-    if(OPENNSL_FAILURE(rc)) {
+    if(ops_cls_error(rc)) {
         goto cleanup;
     }
 
