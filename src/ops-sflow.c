@@ -32,6 +32,7 @@
 #include <netdb.h>
 #include <platform-defines.h>
 #include <diag_dump.h>
+#include <linux/if_ether.h>
 
 #include "ofproto/collectors.h"
 #include "ops-stats.h"
@@ -58,11 +59,25 @@ SFLAgent *ops_sflow_agent = NULL;
 struct ofproto_sflow_options *sflow_options = NULL;
 struct collectors *sflow_collectors = NULL;
 
-/* sFlow knet filter id's */
-int knet_sflow_source_filter_id;
-int knet_sflow_dest_filter_id;
-
 static struct ovs_mutex mutex;
+
+/* Print IPv4 portion of packet. 'byte' points to start of IPv4 packet. */
+void print_ipv4 (uint8 *byte)
+{
+    if (byte == NULL) {
+        return;
+    }
+
+    VLOG_DBG("==============IPv4  HEADER===============");
+    VLOG_DBG("Ver/IHL: %02X ToS: %02X Len: %02X%02X",
+            byte[0], byte[1], byte[2], byte[3]);
+
+    VLOG_DBG("Src: %02X.%02X.%02X.%02X",
+            byte[4], byte[5], byte[6], byte[7]);
+
+    VLOG_DBG("Dest: %02X.%02X.%02X.%02X",
+            byte[8], byte[9], byte[10], byte[11]);
+}
 
 /* callbacks registered during sFlow initialization; used for various
  * utilities.
@@ -125,8 +140,8 @@ ops_sflow_options_equal(const struct ofproto_sflow_options *oso1,
 }
 
 /* Ethernet Hdr (18 bytes)
- *  DMAC SMAC EtherType VLAN EtherTYpe
- *   6    6       2      2     2   <-- bytes
+ *  DMAC SMAC EtherType
+ *   6    6       2
  */
 /* IPv4 Hdr (14 fields, of which 13 are required. Minimum 16 bytes)
     0                   1                   2                   3
@@ -165,8 +180,6 @@ print_pkt(const opennsl_pkt_t *pkt)
             pkt->rx_untagged, pkt->_vtag[0], pkt->_vtag[1],
             pkt->_vtag[2], pkt->_vtag[3]);
 
-#define PKT pkt->pkt_data[i].data
-
     for(i=0; i<pkt->blk_count; i++) {
         VLOG_DBG("[%s:%d]; blk num=%d, blk len=%d", __FUNCTION__, __LINE__,
                 i, pkt->pkt_data[i].len);
@@ -182,23 +195,12 @@ print_pkt(const opennsl_pkt_t *pkt)
                 pkt->pkt_data[i].data[8], pkt->pkt_data[i].data[9],
                 pkt->pkt_data[i].data[10], pkt->pkt_data[i].data[11]);
 
-        VLOG_DBG("EtherType: %02X%02X Vlan: %02X%02X EtherType: %02X%02X",
-                pkt->pkt_data[i].data[12], pkt->pkt_data[i].data[13],
-                pkt->pkt_data[i].data[14], pkt->pkt_data[i].data[15],
-                pkt->pkt_data[i].data[16], pkt->pkt_data[i].data[17]);
+        VLOG_DBG("EtherType: %02X%02X ", pkt->pkt_data[i].data[12],
+                pkt->pkt_data[i].data[13]);
 
-        VLOG_DBG("==============IPv4  HEADER===============");
-        VLOG_DBG("Ver/IHL: %02X ToS: %02X Len: %02X%02X",
-                pkt->pkt_data[i].data[18], pkt->pkt_data[i].data[19],
-                pkt->pkt_data[i].data[20], pkt->pkt_data[i].data[21]);
-
-        VLOG_DBG("Src: %02X.%02X.%02X.%02X",
-                pkt->pkt_data[i].data[30], pkt->pkt_data[i].data[31],
-                pkt->pkt_data[i].data[32], pkt->pkt_data[i].data[33]);
-
-        VLOG_DBG("Dest: %02X.%02X.%02X.%02X",
-                pkt->pkt_data[i].data[34], pkt->pkt_data[i].data[35],
-                pkt->pkt_data[i].data[36], pkt->pkt_data[i].data[37]);
+        if ((unsigned short)pkt->pkt_data[i].data[12] == ETH_P_IP) {
+                print_ipv4(&pkt->pkt_data[i].data[18]);
+        }
     }
 }
 
@@ -250,7 +252,8 @@ void ops_sflow_write_sampled_pkt(int unit, opennsl_pkt_t *pkt)
      */
     header->frame_length = pkt->tot_len;
 
-    if (pkt->vlan && ops_routing_is_internal_vlan(pkt->vlan)) {
+    if (((unsigned short)(pkt->pkt_data[0].data[12]) == ETH_P_8021Q) &&
+        pkt->vlan && ops_routing_is_internal_vlan(pkt->vlan)) {
         VLOG_DBG("Internal VLAN from sampled packet (in hex): %02X%02X",
                  pkt->pkt_data[0].data[14],
                  pkt->pkt_data[0].data[15]);
@@ -1258,14 +1261,6 @@ ops_sflow_agent_enable(struct bcmsdk_provider_node *ofproto,
     sfl_sampler_set_sFlowFsReceiver(sampler, SFLOW_RECEIVER_INDEX);
 
     ops_sflow_set_polling_interval(ofproto, sflow_options->polling_interval);
-
-    /* Install KNET filters for source and destination sampling */
-    bcmsdk_knet_sflow_filter_create(&knet_sflow_source_filter_id,
-            opennslRxReasonSampleSource, "sFlow Source Sample");
-    bcmsdk_knet_sflow_filter_create(&knet_sflow_dest_filter_id,
-            opennslRxReasonSampleDest, "sFlow Dest Sample");
-
-    VLOG_DBG("knet filter id --> source:%d, dest:%d", knet_sflow_source_filter_id, knet_sflow_dest_filter_id);
 }
 
 void
@@ -1291,25 +1286,9 @@ ops_sflow_agent_disable(struct bcmsdk_provider_node *ofproto)
     }
 
     if (ops_sflow_agent) {
-        VLOG_DBG("KNET filter IDs: source %d, dest %d",
-                knet_sflow_source_filter_id, knet_sflow_dest_filter_id);
-
-        if (knet_sflow_source_filter_id || knet_sflow_dest_filter_id) {
-            /* passing 0 ingress and egress rates will clear the sampling
-             * rates on ASIC. */
-            ops_sflow_set_sampling_rate(0, 0, 0, 0);
-        }
-
-        /* Remove KNET filters */
-        if (knet_sflow_source_filter_id) {
-            bcmsdk_knet_filter_delete("sflow source filter", 0, knet_sflow_source_filter_id);
-            knet_sflow_source_filter_id = 0;
-        }
-
-        if (knet_sflow_dest_filter_id) {
-            bcmsdk_knet_filter_delete("sflow dest filter", 0, knet_sflow_dest_filter_id);
-            knet_sflow_dest_filter_id = 0;
-        }
+        /* passing 0 ingress and egress rates will clear the sampling
+         * rates on ASIC. */
+        ops_sflow_set_sampling_rate(0, 0, 0, 0);
 
         /* Delete sFlow Agent */
         sfl_agent_release(ops_sflow_agent);

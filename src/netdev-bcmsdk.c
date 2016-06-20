@@ -92,11 +92,14 @@ struct netdev_bcmsdk {
     char *parent_netdev_name;
     int subint_count;       /* Subinterface count per parent interface */
     int l3_intf_id;
+
     int knet_if_id;             /* BCM KNET interface ID. */
-    int knet_bpdu_filter_id;                 /* BCM KNET BPDU filter ID. */
-    int knet_l3_port_filter_id;              /* BCM KNET L3 interface filter ID. */
-    int knet_subinterface_filter_id;         /* BCM KNET subinterface filter ID. */
-    int knet_bridge_normal_filter_id;        /* BCM KNET bridge mormal filter ID. */
+    int knet_bpdu_filter_id;            /* BCM KNET BPDU filter ID. */
+    int knet_l3_port_filter_id;         /* BCM KNET L3 interface filter ID. */
+    int knet_subinterface_filter_id;    /* BCM KNET subinterface filter ID. */
+    int knet_bridge_normal_filter_id;   /* BCM KNET bridge mormal filter ID. */
+    int knet_sflow_filter_id;           /* BCM KNET sFlow filter ID. */
+    int knet_sflow_subif_filter_id;     /* BCM KNET sFlow filter ID for sub-interface. */
 
     bool intf_initialized;
 
@@ -683,12 +686,17 @@ handle_bcmsdk_knet_bpdu_filters(struct netdev_bcmsdk *netdev, int enable)
          * All other packets will go to bridge interface
          * */
         bcmsdk_knet_port_bpdu_filter_create(netdev->up.name, netdev->hw_unit, netdev->hw_id,
-                netdev->knet_if_id, &(netdev->knet_bpdu_filter_id));
+                netdev->knet_if_id, &(netdev->knet_bpdu_filter_id),
+                &(netdev->knet_sflow_filter_id));
     } else if ((enable == false) && (netdev->knet_bpdu_filter_id != 0)) {
-        bcmsdk_knet_filter_delete(netdev->up.name, netdev->hw_unit, netdev->knet_bpdu_filter_id);
+        bcmsdk_knet_filter_delete(netdev->up.name, netdev->hw_unit,
+                netdev->knet_bpdu_filter_id);
         netdev->knet_bpdu_filter_id = 0;
-    }
 
+        bcmsdk_knet_filter_delete(netdev->up.name, netdev->hw_unit,
+                netdev->knet_sflow_filter_id);
+        netdev->knet_sflow_filter_id = 0;
+    }
 }
 
 void
@@ -698,15 +706,20 @@ handle_bcmsdk_knet_l3_port_filters(struct netdev *netdev_, opennsl_vlan_t vlan_i
     if (enable == true && netdev->knet_l3_port_filter_id == 0) {
         VLOG_DBG("Create l3 port knet filter\n");
         bcmsdk_knet_l3_port_filter_create(netdev->hw_unit, vlan_id, netdev->hw_id,
-                netdev->knet_if_id, &(netdev->knet_l3_port_filter_id));
+                netdev->knet_if_id, &(netdev->knet_l3_port_filter_id),
+                &(netdev->knet_sflow_filter_id));
     } else if ((enable == false) && (netdev->knet_l3_port_filter_id != 0)) {
         VLOG_DBG("Destroy l3 port knet filter\n");
         bcmsdk_knet_filter_delete(netdev->up.name,
                                   netdev->hw_unit,
                                   netdev->knet_l3_port_filter_id);
         netdev->knet_l3_port_filter_id = 0;
-    }
 
+        bcmsdk_knet_filter_delete(netdev->up.name,
+                                  netdev->hw_unit,
+                                  netdev->knet_sflow_filter_id);
+        netdev->knet_sflow_filter_id = 0;
+    }
 }
 
 int
@@ -744,6 +757,7 @@ netdev_bcmsdk_update_subint_count(struct netdev *netdev_, bool increment)
         netdev_close(parent);
     }
 }
+
 void
 handle_bcmsdk_knet_subinterface_filters(struct netdev *netdev_, bool enable)
 {
@@ -757,12 +771,20 @@ handle_bcmsdk_knet_subinterface_filters(struct netdev *netdev_, bool enable)
         if (enable == true) {
                 VLOG_DBG("Create subinterface knet filter\n");
                 bcmsdk_knet_subinterface_filter_create(netdev->hw_unit, netdev->parent_hw_id,
-                        parent_netdev->knet_if_id, &(parent_netdev->knet_subinterface_filter_id));
-        } else if (enable == false) {
-                VLOG_DBG("Destroy subinterface knet filter\n");
+                        parent_netdev->knet_if_id,
+                        &(parent_netdev->knet_subinterface_filter_id),
+                        &(parent_netdev->knet_sflow_subif_filter_id));
+        } else {
+                VLOG_DBG("Delete subinterface knet filter\n");
                 bcmsdk_knet_filter_delete(netdev->up.name,
                                           netdev->hw_unit,
                                           parent_netdev->knet_subinterface_filter_id);
+                parent_netdev->knet_subinterface_filter_id = 0;
+
+                bcmsdk_knet_filter_delete(netdev->up.name,
+                                          netdev->hw_unit,
+                                          parent_netdev->knet_sflow_subif_filter_id);
+                parent_netdev->knet_sflow_subif_filter_id = 0;
         }
         netdev_close(parent);
     }
@@ -774,11 +796,15 @@ handle_bcmsdk_knet_bridge_normal_filters(struct netdev *netdev_, bool enable)
     struct netdev_bcmsdk *netdev = netdev_bcmsdk_cast(netdev_);
     if (enable == true && netdev->knet_bridge_normal_filter_id == 0) {
         VLOG_DBG("Create bridge normal knet filter\n");
-        bcmsdk_knet_bridge_normal_filter_create(netdev->up.name, &(netdev->knet_bridge_normal_filter_id));
+        bcmsdk_knet_bridge_normal_filter_create(netdev->up.name, &(netdev->knet_bridge_normal_filter_id),
+                &(netdev->knet_sflow_filter_id));
     } else if ((enable == false) && (netdev->knet_bridge_normal_filter_id != 0)) {
         VLOG_DBG("Destroy bridge normal knet filter\n");
         bcmsdk_knet_filter_delete(netdev->up.name, netdev->hw_unit, netdev->knet_bridge_normal_filter_id);
-        netdev->knet_bpdu_filter_id = 0;
+        netdev->knet_bridge_normal_filter_id = 0;
+
+        bcmsdk_knet_filter_delete(netdev->up.name, netdev->hw_unit, netdev->knet_sflow_filter_id);
+        netdev->knet_sflow_filter_id = 0;
     }
 }
 

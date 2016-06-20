@@ -23,6 +23,7 @@
 #include <ovs/dynamic-string.h>
 #include <netinet/ether.h>
 #include <opennsl/types.h>
+#include <opennsl/knet.h>
 
 /* BCM PRIORITY
  * The order in which knet filters are arranged.
@@ -47,11 +48,22 @@ enum knet_filter_prio_e
     KNET_FILTER_PRIO_HIGHEST = 2,
     KNET_FILTER_PRIO_ACL_LOGGING,
     KNET_FILTER_PRIO_SFLOW,
+
+    KNET_FILTER_PRIO_SFLOW_BPDU,
     KNET_FILTER_PRIO_BPDU,
+
+    KNET_FILTER_PRIO_SFLOW_PORT,
     KNET_FILTER_PRIO_PORT,
+
+    KNET_FILTER_PRIO_SFLOW_VLAN,
     KNET_FILTER_PRIO_VLAN,
+
+    KNET_FILTER_PRIO_SFLOW_SUBINTF,
     KNET_FILTER_PRIO_SUBINTF,
+
+    KNET_FILTER_PRIO_SFLOW_BRIDGE_NORMAL,
     KNET_FILTER_PRIO_BRIDGE_NORMAL,
+
     KNET_FILTER_PRIO_LOWEST = 255
 };
 
@@ -74,17 +86,26 @@ extern int bcmsdk_knet_if_delete(char *name, int unit, int knet_if_id);
 extern void bcmsdk_knet_filter_delete(char *name, int unit, int knet_filter_id);
 
 extern int bcmsdk_knet_if_delete_by_name(char* name, int hw_unit);
-extern void bcmsdk_knet_l3_port_filter_create(int hw_unit, int vid, opennsl_port_t hw_port,
-                               int knet_if_id, int *knet_filter_id);
-extern void bcmsdk_knet_subinterface_filter_create(int hw_unit, opennsl_port_t hw_port,
-                               int knet_if_id, int *knet_filter_id);
-extern void bcmsdk_knet_port_bpdu_filter_create(char *name, int hw_unit, opennsl_port_t hw_port,
-                                           int knet_if_id, int *knet_filter_id);
-extern void bcmsdk_knet_bridge_normal_filter_create(char *knet_dst_if_name,
-        int *knet_filter_id);
-extern void ops_knet_dump(struct ds *ds, knet_debug_type_t debug_type);
 
-extern void bcmsdk_knet_sflow_filter_create(int *knet_filter_id, int reason, char *desc);
+extern void bcmsdk_knet_l3_port_filter_create(int hw_unit, int vid,
+        opennsl_port_t hw_port, int knet_if_id, int *knet_filter_id,
+        int *knet_sflow_filter_id);
+
+extern void bcmsdk_knet_subinterface_filter_create(int hw_unit,
+        opennsl_port_t hw_port, int knet_if_id, int *knet_filter_id,
+        int *knet_sflow_filter_id);
+
+extern void bcmsdk_knet_port_bpdu_filter_create(char *name, int hw_unit,
+        opennsl_port_t hw_port, int knet_if_id, int *knet_filter_id,
+        int *knet_sflow_filter_id);
+
+extern void bcmsdk_knet_sflow_filter_create(opennsl_knet_filter_t *filter,
+        int prio, char *desc, int *knet_sflow_filter_id);
+
+extern void bcmsdk_knet_bridge_normal_filter_create(char *knet_dst_if_name,
+        int *knet_filter_id, int *knet_sflow_filter_id);
+
+extern void ops_knet_dump(struct ds *ds, knet_debug_type_t debug_type);
 
 extern void bcmsdk_knet_acl_logging_filter_create(char *knet_dst_if_name,
         int *knet_filter_id);
