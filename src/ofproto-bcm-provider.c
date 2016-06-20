@@ -1311,20 +1311,24 @@ bundle_set(struct ofproto *ofproto_, void *aux,
        VLOG_DBG("%s BOND config options option_arg= %s", __FUNCTION__,opt_arg);
     }
 
-    /* sFlow config on port */
-    opt_arg = smap_get(s->port_options[PORT_OTHER_CONFIG],
-                       PORT_OTHER_CONFIG_SFLOW_PER_INTERFACE_KEY_STR);
-    if (opt_arg == NULL) {
-        VLOG_DBG("sflow not configured on port: %s", bundle->name);
+    /* sFlow config on port. true - enable sFlow; false - disable sFlow */
+    bool conf = smap_get_bool(s->port_options[PORT_OTHER_CONFIG],
+                       PORT_OTHER_CONFIG_SFLOW_PER_INTERFACE_KEY_STR, true);
+    if (s->name &&
+        strncmp(s->name, DEFAULT_BRIDGE_NAME, strlen(DEFAULT_BRIDGE_NAME)) == 0) {
+        VLOG_DBG("sflow will not be configured on bridge_normal");
     }
     /* if sFlow settings present on port, download it to ASIC */
     else {
         int hw_unit, hw_port;
         LIST_FOR_EACH_SAFE(port, next_port, bundle_node, &bundle->ports) {
+            VLOG_DBG("sflow on port %s is %s", bundle->name,
+                    (conf)?"ENABLED":"DISABLED");
             netdev_bcmsdk_get_hw_info(port->up.netdev,
                                       &hw_unit, &hw_port, NULL);
-            ops_sflow_set_per_interface(hw_unit, hw_port,
-                                        strcmp(opt_arg, "false"));
+            ops_sflow_set_per_interface(hw_unit, hw_port, conf);
+
+            sflow_options_update_ports_list(bundle->name, conf);
         }
     }
 

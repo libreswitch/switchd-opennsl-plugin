@@ -122,6 +122,10 @@ ops_sflow_set_polling_interval(struct bcmsdk_provider_node *ofproto,
                                int polling_interval);
 
 extern void
+sflow_options_update_ports_list(const char *port_name,
+                                bool sflow_is_enabled);
+
+extern void
 ops_sflow_run(struct bcmsdk_provider_node *ofproto);
 
 extern void
