@@ -139,7 +139,7 @@ def validate_ecmp_check_status(switch, number_of_intf):
     buf = retStruct.get('buffer')
     for curLine in buf.split('\n'):
         if "Interfaces:" in curLine:
-            if number_of_intf  !=  len([s for s in re.findall(r'\b\d+\b',str)]):
+            if number_of_intf  !=  len([s for s in re.findall(r'\b\d+\b',curLine)]):
                LogOutput('error', "ASIC for ECMP object has incorrect number of nexthops\n")
                assert(False)
 
@@ -199,7 +199,7 @@ def intf_shut_noshut_test(**kwargs):
 
     #verify the ecmp route in sh ip route
     verify_route_in_show_route(switch, True, ExpRouteDictIpv4StaticRoute1_2, 'static')
-    verify_route_in_show_route(switch, False, ExpRouteDictIpv4StaticRoute2, 'static')
+    verify_route_in_show_route(switch, True, ExpRouteDictIpv4StaticRoute2, 'static')
     validate_ecmp_check_status(switch, 2)
 
     LogOutput('info', "Enabling interface1 on switch01")
