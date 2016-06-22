@@ -39,6 +39,10 @@
         - [Design detail](#design-detail)
         - [Operations on MAC table](#operations-on-mac-table)
         - [MAC Learning References](#mac-learning-references)
+    - [OpenFlow Hybrid Switch Support](#openflow-hybrid-switch-support)
+        - [Hybrid Model](#hybrid-model)
+        - [OpenFlow Forwarding Pipeline (TTP)](#openflow-forwarding-pipeline-ttp)
+        - [OpenNSL APIs for OpenFlow](#opennsl-apis-for-openflow)
 - [References](#references)
 
 ## Overview
@@ -588,6 +592,102 @@ Currently supported operations:
 
 * [Feature design](/documents/dev/user/mac_learning_feature_design)
 
+
+
+## OpenFlow Hybrid Switch Support
+
+The OpenSwitch switch driver plugin supports programming the Broadcom switch ASIC using OpenFlow. The switch driver implements an OpenFlow agent as part of the capabilities defined in the Open vSwitch implementation. When configured, this OpenFlow agent communicates with one or more OpenFlow controllers allowing configuration and status to be exchanged using the OpenFlow protocol.
+
+Broadcom ASIC configuration originating from OpenSwitch NoS components and from OpenFlow controller applications are integrated using a strategy discussed in the Hybrid Model section below.
+
+The OpenFlow-hybrid support provided by the plugin is based on the OpenFlow Data Plane Abstraction (OF-DPA). OF-DPA is an open specification that enables programming hardware switches using the OpenFlow protocol. The abstraction is based on OpenFlow 1.3.4 employing multiple flow tables and group entries.  OF-DPA provides OpenFlow controller applications access to the capabilities of forwarding engines such as switch ASICs. While the OpenFlow pipeline provided by the OpenFlow-hybrid implementation in OpenSwitch is related to the one documented at the OF-DPA github page, there are differences due to the fact that the former is part of an OpenFlow-hybrid switch and the latter implements an OpenFlow-only switch.
+
+### Hybrid Model
+
+Various models for organizing OpenFlow-hybrid switches are possible. The model employed in the OpenSwitch switch driver plugin is referred to as "Ships in the Night". In this model, the physical switch is partitioned by assigning ports to either the OpenFlow switch or the traditional switch bridge (bridge_normal). In OpenSwitch, this is accomplished using an OVSDB Bridge table entry representing the OpenFlow switch. This bridge entry has the datapath_type column set to "ofdpa". The OpenFlow related code paths in the switch driver plugin use the datapath_type to verify that OpenFlow configuration is installed on ports assigned to the OpenFlow bridge.
+
+According to the OpenFlow Switch Specification, an OpenFlow-hybrid switch should provide a classification mechanism that routes traffic to either the OpenFlow pipeline or the normal pipeline. The mechanism used in the OpenNSL plugin is based on the port the packet enters the switch. A port is configured to be under the control of the OpenFlow pipeline by referring to the port in the bridge table entry whose datapath_type is "ofdpa".
+
+The initial implementation follows a Ships in the Night model that provides isolated dataplanes. This model can also support an "overlay/underlay" model that provides for traffic to cross the boundary between the OpenFlow and normal pipelines.
+
+### OpenFlow Forwarding Pipeline (TTP)
+
+The OpenFlow pipeline supports the configuration of L2 bridges programmed by OpenFlow controllers. The L2 bridges may be programmed to isolate virtual tenant networks on shared network infrastructure.
+
+Packets are assigned to a virtual tenant by classifying packets based on port, or the combination of port and VLAN. This assignment is done by programming the VLAN table to set the Tunnel-ID metadata for the packet. This Tunnel-ID is used analogous to a VLAN ID to look up the forwarding destination. The controller programs a Bridging table flow entry to match the MAC address and the Tunnel-ID.
+
+OpenFlow pipelines are described by their Table Type Pattern (TTP). A TTP is a JSON description method defined by ONF for describing an OpenFlow pipeline. It describes each flow table and what order they are used to process a packet. The flow tables used by the OF-DPA hybrid pipeline are shown in the following diagram.
+
+```ditaa
+
+            +--------+     +--------+    +-------------+    +----------+    +-----------+
+            |        |     |        |    |             |    |          |    |           |
++------+    | Ingress|     | VLAN   |    | Termination |    | Bridging |    | Policy    |    +---------+    +------+
+| port +----> Port   +----->        +----> MAC         +---->          +----> ACL       +----> actions +----> port |
++------+    |        |     |        |    |             |    |          |    |           |    +---------+    +------+
+            |        |     |        |    |             |    |          |    |           |
+            |        |     |        |    |             |    |          |    |           |
+            +--------+     +--------+    +-------------+    +----------+    +-----------+
+```
+
+Not all of the tables in this diagram are active in this version version, some are placeholders for future use. The inactive flow tables have built-in default flow entries for now and cannot be programmed with flow entries. OpenFlow flow entries contain a "Goto-Table" instruction with specific table ID number. Including tables that will be used in future implementations helps preserve backward compatibility with OpenFlow configurations used in the current TTP.
+
+The flow table IDs for each table are:
+
+Table Name | Table ID
+-----------|---------
+Ingress Port | 0
+VLAN | 10
+Termination MAC | 20
+Bridging | 50
+Policy ACL | 60
+
+
+#### Ingress Port Flow Table
+
+This is a placeholder flow table. No flows are accepted for this table.
+
+#### VLAN Flow Table
+
+Flows in this table match on port or port and VLAN. The port must be assigned to the OF-DPA bridge for the flow to be added. The set-field action setting the tunnel-id metadata is applied to matching packets. The Goto-Table instruction must specify the Termination MAC flow table.
+
+#### Termination MAC Flow Table
+
+This is a placeholder flow table. No flows are accepted for this table.
+
+#### Bridging Flow Table
+
+Flows in this table match on tunnel-id and destination MAC. The flow entry must include a group action in the write-actions instruction. The Goto-Table instruction must specify the Policy ACL flow table.
+
+#### Policy ACL Flow Table
+
+This is a placeholder flow table. No flows are accepted for this table.
+
+#### L2 Interface Group Entry
+
+The current TTP uses one type of group entry. This is called an L2 Interface group.
+
+In OF-DPA, group ID is used to convey information about the group entry contents. Part of this information is the group entry type within OF-DPA. L2 Interface Group enries are assigned type == 0.
+
+The group ID for this type of group entry is made up of the following fields:
+
+bits: |[31:28]|[27:16]|[15:0]
+------|-------|-------|------
+content:|Type|VLAN ID|Port
+
+As an example, the ID for an L2 Interface group entry that specifies VLAN ID 100 (0x64) and port 7 (0x0007) is 6553607 (0x00640007).
+
+The action bucket for an L2 Interface Group entry specifies the port the packet is transmitted from. The port must be assigned to the OF-DPA bridge. The action set may also include the pop_vlan action which causes packets to be sent untagged.
+
+### OpenNSL APIs for OpenFlow
+
+The OF-DPA Hybrid feature uses APIs provided in the OpenNSL SDK. These APIs are used to add and remove OpenFlow configuration from the ASIC. Information about these APIs is found in the Broadcom OpenNSL reference below.
+
+### Configuration Example
+
 ## References
 [OpenvSwitch Porting Guide](http://git.openvswitch.org/cgi-bin/gitweb.cgi?p=openvswitch;a=blob;f=PORTING)
 [Broadcom OpenNSL](https://github.com/Broadcom-Switch/OpenNSL)
+[OpenFlow Switch Specification ver. 1.3.4](https://www.opennetworking.org/images/stories/downloads/sdn-resources/onf-specifications/openflow/openflow-switch-v1.3.4.pdf)
+[OpenFlow Data Plan Abstraction](https://github.com/Broadcom-Switch/of-dpa)
+[OpenFlow Table Type Patterns 1.0](https://www.opennetworking.org/images/stories/downloads/sdn-resources/onf-specifications/openflow/OpenFlow%20Table%20Type%20Patterns%20v1.0.pdf)
