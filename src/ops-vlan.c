@@ -33,7 +33,6 @@
 #include "ops-pbmp.h"
 #include "ops-port.h"
 #include "ops-vlan.h"
-#include "eventlog.h"
 
 VLOG_DEFINE_THIS_MODULE(ops_vlan);
 
@@ -370,10 +369,8 @@ hw_create_vlan(int unit, int vid)
         // Ignore duplicated create requests.
         VLOG_ERR("Unit %d VLAN %d create error, rc=%d (%s)",
                  unit, vid, rc, opennsl_errmsg(rc));
-        log_event("HW_CREATE_VLAN_FAILURE", EV_KV("vid", "%d", vid));
-    }else {
-        log_event("HW_CREATE_VLAN_SUCCESS", EV_KV("vid", "%d", vid));
     }
+
     SW_VLAN_DBG("done: rc=%s", opennsl_errmsg(rc));
 
 } // hw_create_vlan
@@ -389,9 +386,6 @@ hw_destroy_vlan(int unit, int vid)
     if (OPENNSL_FAILURE(rc)) {
         VLOG_ERR("Unit %d, VLAN %d destroy error, rc=%d (%s)",
                  unit, vid, rc, opennsl_errmsg(rc));
-        log_event("HW_DESTROY_VLAN_FAILURE", EV_KV("vid", "%d", vid));
-    }else {
-        log_event("HW_DESTROY_VLAN_SUCCESS", EV_KV("vid", "%d", vid));
     }
 
     SW_VLAN_DBG("done: rc=%s", opennsl_errmsg(rc));
