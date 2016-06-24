@@ -148,7 +148,7 @@ static void ops_mac_entry_add(
     uint32_t hash = 0;
     int actual_size = 0;
     char port_name[PORT_NAME_SIZE];
-    bool found = false;
+    bool update = false;
 
     memcpy(mac_eth.ea, mac, sizeof(mac_eth.ea));
     hash = mlearn_table_hash_calc(mac_eth, vlan, hw_unit);
@@ -163,61 +163,86 @@ static void ops_mac_entry_add(
         return;
     }
 
-    if (move_event) {
-        VLOG_DBG("%s: move_event, port: %d, oper: %d, hw_unit: %d, vlan: %d, MAC: %s",
-                 __FUNCTION__, port_id, event, hw_unit, vlan,
-                 ether_ntoa((struct ether_addr *)mac));
-        HMAP_FOR_EACH_WITH_HASH (entry, hmap_node, hash,
-                                 &(hmap_entry->table)) {
-            if ((entry->vlan == vlan) && eth_addr_equals(entry->mac, mac_eth) &&
-                (entry->hw_unit == hw_unit)) {
-                if ((event == MLEARN_ADD) && (entry->oper == MLEARN_DEL)) {
-                    if (port_id == entry->port) {
-                        /*
-                         * remove this entry from hmap
-                         */
-                        entry->oper = MLEARN_UNDEFINED;
-                        VLOG_DBG("%s: move event, entry found removing", __FUNCTION__);
-                        found = true;
-                    }
-                } else if ((event == MLEARN_DEL) && (entry->oper == MLEARN_ADD)) {
-                    /*
-                     * remove this entry from hmap
-                     */
-                    if (port_id == entry->port) {
-                        /*
-                         * remove this entry from hmap
-                         */
-                        entry->oper = MLEARN_UNDEFINED;
-                        VLOG_DBG("%s: move event, entry found removing", __FUNCTION__);
-                        found = true;
-                    }
+    VLOG_DBG("%s: port: %d, oper: %d, hw_unit: %d, vlan: %d, MAC: %s",
+             __FUNCTION__, port_id, event, hw_unit, vlan,
+             ether_ntoa((struct ether_addr *)mac));
+
+    /* NOTE: hmap_insert always inserts node at beggining for the same hash value.
+     * So same MAC and VLAN node has different operation, then HMAP_FOR_EACH_WITH_HASH
+     * will return the nodes  last in first out. This will impact the MAC events order
+     * to avoid that loop through the HMAP and make sure always only one MAC element
+     * with latest event in the HAMP(MAC & VLAN as hash key).
+     * Example event1: MAC1, VLAN1, Port1, DELETE(ageout)
+     *         event2: MAC1, VLAN1, Port1, ADD
+     * In the above example both nodes in the hmap, then events can go in out of order.
+     * So to avoid this behaviour always check same node is already in the hmap and
+     * update node with latest values.
+     */
+
+    /* Step1: MAC ADD events, If node is already in the hash map and entry->operation
+     *        will be set based on the move flags.
+     *
+     * Step2: MAC DEL events, if the node is already in the hash map check "port id"
+     *        of the current event and old node, if both belong to the same port then
+     *        remove this node from the hmap to suppress the events.
+     *
+     * Step3: MAC MOVE Events, SDK set the move flags and genetaes two events.
+     *        MAC DELETE event with old port and MAC ADD event with the new port
+     *        for MOVE case.In this case If the node is already found in the hmap MAC
+     *        ADD event with move flags will overwrite the old MAC DELETE event node
+     *        in the hmap with operation as MOVE and sets the new port.
+     */
+    HMAP_FOR_EACH_WITH_HASH (entry, hmap_node, hash,
+                             &(hmap_entry->table)) {
+
+        if ((entry->vlan == vlan) && eth_addr_equals(entry->mac, mac_eth) &&
+            (entry->hw_unit == hw_unit)) {
+            if (event == MLEARN_DEL) {
+                /* remove this entry from hmap */
+                update = true;
+                if (port_id == entry->port &&
+                    (hmap_entry->buffer).actual_size > 0) {
+                    /* Remove the node from the hmap table */
+                    hmap_remove(&hmap_entry->table, &(entry->hmap_node));
+                    VLOG_DBG("%s: MAC: %s vlan: %d found removing ",
+                             __FUNCTION__, ether_ntoa((struct ether_addr *)mac),
+                             vlan);
                 }
+            } else {
+                /* Operation is MOVE or ADD? */
+                entry->port = port_id;
+                entry->oper = move_event ? MLEARN_MOVE : event;
+                strncpy(entry->port_name, port_name, PORT_NAME_SIZE);
+                update = true;
+                VLOG_DBG("%s: MAC: %s vlan: %d update ",
+                         __FUNCTION__, ether_ntoa((struct ether_addr *)mac),
+                         vlan);
             }
         }
     }
 
-    if (!found) {
+    if (!update) {
         if (actual_size < (hmap_entry->buffer).size) {
             struct mlearn_hmap_node *mlearn_node =
                                     &((hmap_entry->buffer).nodes[actual_size]);
-            VLOG_DBG("%s: move_event, port: %d, oper: %d, hw_unit: %d, vlan: %d, MAC: %s",
-                     __FUNCTION__, port_id, event, hw_unit, vlan,
+            VLOG_DBG("%s: new event, port: %d, oper: %d, hw_unit: %d,"
+                     " vlan: %d, MAC: %s", __FUNCTION__, port_id,
+                     event, hw_unit, vlan,
                      ether_ntoa((struct ether_addr *)mac));
-
             memcpy(&mlearn_node->mac, &mac_eth, sizeof(mac_eth));
             mlearn_node->port = port_id;
             mlearn_node->vlan = vlan;
             mlearn_node->hw_unit = hw_unit;
-            mlearn_node->oper = event;
+            /* Check is it MOVE event? */
+            mlearn_node->oper = move_event && event == MLEARN_ADD ? MLEARN_MOVE : event;
             strncpy(mlearn_node->port_name, port_name, PORT_NAME_SIZE);
             hmap_insert(&hmap_entry->table,
                         &(mlearn_node->hmap_node),
                         hash);
             (hmap_entry->buffer).actual_size++;
         } else {
-            VLOG_ERR("Error, not able to insert elements in hmap, size is: %u\n",
-                     hmap_entry->buffer.actual_size);
+            VLOG_ERR_RL(&mac_learning_rl,"Error: MAC event miss, hmap size is: %u\n",
+                        hmap_entry->buffer.actual_size);
         }
     }
 }
