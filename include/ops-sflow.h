@@ -125,6 +125,9 @@ extern void
 sflow_options_update_ports_list(const char *port_name,
                                 bool sflow_is_enabled);
 
+extern bool
+ops_sflow_port_config_changed(const char *port_name, bool sflow_enabled);
+
 extern void
 ops_sflow_run(struct bcmsdk_provider_node *ofproto);
 

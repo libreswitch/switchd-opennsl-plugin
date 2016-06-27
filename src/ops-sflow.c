@@ -467,8 +467,9 @@ ops_sflow_set_polling_interval(struct bcmsdk_provider_node *ofproto, int interva
     }
 }
 
-/* Function updates 'ports' list within sflow_options.
- * TODO: fix for LAG */
+/**
+ * Function updates 'ports' list within sflow_options.
+ */
 void
 sflow_options_update_ports_list(const char *port_name, bool sflow_is_enabled)
 {
@@ -493,6 +494,43 @@ sflow_options_update_ports_list(const char *port_name, bool sflow_is_enabled)
             sset_add(&sflow_options->ports, port_name);
         }
     }
+}
+
+/**
+ * Function to check if port is already in the list
+ * of ports on which sflow has been disabled.
+ */
+static bool
+ops_sflow_port_in_disabled_list(const char *port_name)
+{
+    if (sflow_options == NULL) {
+        VLOG_DBG("sflow_options is not initialized. Incorrect call.");
+        return false;
+    }
+
+    if (port_name == NULL) {
+        VLOG_DBG("NULL port name is passed to function.");
+        return false;
+    }
+
+    return sset_contains(&sflow_options->ports, port_name);
+}
+
+/**
+ * Function to check if sFlow configuration has changed since the last time.
+ * (i.e) sFlow was previously enabled and is now being disabled or vice-versa.
+ */
+bool
+ops_sflow_port_config_changed(const char *port_name, bool sflow_enabled)
+{
+    if (port_name == NULL) {
+        VLOG_DBG("NULL port name is passed to function.");
+        return false;
+    }
+    return (!sflow_enabled &&
+            !ops_sflow_port_in_disabled_list(port_name)) ||
+           (sflow_enabled &&
+            ops_sflow_port_in_disabled_list(port_name));
 }
 
 /* Given a front panel port number, verify if sFlow is disabled on that
