@@ -173,6 +173,11 @@ ops_event_log_init(void)
     if (event_log_init("SFLOW") < 0) {
         VLOG_ERR("Event log initialization failed for SFLOW");
     }
+
+    /* Event log initialization for VLAN */
+    if (event_log_init("VLAN") < 0) {
+        VLOG_ERR("Event log initialization failed for VLAN");
+    }
 }
 
 int
