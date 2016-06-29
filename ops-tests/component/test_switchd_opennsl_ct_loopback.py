@@ -16,6 +16,7 @@
 # under the License.
 
 from pytest import mark
+from retrying import retry
 
 TOPOLOGY = """
 #
@@ -34,6 +35,15 @@ TOPOLOGY = """
 sw1:if01 -- h1:if01
 
 """
+
+# Increase the ping packets to 5 for reliability and added function
+# to validate 100% of ping packets are successfull for maximum
+# of 3 attemps or until successfull
+@retry(wait_fixed=5000, stop_max_attempt_number=3)
+def retry_ping(device, num_ping, ip):
+
+    out = device.libs.ping.ping(num_ping, ip)
+    assert out['transmitted'] == out['received']
 
 
 @mark.platform_incompatible(['docker'])
@@ -136,13 +146,11 @@ def test_switchd_opennsl_plugin_loopback_creation(topology, step):
 
     # TEST: IPv4 ping from host1 to interface 1 ip
     step("\n\n\nTEST: IPv4 ping from host1 to interface 1")
-    out = h1.libs.ping.ping(1, "10.0.10.1")
-    assert out['transmitted'] == out['received']
+    retry_ping(h1, 5, '10.0.10.1')
 
     # TEST: IPv4 ping from host1 to loopback interface ip
     step("\n\n\nTEST: IPv4 ping from host1 to loopback interface")
-    out = h1.libs.ping.ping(1, "2.2.2.1")
-    assert out['transmitted'] == out['received']
+    retry_ping(h1, 5, '2.2.2.1')
 
     # Delete loopback interface
     step("Deleting loopback interface lo:1")
