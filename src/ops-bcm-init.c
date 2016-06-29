@@ -178,6 +178,11 @@ ops_event_log_init(void)
     if (event_log_init("VLAN") < 0) {
         VLOG_ERR("Event log initialization failed for VLAN");
     }
+
+    /* Event log initialization for LACP */
+    if (event_log_init("LACP") < 0) {
+        VLOG_ERR("Event log initialization failed for LACP");
+    }
 }
 
 int
