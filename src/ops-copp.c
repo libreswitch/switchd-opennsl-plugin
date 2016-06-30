@@ -34,7 +34,6 @@
 #include <opennsl/rx.h>
 #include "ops-copp.h"
 #include "eventlog.h"
-#include "ops-fp.h"
 
 /*
  * Logging module for CoPP.
@@ -3667,7 +3666,7 @@ static int ops_copp_ingress_fp_group_create ()
                                                 ++unit_iterator) {
         retval = opennsl_field_group_create(
                                 unit_iterator, OpennslFPQualSetIngress,
-                                FP_GROUP_PRIORITY_2,
+                                OPS_COPP_INGRESS_GROUP_PRIORITY,
                                 &ops_copp_ingress_fp_group_array[
                                                         unit_iterator]);
 
@@ -3724,7 +3723,7 @@ static int ops_copp_egress_fp_group_create ()
                                                     ++unit_iterator) {
         retval = opennsl_field_group_create(
                                     unit_iterator, OpennslFPQualSetEgress,
-                                    FP_GROUP_PRIORITY_2,
+                                    OPS_COPP_EGRESS_GROUP_PRIORITY,
                                     &ops_copp_egress_fp_group_array[
                                                             unit_iterator]);
 
