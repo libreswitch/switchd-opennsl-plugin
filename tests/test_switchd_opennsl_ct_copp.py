@@ -32,7 +32,7 @@ topoDict = {"topoExecution": 1000,
 # Common constants
 CPUQueueNewAction = 'CosQ CPU New'
 RedPacketsDropAction = 'Red Packets Drop'
-OutPortMask = '0x7f'
+OutPortMask = '0x(.*)f'
 CPUQueueMask = '0x3f'
 IPProtocolTCP = '0x06'
 IPProtocolUDP = '0x11'
