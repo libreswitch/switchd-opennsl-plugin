@@ -56,6 +56,16 @@ int ops_cls_opennsl_remove(const struct uuid                *list_id,
                            enum ops_cls_direction           direction,
                            struct ops_cls_pd_status         *pd_status);
 
+int
+ofproto_ops_cls_lag_update(struct ops_cls_list             *list,
+                           struct ofproto                  *ofproto,
+                           void                            *aux,
+                           ofp_port_t                      ofp_port,
+                           enum ops_cls_lag_update_action  action,
+                           struct ops_cls_interface_info   *interface_info,
+                           enum ops_cls_direction          direction,
+                           struct ops_cls_pd_status        *pd_status);
+
 int ops_cls_opennsl_replace(const struct uuid               *list_id_orig,
                             const char                      *list_name_orig,
                             struct ops_cls_list             *list_new,
