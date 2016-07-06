@@ -139,6 +139,41 @@ ops_rx_init(int unit)
 
 } // ops_rx_init
 
+void
+ops_event_log_init(void)
+{
+    if (event_log_init("LOOPBACK") < 0) {
+        VLOG_ERR("Event log initialization failed for LOOPBACK");
+    }
+    if (event_log_init("SUBINTERFACE") < 0) {
+        VLOG_ERR("Event log initialization failed for SUBINTERFACE");
+    }
+    if (event_log_init("OSPFv2") < 0) {
+        VLOG_ERR("Event log initialization failed for OSPFv2");
+    }
+    if (event_log_init("LAG") < 0) {
+        VLOG_ERR("Event log initialization failed for LAG");
+    }
+    if(event_log_init("VLANINTERFACE") < 0) {
+        VLOG_ERR("Event log initialization failed for VLANINTERFACE");
+    }
+    if (event_log_init("L3INTERFACE") < 0) {
+        VLOG_ERR("Event log initialization failed for L3INTERFACE");
+    }
+    if (event_log_init("ECMP") < 0) {
+        VLOG_ERR("Event log initialization failed for ECMP");
+    }
+    if (event_log_init("VLAN") < 0) {
+        VLOG_ERR("Event log initialization failed for VLAN");
+    }
+    if (event_log_init("LACP") < 0) {
+        VLOG_ERR("Event log initialization failed for LACP");
+    }
+    if (event_log_init("SFLOW") < 0) {
+        VLOG_ERR("Event log initialization failed for SFLOW");
+    }
+}
+
 int
 ops_bcm_appl_init(void)
 {
@@ -151,35 +186,7 @@ ops_bcm_appl_init(void)
         VLOG_ERR("Mac learning init failed");
         return (1);
     }
-    rc = event_log_init("SUBINTERFACE");
-    if(rc < 0) {
-        VLOG_ERR("Event log initialization failed for SUBINTERFACE");
-    }
-    rc = event_log_init("LAG");
-    if(rc < 0) {
-        VLOG_ERR("Event log initialization failed for LAG");
-    }
-    rc = event_log_init("VLANINTERFACE");
-    if(rc < 0) {
-        VLOG_ERR("Event log initialization failed for VLANINTERFACE");
-    }
-    rc = event_log_init("L3INTERFACE");
-    if(rc < 0) {
-        VLOG_ERR("Event log initialization failed for L3INTERFACE");
-    }
-    rc = event_log_init("ECMP");
-    if(rc < 0) {
-        VLOG_ERR("Event log initialization failed for ECMP");
-    }
-    rc = event_log_init("VLAN");
-    if (rc < 0) {
-        VLOG_ERR("Event log initialization failed for VLAN");
-    }
-    rc = event_log_init("LACP");
-    if (rc < 0) {
-        VLOG_ERR("Event log initialization failed for LACP");
-    }
-
+    ops_event_log_init();
 
     /* Initialize QoS global data structures */
     rc = ops_qos_global_init();

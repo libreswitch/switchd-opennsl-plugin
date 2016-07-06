@@ -1685,7 +1685,7 @@ bundle_set(struct ofproto *ofproto_, void *aux,
            in the bundle or if requested by upper layer. */
         bcmsdk_create_lag(&bundle->bond_hw_handle);
         log_event("LAG_CREATE",
-                   EV_KV("interface", "%s", bundle->name));
+                   EV_KV("lag_id", "%s", bundle->name));
         VLOG_DBG("%s: Allocated bond_hw_handle# %d for port %s",
                  __FUNCTION__, bundle->bond_hw_handle, s->name);
         if (s->bond_handle_alloc_only) {
@@ -1701,7 +1701,7 @@ bundle_set(struct ofproto *ofproto_, void *aux,
         ops_sflow_remove_polling_on_lag_interface(bundle);
         bundle->lag_sflow_polling_interval = 0;
         log_event("LAG_DELETE",
-                   EV_KV("interface", "%s", bundle->name));
+                   EV_KV("lag_id", "%s", bundle->name));
     }
 
     if (ofproto->vrf &&

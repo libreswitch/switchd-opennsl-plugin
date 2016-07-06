@@ -165,7 +165,7 @@ hw_create_lag(int unit, opennsl_trunk_t *lag_id)
                  unit, *lag_id, rc, opennsl_errmsg(rc));
         log_event("LAG_CREATION_FAILED",
             EV_KV("unit", "%d", unit),
-            EV_KV("LAGID", "%d", *lag_id),
+            EV_KV("lag_id", "%d", *lag_id),
             EV_KV("rc=", "%d", rc),
             EV_KV("error", "%s", opennsl_errmsg(rc)));
     }
@@ -187,7 +187,7 @@ hw_destroy_lag(int unit, opennsl_trunk_t lag_id)
                  unit, lag_id, rc, opennsl_errmsg(rc));
         log_event("DESTROY_LAG_FAILED",
             EV_KV("unit", "%d", unit),
-            EV_KV("LAGID", "%d", lag_id),
+            EV_KV("lag_id", "%d", lag_id),
             EV_KV("rc=", "%d", rc),
             EV_KV("error", "%s", opennsl_errmsg(rc)));
     }
