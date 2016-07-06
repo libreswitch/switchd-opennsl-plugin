@@ -1142,23 +1142,21 @@ netdev_bcmsdk_get_mtu(const struct netdev *netdev_, int *mtup)
  *
  * Arguments:
  * ---------
- * bool ingress     : Packet sampled at ingress or egress of the interface.
- * char *name       : Interface where the packet was sampled.
- * uint64_t bytes   : Length of sampled packet
+ * bool ingress         : Packet sampled at ingress or egress of the interface.
+ * int hw_unit, hw_port : H/w port details where the packet was sampled.
+ * uint64_t bytes       : Length of sampled packet
  */
 void
-netdev_bcmsdk_populate_sflow_stats(bool ingress, const char *name,
+netdev_bcmsdk_populate_sflow_stats(bool ingress, int hw_unit, int hw_port,
                                    uint64_t bytes)
 {
-    struct netdev *netdev = NULL;
     struct netdev_bcmsdk *netdev_bcm = NULL;
 
     if (bytes == 0)
         return;
 
-    netdev = netdev_from_name(name);
-    if (netdev != NULL) {
-         netdev_bcm = netdev_bcmsdk_cast(netdev);
+    netdev_bcm = netdev_from_hw_id(hw_unit, hw_port);
+    if (netdev_bcm != NULL) {
          ovs_mutex_lock(&netdev_bcm->mutex);
          if (ingress) {
              netdev_bcm->stats.sflow_ingress_packets++;
@@ -1168,11 +1166,11 @@ netdev_bcmsdk_populate_sflow_stats(bool ingress, const char *name,
              netdev_bcm->stats.sflow_egress_bytes += bytes;
          }
          ovs_mutex_unlock(&netdev_bcm->mutex);
-         netdev_close(netdev);
     } else {
-        VLOG_ERR("Unable to get netdev for interface %s", name);
+        VLOG_ERR("Unable to get netdev for hw unit : %d hw_port : %d",
+                 hw_unit, hw_port);
         log_event("SFLOW_STATS_NETDEV_FAILURE",
-                  EV_KV("interface", "%s", name));
+                  EV_KV("interface", "%d", hw_port));
     }
 }
 

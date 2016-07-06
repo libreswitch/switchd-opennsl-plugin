@@ -48,7 +48,8 @@ netdev_bcmsdk_get_subintf_vlan(struct netdev *netdev, opennsl_vlan_t *vlan);
 extern void handle_bcmsdk_knet_l3_port_filters(struct netdev *netdev_, opennsl_vlan_t vlan_id, bool enable);
 extern void handle_bcmsdk_knet_subinterface_filters(struct netdev *netdev_, bool enable);
 extern bool netdev_hw_id_from_name(const char *name, int *hw_unit, int *hw_id);
-extern void netdev_bcmsdk_populate_sflow_stats(bool ingress, const char *name, uint64_t bytes);
+extern void netdev_bcmsdk_populate_sflow_stats(bool ingress, int hw_unit,
+                                               int hw_port, uint64_t bytes);
 
 extern void netdev_bcmsdk_get_sflow_intf_info(int hw_unit, int hw_id,
                                               uint32_t *index, uint64_t *speed,

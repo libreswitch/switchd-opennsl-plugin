@@ -72,18 +72,16 @@ opennsl_rx_t opennsl_rx_callback(int unit, opennsl_pkt_t *pkt, void *cookie)
         /* Uncomment to print the sampled pkt info */
         /* print_pkt(pkt); */
 
-        char port[IFNAMSIZ];
-
         if (OPENNSL_RX_REASON_GET(pkt->rx_reasons,
                                   opennslRxReasonSampleSource)) {
-            snprintf(port, IFNAMSIZ, "%d", pkt->src_port);
-            netdev_bcmsdk_populate_sflow_stats(true, port, pkt->pkt_len);
+            netdev_bcmsdk_populate_sflow_stats(true, unit,
+                                               pkt->src_port, pkt->pkt_len);
         }
 
         if (OPENNSL_RX_REASON_GET(pkt->rx_reasons,
                                   opennslRxReasonSampleDest)) {
-            snprintf(port, IFNAMSIZ, "%d", pkt->dest_port);
-            netdev_bcmsdk_populate_sflow_stats(false, port, pkt->pkt_len);
+            netdev_bcmsdk_populate_sflow_stats(false, unit,
+                                               pkt->src_port, pkt->pkt_len);
         }
 
         /* Write incoming data to Receivers buffer. When buffer is full,
