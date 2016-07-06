@@ -783,7 +783,7 @@ ops_l3_init(int unit)
     if (rc) {
         VLOG_ERR("OSPF FP init failed");
         log_event("L3INTERFACE_ERR",
-                  EV_KV("err", "%s", opennsl_errmsg(rc)));
+                  EV_KV("err", "%s", "OSPF FP init failed"));
         return 1; /* Return error */
     }
 
@@ -965,8 +965,8 @@ ops_routing_enable_l3_interface(int hw_unit, opennsl_port_t hw_port,
     /* Create l3 interface and add the mac to station tcam */
     rc = ops_routing_create_l3_intf(hw_unit, vrf_id, vlan_id, mac, l3_intf);
     if (OPENNSL_FAILURE(rc)) {
-        log_event("L3INTERFACE_L3INTF_CREATE_ERR",
-                  EV_KV("interface", "%s", netdev_get_name(netdev)));
+        log_event("L3INTERFACE_ERR",
+                  EV_KV("err", "%s", opennsl_errmsg(rc)));
         goto failed_l3_intf_create;
     }
 
@@ -990,8 +990,9 @@ failed_allocating_l3_intf:
         VLOG_ERR("Failed at bcmsdk_destroy_vlan: unit=%d port=%d vlan=%d rc=%d",
                  hw_unit, hw_port, vlan_id, rc);
         log_event("L3INTERFACE_VLAN_DESTROY_ERR",
-                  EV_KV("interface", "%s", netdev_get_name(netdev)),
-                  EV_KV("vlanid", "%d", vlan_id));
+                EV_KV("interface", "%s", netdev_get_name(netdev)),
+                EV_KV("vlanid", "%d", vlan_id),
+                EV_KV("err", "%s", opennsl_errmsg(rc)));
     }
 
 failed_vlan_creation:
@@ -1064,8 +1065,9 @@ failed_allocating_l3_intf:
     rc = bcmsdk_destroy_vlan(vlan_id, false);
     if (rc < 0) {
         log_event("SUBINTERFACE_VLAN_DESTROY_ERR",
-                  EV_KV("interface", "%s", netdev_get_name(netdev)),
-                  EV_KV("vlanid", "%d", vlan_id));
+                EV_KV("interface", "%s", netdev_get_name(netdev)),
+                EV_KV("vlanid", "%d", vlan_id),
+                EV_KV("err", "%s", opennsl_errmsg(rc)));
         VLOG_ERR("Failed at bcmsdk_destroy_vlan: unit=%d port=%d vlan=%d rc=%d",
                  hw_unit, hw_port, vlan_id, rc);
     }
@@ -1232,7 +1234,7 @@ ops_nexthop_delete(struct ops_route *route, struct ops_nexthop *nh)
 
     VLOG_DBG("Delete NH %s in route %s", nh->id, route->prefix);
     log_event("L3INTERFACE_NEXTHOP_DELETE",
-            EV_KV("nexthop", "%d", nh->id),
+            EV_KV("nexthop", "%s", nh->id),
             EV_KV("prefix", "%s", route->prefix));
 
     hmap_remove(&route->nexthops, &nh->node);
@@ -2061,18 +2063,15 @@ ops_delete_nh_entry(int hw_unit, opennsl_vrf_t vrf_id,
     if (OPENNSL_FAILURE(rc)) {
         VLOG_ERR("Failed to (delete NH) update route %s: %s",
                   of_routep->prefix, opennsl_errmsg(rc));
-        log_event("L3INTERFACE_ROUTE_ADD_ERR",
+        log_event("L3INTERFACE_ROUTE_DELETE_ERR",
                   EV_KV("prefix", "%s", of_routep->prefix),
                   EV_KV("err", "%s", opennsl_errmsg(rc)));
         return rc;
     } else {
         VLOG_DBG("Success to (delete NH) update route %s: %s",
                   of_routep->prefix, opennsl_errmsg(rc));
-        log_event("L3INTERFACE_ROUTE_UPDATE",
-                EV_KV("state", "%s",
-                    ((ops_routep->n_nexthops > 1) ?
-                                   "add route state as ECMP" :
-                                   "add route state as NON ECMP")));
+        log_event("L3INTERFACE_ROUTE_DELETE",
+                EV_KV("prefix", "%s", of_routep->prefix));
     }
 
     if (is_delete_ecmp) {
