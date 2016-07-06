@@ -28,6 +28,7 @@ Topology:
 
 from time import sleep
 from pytest import mark
+import re
 
 TOPOLOGY = """
 #
@@ -45,6 +46,22 @@ sw1:if01 -- sw2:if01
 sw1:if02 -- sw2:if02
 
 """
+
+
+def get_bitcount(port):
+    result = re.match(r'\d+-+\d+', port, re.DOTALL)
+    if result:
+        intf = port.split('-')
+        bit_count = (int(intf[0]) - 1) * 4 + int(intf[1])
+        print(bit_count)
+    else:
+        bit_count = int(port)
+    return bit_count
+
+
+def create_bitmap(port):
+    bitmap = 0x1 << get_bitcount(port)
+    return bitmap
 
 
 def verify_lag_membership(sw1):
@@ -79,9 +96,15 @@ def verify_lag_membership(sw1):
     # Verify the bitmap changes for LAG
 
     print("Check l3 ports bitmap update for LAG100")
-    enable_ports = "Egress enabled ports=" \
-                   "0x0000000000000000000" \
-                   "000000000000000000000000000000000000000000006"
+    bitmap = create_bitmap(sw1p1)
+    print(hex(bitmap))
+    bitmap |= create_bitmap(sw1p2)
+    print(hex(bitmap))
+    final_bitmap = "0x""{0:064X}".format(bitmap)
+    print(final_bitmap)
+    enable_ports = "Egress enabled ports=" + final_bitmap
+    output_trunk = "installed native untagged ports=" + final_bitmap
+    sleep(4)
     created_hw_output = "hw_created=1"
 
     command = "ovs-appctl plugin/debug lag"
@@ -92,9 +115,6 @@ def verify_lag_membership(sw1):
 
     # Verify vlan creation and bit map using appctl
     print("Check l3 ports bitmap for Vlan %s" % vlan_id)
-    output_trunk = "installed native untagged ports=" \
-                   "0x000000000000000000000000000000" \
-                   "0000000000000000000000000000000006"
     command = "ovs-appctl plugin/debug vlan " + vlan_id
     bufferout = sw1(command, shell='bash')
 
@@ -105,12 +125,16 @@ def verify_lag_membership(sw1):
     appctl_command = "ovs-appctl plugin/debug knet filter"
     buf = sw1(appctl_command, shell='bash')
     output = "knet_filter_l3_" + vlan_id
+    interface1 = get_bitcount(sw1p1)
+    interface2 = get_bitcount(sw1p2)
+    output_int1 = "ingport=" + str(interface1)
+    output_int2 = "ingport=" + str(interface2)
 
     assert output in buf
     print("Verified: l3 interface knet filter is created")
-    assert "ingport=1" in buf
+    assert output_int1 in buf
     print('info', "Verified: l3 interface knet filter is created for port 1")
-    assert "ingport=2" in buf
+    assert output_int2 in buf
     print('info', "Verified: l3 interface knet filter is created for port 2")
 
     # Disable interface 1
@@ -119,20 +143,18 @@ def verify_lag_membership(sw1):
     sw1("interface {sw1p1}".format(**locals()))
     sw1("shutdown")
     sw1('end')
+    bitmap &= ~create_bitmap(sw1p1)
+    print(hex(bitmap))
+    final_bitmap = "0x""{0:064X}".format(bitmap)
+    print(final_bitmap)
+    output_trunk = "installed native untagged ports=" + final_bitmap
+    enable_ports = "Egress enabled ports=" + final_bitmap
 
     # Waiting for interfaces to go down
     sleep(2)
 
     # Verify the bitmap changes for internal vlan
     print("Check l3 ports bitmap update for Vlan %s" % vlan_id)
-    if "{sw1p1}".format(**locals()) == '1':
-        output_trunk = "installed native untagged ports=" \
-                       "0x000000000000000000000000000000" \
-                       "0000000000000000000000000000000004"
-    else:
-        output_trunk = "installed native untagged ports=" \
-                       "0x000000000000000000000000000000" \
-                       "0000000000000000000000000000000002"
     command = "ovs-appctl plugin/debug vlan " + vlan_id
     bufferout = sw1(command, shell='bash')
 
@@ -141,14 +163,6 @@ def verify_lag_membership(sw1):
 
     # Verify the bitmap changes for LAG
     print("Check l3 ports bitmap update for LAG100")
-    if "{sw1p1}".format(**locals()) == '1':
-        enable_ports = "Egress enabled ports=" \
-                       "0x0000000000000000000" \
-                       "000000000000000000000000000000000000000000004"
-    else:
-        enable_ports = "Egress enabled ports=" \
-                       "0x0000000000000000000" \
-                       "000000000000000000000000000000000000000000002"
 
     created_hw_output = "hw_created=1"
 
@@ -166,6 +180,12 @@ def verify_lag_membership(sw1):
     sw1("interface {sw1p2}".format(**locals()))
     sw1("shutdown")
     sw1('end')
+    bitmap &= ~create_bitmap(sw1p2)
+    print(hex(bitmap))
+    final_bitmap = "0x""{0:064X}".format(bitmap)
+    print(final_bitmap)
+    output_trunk = "installed native untagged ports=" + final_bitmap
+    enable_ports = "Egress enabled ports=" + final_bitmap
 
     # Waiting for interfaces to go down
     sleep(2)
@@ -182,9 +202,6 @@ def verify_lag_membership(sw1):
 
     # Verify the bitmap changes for LAG
     print("Check l3 ports bitmap update for LAG100")
-    enable_ports = "Egress enabled ports=" \
-                   "0x0000000000000000000" \
-                   "000000000000000000000000000000000000000000000"
     created_hw_output = "hw_created=1"
 
     command = "ovs-appctl plugin/debug lag"
@@ -202,21 +219,25 @@ def verify_lag_membership(sw1):
     sw1('configure terminal')
     sw1("interface {sw1p1}".format(**locals()))
     sw1("no shutdown")
+    bitmap = create_bitmap(sw1p1)
+    print(hex(bitmap))
 
     # Enable interface 2
     print('Enabling interface {sw1p2} on device'.format(**locals()))
     sw1("interface {sw1p2}".format(**locals()))
     sw1("no shutdown")
     sw1('end')
+    bitmap |= create_bitmap(sw1p2)
+    print(hex(bitmap))
+    final_bitmap = "0x""{0:064X}".format(bitmap)
+    print(final_bitmap)
+    output_trunk = "installed native untagged ports=" + final_bitmap
 
     # Waiting for interfaces to come up
     sleep(5)
 
     # Verify vlan creation and bit map using appctl
     print("Check l3 ports bitmap for Vlan %s" % vlan_id)
-    output_trunk = "installed native untagged ports=" \
-                   "0x000000000000000000000000000000" \
-                   "0000000000000000000000000000000006"
     command = "ovs-appctl plugin/debug vlan " + vlan_id
     bufferout = sw1(command, shell='bash')
 
@@ -230,17 +251,15 @@ def verify_lag_membership(sw1):
     sw1("interface {sw1p1}".format(**locals()))
     sw1('no lag %s' % test_lag_id)
     sw1('end')
+    bitmap &= ~create_bitmap(sw1p1)
+    print(hex(bitmap))
+    final_bitmap = "0x""{0:064X}".format(bitmap)
+    print(final_bitmap)
+    output_trunk = "installed native untagged ports=" + final_bitmap
+    enable_ports = "Egress enabled ports=" + final_bitmap
 
     # Verify the bitmap changes for internal vlan
     print("Check l3 ports bitmap update for Vlan %s" % vlan_id)
-    if "{sw1p1}".format(**locals()) == '1':
-        output_trunk = "installed native untagged ports=" \
-                       "0x000000000000000000000000000000" \
-                       "0000000000000000000000000000000004"
-    else:
-        output_trunk = "installed native untagged ports=" \
-                       "0x000000000000000000000000000000" \
-                       "0000000000000000000000000000000002"
     command = "ovs-appctl plugin/debug vlan " + vlan_id
     bufferout = sw1(command, shell='bash')
 
@@ -249,14 +268,6 @@ def verify_lag_membership(sw1):
 
     # Verify the bitmap changes for LAG
     print("Check l3 ports bitmap update for LAG100")
-    if "{sw1p1}".format(**locals()) == '1':
-        enable_ports = "Egress enabled ports=" \
-                       "0x0000000000000000000" \
-                       "000000000000000000000000000000000000000000004"
-    else:
-        enable_ports = "Egress enabled ports=" \
-                       "0x0000000000000000000" \
-                       "000000000000000000000000000000000000000000002"
     created_hw_output = "hw_created=1"
 
     command = "ovs-appctl plugin/debug lag"
@@ -273,6 +284,11 @@ def verify_lag_membership(sw1):
     sw1("interface {sw1p2}".format(**locals()))
     sw1('no lag %s' % test_lag_id)
     sw1('end')
+    bitmap &= ~create_bitmap(sw1p2)
+    print(hex(bitmap))
+    final_bitmap = "0x""{0:064X}".format(bitmap)
+    print(final_bitmap)
+    enable_ports = "Egress enabled ports=" + final_bitmap
 
     # Verify the bitmap changes for internal vlan
     print("Check l3 ports bitmap update for Vlan %s" % vlan_id)
@@ -286,9 +302,6 @@ def verify_lag_membership(sw1):
 
     # Verify the bitmap changes for LAG
     print("Check l3 ports bitmap update for LAG100")
-    enable_ports = "Egress enabled ports=" \
-                   "0x0000000000000000000" \
-                   "000000000000000000000000000000000000000000000"
     created_hw_output = "hw_created=1"
 
     command = "ovs-appctl plugin/debug lag"
