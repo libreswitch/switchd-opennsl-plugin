@@ -111,7 +111,7 @@ char cmd_ops_usage[] =
 ;
 /* Format of hw-resource command */
 static const char cmd_hw_resource_table_header[] =
-"              |Rules |Rules   |Group |Group |Counters |Counters |Meters |Meters\n"
+"              |Rules |Rules   |Group |Group |Counters |Counters*|Meters |Meters*\n"
 "Feature       |Used  |Maximum |ID    |Used  |Used     |Maximum  |Used   |Maximum\n"
 "--------------|------|--------|------|------|---------|-------- |-------|-------\n"
 ;
@@ -1061,6 +1061,7 @@ hw_resource_show (int unit, opennsl_field_group_t group, struct ds *ds)
 {
     int ret          = 0;
     opennsl_field_group_status_t status;
+    opennsl_field_group_t aclv4_ingress_group;
 
     /* Retrieving status from field group */
     ret = opennsl_field_group_status_get(unit, group, &status);
@@ -1070,6 +1071,24 @@ hw_resource_show (int unit, opennsl_field_group_t group, struct ds *ds)
         return;
     }
 
+    /* Check if field group is aclv4 ingress group. If so, temporarily display
+     * classifier rules maximum with restricted value MAX_INGRESS_IPv4_ACL_RULES
+     */
+    aclv4_ingress_group = ops_cls_get_ingress_group_id_for_hw_unit(unit);
+    if (group == aclv4_ingress_group) {
+        (&status)->entries_total = ops_cls_max_ingress_aclv4_rules();
+    }
+
+    /* Temporarily hard coding counters total to ingress group 4096, egress group 1024
+     * until we have clarification of how counters are shared among slices in hardware
+     */
+    if ((group == ops_copp_get_egress_group_id_for_hw_unit(unit))
+            || (group == ops_l3intf_egress_stats_group_id_for_hw_unit(unit)))
+    {
+        (&status)->counters_total = 1024;
+    } else {
+        (&status)->counters_total = 4096;
+    }
     /* Print out current hw resources rows. Group required is one per feature for now.
      * TODO: Add support for displaying one feature consuming multiple groups.
      */
@@ -1174,6 +1193,8 @@ ops_hw_resource_dump_all (struct ds *ds)
     ds_put_format(ds, "%s", cmd_hw_resource_table_header);
     ops_hw_resource_dump(ds, HW_RESOURCE_COPP_EGRESS, "copp");
     ops_hw_resource_dump(ds, HW_RESOURCE_L3INTF_EGRESS, "l3intf");
+
+    ds_put_format(ds, "\n* Counters and Meters are shared resources across features\n");
 }
 
 static void
@@ -1520,6 +1541,7 @@ copp_config_help:
                                     "If no argument is specified,\n"
                                     "the hardware resource utilization for all features will be displayed.\n\n");
                         }
+                        ds_put_format(&ds, "\n* Counters and Meters are shared resources across features\n");
                     } else {
                         /* If no options are given, dump all */
                         ops_hw_resource_dump_all(&ds);
