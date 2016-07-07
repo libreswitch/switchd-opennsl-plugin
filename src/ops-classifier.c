@@ -1934,3 +1934,9 @@ acl_log_handle_rx_event(opennsl_pkt_t *pkt)
         (*acl_pd_log_pkt_data_set)(&pkt_info);
     }
 }
+
+int
+ops_cls_max_ingress_aclv4_rules(void)
+{
+    return MAX_INGRESS_IPv4_ACL_RULES;
+}

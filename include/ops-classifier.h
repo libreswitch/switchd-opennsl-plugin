@@ -128,5 +128,6 @@ enum ops_cls_group_priority {
 int ops_cls_get_ingress_group_id_for_hw_unit(int hw_unit);
 
 extern opennsl_field_group_t ops_cls_get_ingress_group_id_for_hw_unit(int unit);
+extern int ops_cls_max_ingress_aclv4_rules(void);
 
 #endif /* __OPS_CLASSIFIER_H__ */
