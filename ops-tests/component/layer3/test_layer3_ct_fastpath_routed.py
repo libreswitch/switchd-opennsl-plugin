@@ -36,6 +36,8 @@ ops1:if02 -- ops2:if02
 ops2:if01 -- hs2:eth0
 """
 
+PING_BYTES = 84
+
 
 @mark.timeout(500)
 @mark.platform_incompatible(['docker'])
@@ -83,6 +85,11 @@ def test_fastpath_routed(topology, step):
     lib.switch_add_ipv6_route(ops1, '2002::/120', '2001::2')
     lib.switch_add_ipv6_route(ops2, '2000::/120', '2001::1')
 
+    # --------------Baseline rx tx statistics---------------
+
+    base_stats_ops1 = ops1.libs.vtysh.show_interface("if02")
+    base_stats_ops2 = ops2.libs.vtysh.show_interface("if02")
+
     # ----------Test Ping after adding static routes----------
 
     step('Test Ping after adding static routes')
@@ -91,11 +98,21 @@ def test_fastpath_routed(topology, step):
     lib.host_ping_expect_success(1, hs2, hs1, '10.0.10.1')
     lib.host_ping_expect_success(1, hs2, hs1, '2000::1')
 
+    """
     # ----------Verifying Hit bit in ASIC for IPv4 ping----------
 
     step('Verifying Hit bit in ASIC for IPv4 ping')
     verify_hit_bit(ops1, '10.0.30.0')
     verify_hit_bit(ops2, '10.0.10.0')
+    """
+
+    # ----------Verifying rx tx stats after IPv4 ping----------
+
+    sleep(10)
+    step('Verifying rx tx stats after IPv4 ping')
+    # Though the above code tries to send 1 ping, 2 pings go out
+    verify_l3_stats(ops1, "if02", base_stats_ops1, 4)
+    verify_l3_stats(ops2, "if02", base_stats_ops2, 4)
 
     # ----------Remove IPv4 and IPv6 static routes from switches----------
 
@@ -132,3 +149,52 @@ def verify_hit_bit(switch, dest_subnet):
     columns = route_row.split()
     route_hit = columns[5]
     assert route_hit == 'Y', 'route not selected in ASIC\n'
+
+
+def verify_l3_stats(switch, iface, base_stats, ping_cnt):
+    # Retry loop around tx and rx stats.
+    for iteration in range(0, 5):
+        pass_cases = 0
+        stats = switch.libs.vtysh.show_interface(iface)
+
+        rx_packets = stats['rx_l3_ucast_packets']
+        tx_packets = stats['tx_l3_ucast_packets']
+        rx_bytes = stats['rx_l3_ucast_bytes']
+        tx_bytes = stats['tx_l3_ucast_bytes']
+        base_rx_packets = base_stats['rx_l3_ucast_packets']
+        base_tx_packets = base_stats['tx_l3_ucast_packets']
+        base_rx_bytes = base_stats['rx_l3_ucast_bytes']
+        base_tx_bytes = base_stats['tx_l3_ucast_bytes']
+
+        if rx_packets < (ping_cnt + base_rx_packets):
+            print("Retrying statistic - waiting for rx packets to update")
+            continue
+        pass_cases = pass_cases + 1
+        if tx_packets < (ping_cnt + base_tx_packets):
+            print("Retrying statistic - waiting for tx packets to update")
+            sleep(5)
+            continue
+        pass_cases = pass_cases + 1
+        if rx_bytes < ((ping_cnt * PING_BYTES) + base_rx_bytes):
+            print("Retrying statistic - waiting for rx bytes to update")
+            sleep(5)
+            continue
+        pass_cases = pass_cases + 1
+        if tx_bytes < ((ping_cnt * PING_BYTES) + base_tx_bytes):
+            print("Retrying statistic - waiting for tx bytes to update")
+            sleep(5)
+            continue
+        pass_cases = pass_cases + 1
+        if pass_cases == 4:
+            break
+
+    # Verify RX_packets
+    assert rx_packets >= (ping_cnt + base_rx_packets), "rx_packets wrong."
+    # Verify TX_packets
+    assert tx_packets >= (ping_cnt + base_tx_packets), "tx_packets wrong."
+    # Verify RX_bytes
+    assert rx_bytes >= ((ping_cnt * PING_BYTES) + base_rx_bytes), (
+        "rx_bytes wrong.")
+    # Verify TX_bytes
+    assert tx_bytes >= ((ping_cnt * PING_BYTES) + base_tx_bytes), (
+        "tx_bytes wrong.")
