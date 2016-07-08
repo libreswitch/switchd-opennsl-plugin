@@ -27,7 +27,7 @@
 #include <openflow/openflow.h>
 #include <openswitch-idl.h>
 #include <openswitch-dflt.h>
-
+#include <vswitch-idl.h>
 #include <opennsl/port.h>
 #include <opennsl/field.h>
 
@@ -86,7 +86,9 @@ struct netdev_bcmsdk {
 
     int hw_unit;
     int hw_id;
+    int parent_hw_id;
     char *parent_netdev_name;
+    int subint_ref_count;       /* Subinterface count per parent interface */
     int l3_intf_id;
     int knet_if_id;             /* BCM KNET interface ID. */
     int knet_bpdu_filter_id;                 /* BCM KNET BPDU filter ID. */
@@ -237,8 +239,14 @@ netdev_bcmsdk_get_hw_info(struct netdev *netdev, int *hw_unit, int *hw_id,
     struct netdev_bcmsdk *nb = netdev_bcmsdk_cast(netdev);
     ovs_assert(is_bcmsdk_class(netdev_get_class(netdev)));
 
+    const char *type = netdev_get_type(netdev);
     *hw_unit = nb->hw_unit;
-    *hw_id = nb->hw_id;
+    if (strcmp(type, OVSREC_INTERFACE_TYPE_VLANSUBINT) == 0) {
+        *hw_id = nb->parent_hw_id;
+    } else {
+        *hw_id = nb->hw_id;
+    }
+
     if (hwaddr) {
         memcpy(hwaddr, nb->hwaddr, ETH_ADDR_LEN);
     }
@@ -346,7 +354,9 @@ netdev_bcmsdk_construct(struct netdev *netdev_)
 
     netdev->hw_unit = -1;
     netdev->hw_id = -1;
+    netdev->parent_hw_id = -1;
     netdev->parent_netdev_name = NULL;
+    netdev->subint_ref_count = 0;
     netdev->knet_if_id = 0;
     netdev->port_info = NULL;
     netdev->intf_initialized = false;
@@ -431,7 +441,7 @@ netdev_vlansub_bcmsdk_set_config(struct netdev *netdev_, const struct smap *args
         if (parent != NULL) {
             parent_netdev = netdev_bcmsdk_cast(parent);
             if (parent_netdev != NULL) {
-                netdev->hw_id = parent_netdev->hw_id;
+                netdev->parent_hw_id = parent_netdev->hw_id;
                 netdev->parent_netdev_name = xstrdup(parent_intf_name);
                 netdev->hw_unit = parent_netdev->hw_unit;
                 memcpy(netdev->hwaddr, parent_netdev->hwaddr, ETH_ALEN);
@@ -710,24 +720,28 @@ handle_bcmsdk_knet_subinterface_filters(struct netdev *netdev_, bool enable)
     struct netdev_bcmsdk *netdev = netdev_bcmsdk_cast(netdev_);
     struct netdev *parent = NULL;
     struct netdev_bcmsdk *parent_netdev = NULL;
-    if (enable == true && netdev->knet_subinterface_filter_id == 0) {
-        VLOG_DBG("Create subinterface knet filter\n");
+
+    parent = netdev_from_name(netdev->parent_netdev_name);
+    if (parent != NULL) {
+        parent_netdev = netdev_bcmsdk_cast(parent);
         netdev->hw_unit = 0;
-        parent = netdev_from_name(netdev->parent_netdev_name);
-        if (parent != NULL) {
-            parent_netdev = netdev_bcmsdk_cast(parent);
-            if (parent_netdev != NULL) {
-                ovs_mutex_lock(&parent_netdev->mutex);
-                bcmsdk_knet_subinterface_filter_create(netdev->hw_unit, netdev->hw_id,
-                        parent_netdev->knet_if_id, &(netdev->knet_subinterface_filter_id));
-                ovs_mutex_unlock(&parent_netdev->mutex);
+        if (enable == true) {
+            if (parent_netdev->subint_ref_count == 0) {
+                VLOG_DBG("Create subinterface knet filter\n");
+                bcmsdk_knet_subinterface_filter_create(netdev->hw_unit, netdev->parent_hw_id,
+                        parent_netdev->knet_if_id, &(parent_netdev->knet_subinterface_filter_id));
             }
-            netdev_close(parent);
+            parent_netdev->subint_ref_count++;
+        } else if (enable == false) {
+            parent_netdev->subint_ref_count--;
+            if (parent_netdev->subint_ref_count == 0) {
+                VLOG_DBG("Destroy subinterface knet filter\n");
+                bcmsdk_knet_filter_delete(netdev->up.name,
+                                          netdev->hw_unit,
+                                          parent_netdev->knet_subinterface_filter_id);
+            }
         }
-    } else if ((enable == false) && (netdev->knet_subinterface_filter_id != 0)) {
-        VLOG_DBG("Destroy subinterface knet filter\n");
-        bcmsdk_knet_filter_delete(netdev->up.name, netdev->hw_unit, netdev->knet_subinterface_filter_id);
-        netdev->knet_subinterface_filter_id = 0;
+        netdev_close(parent);
     }
 }
 

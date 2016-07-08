@@ -1040,7 +1040,7 @@ ops_routing_enable_l3_subinterface(int hw_unit, opennsl_port_t hw_port,
 
     /* Create l3 interface and add the mac to station tcam */
     rc = ops_routing_create_l3_intf(hw_unit, vrf_id, vlan_id, mac, l3_intf);
-    if (OPENNSL_FAILURE(rc)) {
+    if (rc != OPENNSL_E_EXISTS && OPENNSL_FAILURE(rc)) {
         log_event("SUBINTERFACE_L3INTF_CREATE_ERR",
                   EV_KV("interface", "%s", netdev_get_name(netdev)));
         goto failed_l3_intf_create;
