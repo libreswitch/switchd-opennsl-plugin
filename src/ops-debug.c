@@ -34,6 +34,7 @@
 #include <opennsl/error.h>
 #include <opennsl/types.h>
 #include <opennsl/l2.h>
+#include <sal/version.h>
 
 #include "ops-lag.h"
 #include "platform-defines.h"
@@ -86,6 +87,7 @@ char cmd_ops_usage[] =
 "ovs-appctl plugin/debug <cmds> - Run OpenSwitch BCM Plugin specific debug commands.\n"
 "\n"
 "   debug [[+/-]<option> ...] [all/none] - enable/disable debugging.\n"
+"   opennsl-version - displays the opennsl version.\n"
 "   vlan <vid> - displays OpenSwitch VLAN info.\n"
 "   hwvlan - displays hardware VLAN info.\n"
 "   knet [netif | filter] - displays knet information\n"
@@ -1194,6 +1196,9 @@ bcm_plugin_debug(struct unixctl_conn *conn, int argc,
 
         if (0 == strcmp(ch, "debug")) {
             handle_ops_debug(&ds, arg_idx, argc, argv);
+            goto done;
+        } else if (!strcmp(ch, "opennsl-version")) {
+            ds_put_format(&ds, "OpenNSL version: %s\n", opennsl_version_get());
             goto done;
         } else if (!strcmp(ch, "fp")) {
             const char* option = NEXT_ARG();
