@@ -86,6 +86,8 @@ struct ofbundle {
     char *ip6_address;
     struct hmap secondary_ip4addr; /* List of secondary IP address */
     struct hmap secondary_ip6addr; /* List of secondary IPv6 address */
+
+    int lag_sflow_polling_interval; /* sflow polling interval for LAG */
 };
 
 struct bcmsdk_provider_ofport_node {
