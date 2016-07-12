@@ -650,6 +650,8 @@ bundle_destroy(struct ofbundle *bundle)
     if (bundle->bond_hw_handle != -1) {
         VLOG_DBG("%s destroy the lag %s", __FUNCTION__, bundle->name);
         bcmsdk_destroy_lag(bundle->bond_hw_handle);
+        ops_sflow_remove_polling_on_lag_interface(bundle);
+        bundle->lag_sflow_polling_interval = 0;
     }
 
     /* in case a mirror destination, unconfigure it */
@@ -1103,6 +1105,7 @@ bundle_set(struct ofproto *ofproto_, void *aux,
         bundle->mirror_data = NULL;
         bundle->lacp = NULL;
         bundle->bond = NULL;
+        bundle->lag_sflow_polling_interval = 0;
 
         bundle->ip4_address = NULL;
         bundle->ip6_address = NULL;
@@ -1151,6 +1154,8 @@ bundle_set(struct ofproto *ofproto_, void *aux,
         VLOG_DBG("%s destroy LAG", __FUNCTION__);
         bcmsdk_destroy_lag(bundle->bond_hw_handle);
         bundle->bond_hw_handle = -1;
+        ops_sflow_remove_polling_on_lag_interface(bundle);
+        bundle->lag_sflow_polling_interval = 0;
         log_event("LAG_DELETE",
                    EV_KV("interface", "%s", bundle->name));
     }

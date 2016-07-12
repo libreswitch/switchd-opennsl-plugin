@@ -45,6 +45,14 @@ VLOG_DEFINE_THIS_MODULE(ops_sflow);
 #define DIAGNOSTIC_BUFFER_LEN   16000
 #define VLAN_HEADER_SIZE        4
 
+#define LAG_PORT_NAME_PREFIX            "lag"
+#define LAG_PORT_NAME_PREFIX_LENGTH     3
+#define LAG_AGGREGATE_ID_LENGTH         5
+
+/* Refer to IANAifType-MIB for LAG interface */
+#define LAG_INTERFACE_TYPE              161
+#define LACP_CNTR_DEFAULT_VALUE         0
+
 /* sFlow parameters - TODO make these per ofproto */
 SFLAgent *ops_sflow_agent = NULL;
 struct ofproto_sflow_options *sflow_options = NULL;
@@ -342,6 +350,22 @@ ops_sflow_set_per_interface (const int unit, const int port, bool set)
     }
 }
 
+/**
+ * Function to extract the aggregate id from the
+ * LAG name. (i.e.) lag_name="lag1000" -> aggregate_id=1000
+ */
+static uint32_t
+ops_sflow_get_lag_aggregate_id(const char *lag_name)
+{
+    char aggr_key[LAG_AGGREGATE_ID_LENGTH];
+    uint32_t aggregate_id = 0;
+
+    snprintf(aggr_key, LAG_AGGREGATE_ID_LENGTH, "%s",
+             lag_name + LAG_PORT_NAME_PREFIX_LENGTH);
+    aggregate_id = (uint32_t)atoi(aggr_key);
+    return aggregate_id;
+}
+
 /* callback function to get the per-port interface counters */
 static void
 ops_sflow_get_port_counters(void *arg, SFLPoller *poller,
@@ -349,15 +373,22 @@ ops_sflow_get_port_counters(void *arg, SFLPoller *poller,
 {
     uint64_t speed;
     uint32_t hw_unit = 0, hw_port = 0;
-    uint32_t index, direction, status;
+    uint32_t index = 0, direction = 0, status = 0;
     struct ops_sflow_port_stats stats;
-    SFLCounters_sample_element elem;
+    SFLCounters_sample_element elem, lacp_elem;
     SFLIf_counters *counters;
+    SFLLACP_counters *lacp_counters;
+    char *bundle_name = NULL;
+    uint32_t aggregate_id = 0;
+    struct eth_addr mac_addr;
+
+    if (arg != NULL) {
+        bundle_name = (char *)arg;
+    }
 
     ovs_mutex_lock(&mutex);
     hw_unit = (poller->bridgePort & 0xFFFF0000) >> 16;
     hw_port = poller->bridgePort & 0x0000FFFF;
-
     netdev_bcmsdk_get_sflow_intf_info(hw_unit, hw_port, &index, &speed,
                                       &direction, &status);
     bcmsdk_get_sflow_port_stats(hw_unit, hw_port, &stats);
@@ -392,6 +423,123 @@ ops_sflow_get_port_counters(void *arg, SFLPoller *poller,
 
     SFLADD_ELEMENT(cs, &elem);
 
+    /* Check if the interface is part of a bundle that is a LAG and
+     * send the LACP counters.
+     * TODO : LACP counters are not available in the DB so for now
+     *        sending default values of 0 for all LACP counters.
+     */
+    if (bundle_name != NULL &&
+        strncmp(bundle_name, LAG_PORT_NAME_PREFIX,
+                LAG_PORT_NAME_PREFIX_LENGTH) == 0) {
+
+        VLOG_DBG("Port %d is part of LAG %s", hw_port, bundle_name);
+
+        memset(&mac_addr, 0, sizeof(struct eth_addr));
+        aggregate_id = ops_sflow_get_lag_aggregate_id(bundle_name);
+
+        lacp_elem.tag = SFLCOUNTERS_LACP;
+        lacp_counters = &lacp_elem.counterBlock.lacp;
+        lacp_counters->actorSystemID = mac_addr;
+        lacp_counters->partnerSystemID = mac_addr;
+        lacp_counters->attachedAggID = aggregate_id;
+        lacp_counters->portState.v.actorAdmin = LACP_CNTR_DEFAULT_VALUE;
+        lacp_counters->portState.v.actorOper = LACP_CNTR_DEFAULT_VALUE;
+        lacp_counters->portState.v.partnerAdmin = LACP_CNTR_DEFAULT_VALUE;
+        lacp_counters->portState.v.partnerOper = LACP_CNTR_DEFAULT_VALUE;
+        lacp_counters->LACPDUsRx = LACP_CNTR_DEFAULT_VALUE;
+        lacp_counters->markerPDUsRx = LACP_CNTR_DEFAULT_VALUE;
+        lacp_counters->markerResponsePDUsRx = LACP_CNTR_DEFAULT_VALUE;
+        lacp_counters->unknownRx = LACP_CNTR_DEFAULT_VALUE;
+        lacp_counters->illegalRx = LACP_CNTR_DEFAULT_VALUE;
+        lacp_counters->LACPDUsTx = LACP_CNTR_DEFAULT_VALUE;
+        lacp_counters->markerPDUsTx = LACP_CNTR_DEFAULT_VALUE;
+        lacp_counters->markerResponsePDUsTx = LACP_CNTR_DEFAULT_VALUE;
+        SFLADD_ELEMENT(cs, &lacp_elem);
+    }
+
+    sfl_poller_writeCountersSample(poller, cs);
+
+    ovs_mutex_unlock(&mutex);
+}
+
+/**
+ * Callback function to get the LAG interface counters and
+ * send to sFlow collector.
+ */
+static void
+ops_sflow_get_lag_counters(void *arg, SFLPoller *poller,
+                            SFL_COUNTERS_SAMPLE_TYPE *cs)
+{
+    uint64_t port_speed = 0, lag_speed = 0;
+    int hw_unit = 0, hw_port = 0;
+    uint32_t index = 0, direction = 0, status = 0;
+    struct ops_sflow_port_stats port_stats, lag_stats;
+    SFLCounters_sample_element elem;
+    SFLIf_counters *counters;
+    struct ofbundle *lag_bundle = NULL;
+    struct bcmsdk_provider_ofport_node *port = NULL, *next_port = NULL;
+    uint32_t aggregate_id = 0;
+
+    ovs_mutex_lock(&mutex);
+    lag_bundle = (struct ofbundle *)arg;
+    memset(&lag_stats, 0, sizeof(struct ops_sflow_port_stats));
+
+    aggregate_id = ops_sflow_get_lag_aggregate_id(lag_bundle->name);
+
+    LIST_FOR_EACH_SAFE(port, next_port, bundle_node, &lag_bundle->ports) {
+        netdev_bcmsdk_get_hw_info(port->up.netdev, &hw_unit, &hw_port, NULL);
+        VLOG_DBG("LAG %s member port : %d", lag_bundle->name, hw_port);
+        netdev_bcmsdk_get_sflow_intf_info(hw_unit, hw_port,
+                                          &index, &port_speed,
+                                          &direction, &status);
+        bcmsdk_get_sflow_port_stats(hw_unit, hw_port, &port_stats);
+        lag_stats.in_octets += port_stats.in_octets;
+        lag_stats.in_ucastpkts += port_stats.in_ucastpkts;
+        lag_stats.in_multicastpkts += port_stats.in_multicastpkts;
+        lag_stats.in_broadcastpkts += port_stats.in_broadcastpkts;
+        lag_stats.in_discards += port_stats.in_discards;
+        lag_stats.in_errors += port_stats.in_errors;
+        lag_stats.in_unknownprotos += port_stats.in_unknownprotos;
+        lag_stats.out_octets += port_stats.out_octets;
+        lag_stats.out_ucastpkts += port_stats.out_ucastpkts;
+        lag_stats.out_multicastpkts += port_stats.out_multicastpkts;
+        lag_stats.out_broadcastpkts += port_stats.out_broadcastpkts;
+        lag_stats.out_discards += port_stats.out_discards;
+        lag_stats.out_errors += port_stats.out_errors;
+        lag_speed += port_speed;
+    }
+
+    elem.tag = SFLCOUNTERS_GENERIC;
+    counters = &elem.counterBlock.generic;
+    counters->ifIndex = aggregate_id;
+    counters->ifType = LAG_INTERFACE_TYPE;
+    counters->ifSpeed = lag_speed;
+    counters->ifDirection = direction;
+    counters->ifStatus = status;
+    counters->ifInOctets = lag_stats.in_octets;
+    counters->ifInUcastPkts = lag_stats.in_ucastpkts;
+    counters->ifInMulticastPkts = lag_stats.in_multicastpkts;
+    counters->ifInBroadcastPkts = lag_stats.in_broadcastpkts;
+    counters->ifInDiscards = lag_stats.in_discards;
+    counters->ifInErrors = lag_stats.in_errors;
+    counters->ifInUnknownProtos = lag_stats.in_unknownprotos;
+    counters->ifOutOctets = lag_stats.out_octets;
+    counters->ifOutUcastPkts = lag_stats.out_ucastpkts;
+    counters->ifOutMulticastPkts = lag_stats.out_multicastpkts;
+    counters->ifOutBroadcastPkts = lag_stats.out_broadcastpkts;
+    counters->ifOutDiscards = lag_stats.out_discards;
+    counters->ifOutErrors = lag_stats.out_errors;
+    counters->ifPromiscuousMode = 0;
+
+    VLOG_DBG("sFlow LAG stats %d [%d, %d, %d, %d/%d, %d, %d, %d/%d, %d, %d]\n",
+             aggregate_id, (int)lag_speed, direction, status,
+             lag_stats.in_ucastpkts, (int)lag_stats.in_octets,
+             lag_stats.in_discards, lag_stats.in_errors,
+             lag_stats.out_ucastpkts, (int)lag_stats.out_octets,
+             lag_stats.out_discards, lag_stats.out_errors);
+
+    SFLADD_ELEMENT(cs, &elem);
+
     sfl_poller_writeCountersSample(poller, cs);
 
     ovs_mutex_unlock(&mutex);
@@ -406,23 +554,34 @@ ops_sflow_set_dsi(SFLDataSource_instance *dsi, int hw_unit, int hw_port)
     SFL_DS_SET(*dsi, SFL_DSCLASS_PHYSICAL_ENTITY, dsIndex, 0);
 }
 
+static void
+ops_sflow_set_dsi_for_lag_interface(SFLDataSource_instance *dsi,
+                                    int aggregate_id)
+{
+    uint32_t dsIndex;
+    dsIndex = 1000 + sflow_options->sub_id + aggregate_id;
+    SFL_DS_SET(*dsi, SFL_DSCLASS_LOGICAL_ENTITY, dsIndex, 0);
+}
+
 /* Configure polling per interface */
 static void
-ops_sflow_set_polling_per_interface(int hw_unit, int hw_port, int interval)
+ops_sflow_set_polling_per_interface(int hw_unit, int hw_port,
+                                    char *bundle_name,
+                                    int interval)
 {
     SFLPoller *poller;
     uint32_t unit_port = 0;
     SFLDataSource_instance dsi;
 
-    VLOG_DBG("Config polling for hw_unit %d, hw_port %d, interval %d\n",
-              hw_unit, hw_port, interval);
+    VLOG_DBG("Configure polling interval for hw_unit %d, hw_port %d, "
+             "interval %d\n",hw_unit, hw_port, interval);
 
     if (!ops_sflow_agent || hw_port == -1) { /* -1 set for some virtual intf */
         return;
     }
 
     ops_sflow_set_dsi(&dsi, hw_unit, hw_port);
-    poller = sfl_agent_addPoller(ops_sflow_agent, &dsi, NULL,
+    poller = sfl_agent_addPoller(ops_sflow_agent, &dsi, bundle_name,
                                  ops_sflow_get_port_counters);
     sfl_poller_set_sFlowCpInterval(poller, interval);
     sfl_poller_set_sFlowCpReceiver(poller, SFLOW_RECEIVER_INDEX);
@@ -434,6 +593,60 @@ ops_sflow_set_polling_per_interface(int hw_unit, int hw_port, int interval)
     sfl_poller_set_bridgePort(poller, unit_port);
 }
 
+/**
+ * Function to configure polling on LAG interface
+ */
+static void
+ops_sflow_set_polling_interval_on_lag_interface(struct ofbundle *lag_bundle,
+                                                int interval)
+{
+    SFLPoller *poller;
+    SFLDataSource_instance dsi;
+    uint32_t aggregate_id = 0;
+
+    VLOG_DBG("Configure polling interval for LAG %s, interval %d\n",
+              lag_bundle->name, interval);
+
+    if (!ops_sflow_agent) {
+        return;
+    }
+
+    ovs_mutex_lock(&mutex);
+    aggregate_id = ops_sflow_get_lag_aggregate_id(lag_bundle->name);
+    ovs_mutex_unlock(&mutex);
+    ops_sflow_set_dsi_for_lag_interface(&dsi, aggregate_id);
+
+    poller = sfl_agent_addPoller(ops_sflow_agent, &dsi, lag_bundle,
+                                 ops_sflow_get_lag_counters);
+    sfl_poller_set_sFlowCpInterval(poller, interval);
+    sfl_poller_set_sFlowCpReceiver(poller, SFLOW_RECEIVER_INDEX);
+    poller->lastPolled = time(NULL);
+}
+
+/**
+ * Function to remove polling on a LAG interface
+ */
+void
+ops_sflow_remove_polling_on_lag_interface(struct ofbundle *lag_bundle)
+{
+    SFLDataSource_instance dsi;
+    uint32_t aggregate_id = 0;
+
+    VLOG_DBG("Remove polling functionality for LAG %s",lag_bundle->name);
+
+    if (!ops_sflow_agent) {
+        return;
+    }
+
+    ovs_mutex_lock(&mutex);
+    aggregate_id = ops_sflow_get_lag_aggregate_id(lag_bundle->name);
+    ovs_mutex_unlock(&mutex);
+
+    ops_sflow_set_dsi_for_lag_interface(&dsi, aggregate_id);
+
+    sfl_agent_removePoller(ops_sflow_agent, &dsi);
+}
+
 
 void
 ops_sflow_add_port(struct netdev *netdev)
@@ -441,7 +654,7 @@ ops_sflow_add_port(struct netdev *netdev)
     int hw_unit = 0, hw_port = 0;
     if (netdev && sflow_options) {
         netdev_bcmsdk_get_hw_info(netdev, &hw_unit, &hw_port, NULL);
-        ops_sflow_set_polling_per_interface(hw_unit, hw_port,
+        ops_sflow_set_polling_per_interface(hw_unit, hw_port, NULL,
                                             sflow_options->polling_interval);
     }
 }
@@ -456,10 +669,21 @@ ops_sflow_set_polling_interval(struct bcmsdk_provider_node *ofproto, int interva
 
     if (ops_sflow_agent) {
         HMAP_FOR_EACH(bundle, hmap_node, &ofproto->bundles) {
+            if (strncmp(bundle->name, LAG_PORT_NAME_PREFIX,
+                        LAG_PORT_NAME_PREFIX_LENGTH) == 0) {
+                if (bundle->lag_sflow_polling_interval != interval) {
+                    ops_sflow_set_polling_interval_on_lag_interface(bundle,
+                                                                    interval);
+                    bundle->lag_sflow_polling_interval = interval;
+                }
+            }
             LIST_FOR_EACH_SAFE(port, next_port, bundle_node, &bundle->ports) {
                 if (port->sflow_polling_interval != interval) {
-                    netdev_bcmsdk_get_hw_info(port->up.netdev, &hw_unit, &hw_port, NULL);
-                    ops_sflow_set_polling_per_interface(hw_unit, hw_port, interval);
+                    netdev_bcmsdk_get_hw_info(port->up.netdev, &hw_unit,
+                                              &hw_port, NULL);
+                    ops_sflow_set_polling_per_interface(hw_unit, hw_port,
+                                                        port->bundle->name,
+                                                        interval);
                     port->sflow_polling_interval = interval;
                 }
             }
@@ -1001,6 +1225,11 @@ ops_sflow_agent_disable(struct bcmsdk_provider_node *ofproto)
 
     /* clear the polling interval config from each port */
     HMAP_FOR_EACH(bundle, hmap_node, &ofproto->bundles) {
+        /* Clear the polling interval if bundle is a LAG */
+        if (strncmp(bundle->name, LAG_PORT_NAME_PREFIX,
+                    LAG_PORT_NAME_PREFIX_LENGTH) == 0) {
+            bundle->lag_sflow_polling_interval = 0;
+        }
         LIST_FOR_EACH_SAFE(port, next_port, bundle_node, &bundle->ports) {
             port->sflow_polling_interval = 0;
         }

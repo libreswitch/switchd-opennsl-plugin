@@ -122,6 +122,9 @@ ops_sflow_set_polling_interval(struct bcmsdk_provider_node *ofproto,
                                int polling_interval);
 
 extern void
+ops_sflow_remove_polling_on_lag_interface(struct ofbundle *lag_bundle);
+
+extern void
 sflow_options_update_ports_list(const char *port_name,
                                 bool sflow_is_enabled);
 
