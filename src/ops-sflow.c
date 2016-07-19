@@ -826,6 +826,21 @@ ops_sflow_set_sampling_rate(const int unit, const int port,
                       EV_KV("error", "%s", opennsl_errmsg(rc)));
             return;
         }
+        /* sFlow needs the following explicit configuration on
+           Tomahawk to sample ingress packets. This setting
+           might not be supported on Trident2.
+           So check for appropriate error message. */
+        rc = opennsl_port_control_set(unit, port,
+                                      opennslPortControlSampleIngressDest,
+                                      OPENNSL_PORT_CONTROL_SAMPLE_DEST_CPU);
+        if (OPENNSL_FAILURE(rc) && rc != OPENNSL_E_UNAVAIL) {
+            VLOG_ERR("Failed to set ingress sampling on port: %d, (error-%s).",
+                    port, opennsl_errmsg(rc));
+            log_event("SFLOW_SET_SAMPLING_RATE_FAILURE",
+                      EV_KV("port", "%d", port),
+                      EV_KV("error", "%s", opennsl_errmsg(rc)));
+            return;
+        }
 
     } else { /* set globally, on all ports */
         /* Iterate over all front-panel (e - ethernet) ports */
@@ -836,13 +851,28 @@ ops_sflow_set_sampling_rate(const int unit, const int port,
                 continue;
             }
 
-            opennsl_port_sample_rate_set(unit, fp_port, ingress_rate,
-                                    egress_rate);
+            rc = opennsl_port_sample_rate_set(unit, fp_port, ingress_rate,
+                                              egress_rate);
             if (OPENNSL_FAILURE(rc)) {
                 VLOG_ERR("Failed to set sampling rate on port: %d, (error-%s)",
-                        port, opennsl_errmsg(rc));
+                         fp_port, opennsl_errmsg(rc));
                 log_event("SFLOW_SET_SAMPLING_RATE_FAILURE",
-                          EV_KV("port", "%d", port),
+                          EV_KV("port", "%d", fp_port),
+                          EV_KV("error", "%s", opennsl_errmsg(rc)));
+                return;
+            }
+            /* sFlow needs the following explicit configuration on
+               Tomahawk to sample ingress packets. This setting
+               might not be supported on Trident2.
+               So check for appropriate error message. */
+            rc = opennsl_port_control_set(unit, fp_port,
+                                          opennslPortControlSampleIngressDest,
+                                          OPENNSL_PORT_CONTROL_SAMPLE_DEST_CPU);
+            if (OPENNSL_FAILURE(rc) && rc != OPENNSL_E_UNAVAIL) {
+                VLOG_ERR("Failed to set ingress sampling on port: %d, (error-%s).",
+                         fp_port, opennsl_errmsg(rc));
+                log_event("SFLOW_SET_SAMPLING_RATE_FAILURE",
+                          EV_KV("port", "%d", fp_port),
                           EV_KV("error", "%s", opennsl_errmsg(rc)));
                 return;
             }
