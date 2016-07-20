@@ -1999,40 +1999,42 @@ bundle_set(struct ofproto *ofproto_, void *aux,
     }
 
     /* Update set of ports. */
-    ok = true;
-    for (i = 0; i < s->n_slaves; i++) {
-        if (!bundle_add_port(bundle, s->slaves[i], NULL)) {
-            ok = false;
-        }
-    }
-
-    if (!ok || list_size(&bundle->ports) != s->n_slaves) {
-        struct bcmsdk_provider_ofport_node *next_port;
-
-        LIST_FOR_EACH_SAFE (port, next_port, bundle_node, &bundle->ports) {
-            for (i = 0; i < s->n_slaves; i++) {
-                if (s->slaves[i] == port->up.ofp_port) {
-                    goto found;
-                }
+    if ((!ofproto->vrf) || (ofproto->vrf && bundle->l3_intf)) {
+        ok = true;
+        for (i = 0; i < s->n_slaves; i++) {
+            if (!bundle_add_port(bundle, s->slaves[i], NULL)) {
+                ok = false;
             }
-
-            VLOG_DBG("%s Bundle delete port %s",
-                       __FUNCTION__,netdev_get_name(port->up.netdev));
-            bundle_del_port(port);
-            log_event("LAG_REM_PORT_BITMAP",
-                    EV_KV("interface", "%s", bundle->name),
-                    EV_KV("port", "%s", netdev_get_name(port->up.netdev)));
-            found: ;
         }
-    }
 
-    ovs_assert(list_size(&bundle->ports) <= s->n_slaves);
+        if (!ok || list_size(&bundle->ports) != s->n_slaves) {
+            struct bcmsdk_provider_ofport_node *next_port;
 
-    if (list_is_empty(&bundle->ports)) {
-        if (s->hw_bond_should_exist == false) {
-            VLOG_DBG("%s calling bundle destroy",__FUNCTION__);
-            bundle_destroy(bundle);
-            return 0;
+            LIST_FOR_EACH_SAFE (port, next_port, bundle_node, &bundle->ports) {
+                for (i = 0; i < s->n_slaves; i++) {
+                    if (s->slaves[i] == port->up.ofp_port) {
+                        goto found;
+                    }
+                }
+
+                VLOG_DBG("%s Bundle delete port %s",
+                        __FUNCTION__,netdev_get_name(port->up.netdev));
+                bundle_del_port(port);
+                log_event("LAG_REM_PORT_BITMAP",
+                        EV_KV("interface", "%s", bundle->name),
+                        EV_KV("port", "%s", netdev_get_name(port->up.netdev)));
+                found: ;
+            }
+        }
+
+        ovs_assert(list_size(&bundle->ports) <= s->n_slaves);
+
+        if (list_is_empty(&bundle->ports)) {
+            if (s->hw_bond_should_exist == false) {
+                VLOG_DBG("%s calling bundle destroy",__FUNCTION__);
+                bundle_destroy(bundle);
+                return 0;
+            }
         }
     }
 
