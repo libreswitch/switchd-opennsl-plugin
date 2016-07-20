@@ -1551,51 +1551,6 @@ port_ip_reconfigure(struct ofproto *ofproto, struct ofbundle *bundle,
 }
 
 static int
-init_l3_ingress_stats(struct bcmsdk_provider_ofport_node *port, opennsl_vlan_t vlan_id)
-{
-    int rc = 0;
-    uint32_t ing_stat_id = 0;
-    uint32_t ing_num_id = 0;
-
-    /* Create Ingress stat object using the vlan id */
-    rc = opennsl_stat_group_create(0, opennslStatObjectIngL3Intf,
-            opennslStatGroupModeTrafficType, &ing_stat_id,
-            &ing_num_id);
-    if (rc) {
-        VLOG_ERR("Failed to create bcm stat group for ingress id %d",
-                vlan_id);
-        return 1; /* Return error */
-    }
-
-    /* Attach stat to customized group mode */
-    rc = opennsl_stat_custom_group_create(0, l3_stats_mode_id,
-            opennslStatObjectIngL3Intf, &ing_stat_id, &ing_num_id);
-    if (rc) {
-        VLOG_ERR("Failed to create custom stat group for ing id %d",
-                vlan_id);
-        return 1; /* Return error */
-    }
-
-    rc = opennsl_l3_ingress_stat_attach(0, vlan_id, ing_stat_id);
-    if (rc) {
-        VLOG_ERR("Failed to attach stat obj, for ingress id %d, %s",
-                vlan_id, opennsl_errmsg(rc));
-        return 1; /* Return error */
-    }
-
-    rc = netdev_bcmsdk_set_l3_ingress_stat_obj(port->up.netdev,
-            vlan_id,
-            ing_stat_id,
-            ing_num_id);
-    if (rc) {
-        VLOG_ERR("Failed to set l3 ingress stats obj for vlanid %d",
-                vlan_id);
-        return 1; /* Return error */
-    }
-    return 0;
-}
-
-static int
 bundle_set(struct ofproto *ofproto_, void *aux,
            const struct ofproto_bundle_settings *s)
 {
@@ -1786,7 +1741,7 @@ bundle_set(struct ofproto *ofproto_, void *aux,
                 } else if (strcmp(type, OVSREC_INTERFACE_TYPE_INTERNAL) == 0) {
                     opennsl_l3_intf_delete(hw_unit, bundle->l3_intf);
                 }
-                netdev_bcmsdk_l3_ingress_stats_pause(port->up.netdev);
+                netdev_bcmsdk_l3_ingress_stats_remove(port->up.netdev);
                 bundle->l3_intf = NULL;
                 bundle->hw_unit = 0;
                 bundle->hw_port = -1;
@@ -1809,8 +1764,8 @@ bundle_set(struct ofproto *ofproto_, void *aux,
                 if (bundle->l3_intf) {
                     bundle->hw_unit = hw_unit;
                     bundle->hw_port = hw_port;
-                    /* Initilize FP entries for l3 interface stats */
-                    netdev_bcmsdk_l3intf_fp_stats_init(vlan_id, hw_port, hw_unit);
+                    /* Create FP group/entries for l3 interface stats */
+                    netdev_bcmsdk_l3intf_fp_stats_create(port->up.netdev, vlan_id);
                     log_event("L3INTERFACE_CREATE",
                                EV_KV("interface", "%s", bundle->name));
                 }
@@ -1842,7 +1797,7 @@ bundle_set(struct ofproto *ofproto_, void *aux,
             }
             /* Initialize L3 ingress flex counters. The L3 egress flex counters are
              * installed dynamically per egress object at creation time. */
-            init_l3_ingress_stats(port, vlan_id);
+            netdev_bcmsdk_create_l3_ingress_stats(port->up.netdev, vlan_id);
         }
     }
 
