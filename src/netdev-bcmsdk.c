@@ -137,7 +137,12 @@ struct netdev_bcmsdk {
 
     /* Running counter of total egress object level
      * stats deleted for the l3 interface */
-    struct ops_deleted_stats deleted_stats_counter;
+    struct ops_deleted_stats deleted_egress_stats_counter;
+
+    /* Running counter of total ingress
+     * stats deleted for the l3 interface */
+    struct ops_deleted_stats deleted_ingress_stats_counter;
+
 
     opennsl_field_entry_t *l3_stat_fp_entries;
     int *l3_stat_fp_ids;
@@ -344,6 +349,7 @@ netdev_bcmsdk_construct(struct netdev *netdev_)
     netdev->link_state = 0;
 
     hmap_init(&netdev->egress_id_map);
+    memset(&netdev->ingress_stats_object, 0, sizeof(netdev->ingress_stats_object));
 
     netdev->l3_stat_fp_entries = NULL;
     netdev->l3_stat_fp_ids = NULL;
@@ -390,7 +396,9 @@ netdev_bcmsdk_dealloc(struct netdev *netdev_)
         free(netdev->parent_netdev_name);
     }
 
-    netdev_bcmsdk_l3_global_stats_destroy(netdev_);
+    netdev_bcmsdk_l3_egress_stats_destroy(netdev_);
+    hmap_destroy(&netdev->egress_id_map);
+    netdev_bcmsdk_l3_ingress_stats_destroy(netdev_);
     netdev_bcmsdk_l3intf_fp_stats_destroy(netdev->hw_id, netdev->hw_unit);
 
     free(netdev);
@@ -1064,8 +1072,8 @@ netdev_bcmsdk_remove_l3_egress_id(const struct netdev *netdev_,
     }
 
     ovs_mutex_lock(&netdev->mutex);
-    netdev->deleted_stats_counter.del_uc_packets += count_arr[0].packets;
-    netdev->deleted_stats_counter.del_mc_packets += count_arr[1].packets;
+    netdev->deleted_egress_stats_counter.del_uc_packets += count_arr[0].packets;
+    netdev->deleted_egress_stats_counter.del_mc_packets += count_arr[1].packets;
 
     ovs_mutex_unlock(&netdev->mutex);
 
@@ -1109,8 +1117,8 @@ netdev_bcmsdk_remove_l3_egress_id(const struct netdev *netdev_,
     }
 
     ovs_mutex_lock(&netdev->mutex);
-    netdev->deleted_stats_counter.del_uc_bytes += count_arr[0].bytes;
-    netdev->deleted_stats_counter.del_mc_bytes += count_arr[1].bytes;
+    netdev->deleted_egress_stats_counter.del_uc_bytes += count_arr[0].bytes;
+    netdev->deleted_egress_stats_counter.del_mc_bytes += count_arr[1].bytes;
 
     /* remove the entry from the egress_id hash map */
     hmap_remove(&(netdev->egress_id_map), &(egress_id_node->egress_node));
@@ -1227,10 +1235,10 @@ netdev_bcmsdk_get_l3_stats(const struct netdev *netdev_,
         }
     }
 
-    stats->l3_uc_tx_packets += netdev->deleted_stats_counter.del_uc_packets;
-    stats->l3_uc_tx_bytes += netdev->deleted_stats_counter.del_uc_bytes;
-    stats->l3_mc_tx_packets += netdev->deleted_stats_counter.del_mc_packets;
-    stats->l3_mc_tx_bytes += netdev->deleted_stats_counter.del_mc_bytes;
+    stats->l3_uc_tx_packets += netdev->deleted_egress_stats_counter.del_uc_packets;
+    stats->l3_uc_tx_bytes += netdev->deleted_egress_stats_counter.del_uc_bytes;
+    stats->l3_mc_tx_packets += netdev->deleted_egress_stats_counter.del_mc_packets;
+    stats->l3_mc_tx_bytes += netdev->deleted_egress_stats_counter.del_mc_bytes;
 
     /* Now get the ingress stats for the l3 interface if they are configured */
     if (netdev->ingress_stats_object.ingress_stat_id &&
@@ -1244,6 +1252,11 @@ netdev_bcmsdk_get_l3_stats(const struct netdev *netdev_,
             return 1; /* Return error */
         }
     }
+
+    stats->l3_uc_rx_packets += netdev->deleted_ingress_stats_counter.del_uc_packets;
+    stats->l3_uc_rx_bytes += netdev->deleted_ingress_stats_counter.del_uc_bytes;
+    stats->l3_mc_rx_packets += netdev->deleted_ingress_stats_counter.del_mc_packets;
+    stats->l3_mc_rx_bytes += netdev->deleted_ingress_stats_counter.del_mc_bytes;
 
     return rc;
 }
@@ -1947,12 +1960,13 @@ netdev_bcmsdk_l3intf_fp_stats_create(opennsl_vlan_t vlan_id, opennsl_port_t hw_p
     return OPENNSL_E_NONE;
 }
 
-/* This function destroys all the global statistics counters associated with L3 interfaces.
+/*
+ * This function destroys all the egress statistics counters associated with L3 interface.
  * These do not include the FP stat entries, which are used for counting IPv4/IPv6 specific
  * counters.
  */
 int
-netdev_bcmsdk_l3_global_stats_destroy(struct netdev *netdev_)
+netdev_bcmsdk_l3_egress_stats_destroy(struct netdev *netdev_)
 {
     struct netdev_bcmsdk *netdev = netdev_bcmsdk_cast(netdev_);
     opennsl_error_t rc = OPENNSL_E_NONE;
@@ -1985,8 +1999,26 @@ netdev_bcmsdk_l3_global_stats_destroy(struct netdev *netdev_)
         free(egress_id_node);
     }
 
-    /* Destroy the hashmap once all of the entries are removed  and freed. */
-    hmap_destroy(&netdev->egress_id_map);
+    netdev->deleted_egress_stats_counter.del_uc_packets = 0;
+    netdev->deleted_egress_stats_counter.del_uc_bytes = 0;
+    netdev->deleted_egress_stats_counter.del_mc_packets = 0;
+    netdev->deleted_egress_stats_counter.del_mc_bytes = 0;
+
+    return rc;
+}
+
+/*
+ * This function destroys all the ingress statistics counters associated with L3 interfaces.
+ */
+static int
+netdev_bcmsdk_l3_ingress_stats_uninstall(struct netdev *netdev_)
+{
+    struct netdev_bcmsdk *netdev = netdev_bcmsdk_cast(netdev_);
+    opennsl_error_t rc = OPENNSL_E_NONE;
+
+    if(!netdev) {
+        return OPENNSL_E_NONE;
+    }
 
     if(netdev->ingress_stats_object.ingress_stat_id ||
             netdev->ingress_stats_object.ingress_vlan_id)
@@ -2009,8 +2041,61 @@ netdev_bcmsdk_l3_global_stats_destroy(struct netdev *netdev_)
         }
         memset(&netdev->ingress_stats_object, 0, sizeof(netdev->ingress_stats_object));
     }
+    return rc;
+}
 
-    return OPENNSL_E_NONE;
+/*
+ * This function remove all the ingress statistics counters associated with L3 interfaces.
+ * And then backups stats to running counter.
+ */
+int
+netdev_bcmsdk_l3_ingress_stats_pause(struct netdev *netdev_)
+{
+    struct netdev_bcmsdk *netdev = netdev_bcmsdk_cast(netdev_);
+    opennsl_error_t rc = OPENNSL_E_NONE;
+    struct netdev_stats stats;
+
+    if(!netdev) {
+        return OPENNSL_E_NONE;
+    }
+
+    netdev_bcmsdk_get_l3_stats(netdev_, &stats);
+
+    /* Backup ingress stats */
+    netdev->deleted_ingress_stats_counter.del_uc_packets = stats.l3_uc_rx_packets;
+    netdev->deleted_ingress_stats_counter.del_uc_bytes = stats.l3_uc_rx_bytes;
+    netdev->deleted_ingress_stats_counter.del_mc_packets = stats.l3_mc_rx_packets;
+    netdev->deleted_ingress_stats_counter.del_mc_bytes = stats.l3_mc_rx_bytes;
+
+    rc = netdev_bcmsdk_l3_ingress_stats_uninstall(netdev_);
+
+    return rc;
+}
+
+/*
+ * This function destroys all the ingress statistics counters associated with L3 interfaces.
+ * And clears all counters to 0.
+ * These do not include the FP stat entries, which are used for counting IPv4/IPv6 specific
+ * counters.
+ */
+int
+netdev_bcmsdk_l3_ingress_stats_destroy(struct netdev *netdev_)
+{
+    struct netdev_bcmsdk *netdev = netdev_bcmsdk_cast(netdev_);
+    opennsl_error_t rc = OPENNSL_E_NONE;
+
+    if(!netdev) {
+        return OPENNSL_E_NONE;
+    }
+
+    rc = netdev_bcmsdk_l3_ingress_stats_uninstall(netdev_);
+
+    netdev->deleted_ingress_stats_counter.del_uc_packets = 0;
+    netdev->deleted_ingress_stats_counter.del_uc_bytes = 0;
+    netdev->deleted_ingress_stats_counter.del_mc_packets = 0;
+    netdev->deleted_ingress_stats_counter.del_mc_bytes = 0;
+
+    return rc;
 }
 
 /* This function destroys all the the FP stat entries, which are used for
