@@ -37,9 +37,6 @@ VLOG_DEFINE_THIS_MODULE(ops_stats);
 /* The number of elements in start_arr[] should be same as MAX_STATS. */
 #define MAX_STATS       18
 
-extern int netdev_bcmsdk_populate_l3_stats(int hw_unit, int hw_port,
-        struct netdev_stats *stats);
-
 opennsl_stat_val_t stat_arr[MAX_STATS] =
 {
     /* rx_packets */
@@ -222,13 +219,6 @@ bcmsdk_get_port_stats(int hw_unit, int hw_port, struct netdev_stats *stats)
     stats->collisions = value_arr[11];
     stats->rx_crc_errors = value_arr[12];
 
-    /* l3 stats */
-    rc = netdev_bcmsdk_populate_l3_stats(hw_unit, hw_port, stats);
-    if (OPENNSL_FAILURE(rc)) {
-        VLOG_ERR("Failed to get L3 interface statistics. Unit=%d port=%d. rc=%s",
-                 hw_unit, hw_port, opennsl_errmsg(rc));
-        return -1;
-    }
     return 0;
 } // bcmsdk_get_port_stats
 

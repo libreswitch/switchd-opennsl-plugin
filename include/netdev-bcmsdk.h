@@ -67,9 +67,12 @@ extern int netdev_bcmsdk_remove_l3_egress_id(const struct netdev *netdev,
                                              const int l3_egress_id);
 
 extern int
-netdev_bcmsdk_l3intf_fp_stats_create(opennsl_vlan_t vlan_id,
-                                   opennsl_port_t hw_port,
-                                   int hw_unit);
+netdev_bcmsdk_l3intf_fp_stats_create(const struct netdev *netdev_,
+                                     opennsl_vlan_t vlan_id);
+
+extern int
+netdev_bcmsdk_create_l3_ingress_stats(const struct netdev *netdev_,
+                                    opennsl_vlan_t vlan_id);
 
 extern int
 netdev_bcmsdk_l3intf_fp_stats_destroy(opennsl_port_t hw_port, int hw_unit);
@@ -78,7 +81,7 @@ extern int
 netdev_bcmsdk_l3_ingress_stats_destroy(struct netdev *netdev_);
 
 extern int
-netdev_bcmsdk_l3_ingress_stats_pause(struct netdev *netdev_);
+netdev_bcmsdk_l3_ingress_stats_remove(struct netdev *netdev_);
 
 extern int
 netdev_bcmsdk_l3_egress_stats_destroy(struct netdev *netdev_);
