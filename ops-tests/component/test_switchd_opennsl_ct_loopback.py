@@ -67,7 +67,8 @@ def test_switchd_opennsl_plugin_loopback_creation(topology, step):
     sw1('end')
 
     # Get port 1 uuid
-    command = "ovs-vsctl get port 1 _uuid"
+    # Changing harcoded interface for dynamic
+    command = "ovs-vsctl get port {} _uuid".format(sw1p1)
     bufferout = sw1(command, shell='bash')
     uuid = bufferout.splitlines()
     # print(uuid)
