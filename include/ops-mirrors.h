@@ -31,6 +31,7 @@
 #include <opennsl/switch.h>
 #include <opennsl/mirror.h>
 #include <ofproto/ofproto-provider.h>
+#include <ofproto/ofproto.h>
 #include <openvswitch/vlog.h>
 #include "ofproto-bcm-provider.h"
 #include "netdev-bcmsdk.h"
