@@ -37,7 +37,16 @@
 struct bcmsdk_provider_rule {
     struct rule up;
     struct ovs_mutex stats_mutex;
-    uint32_t recirc_id;
+
+   /* If non-NULL, will point to a new rule (for which a reference is held) to
+    * which all the stats updates should be forwarded. This exists only
+    * transitionally when flows are replaced.
+    *
+    * Protected by stats_mutex. If both 'rule->stats_mutex' and
+    * 'rule->new_rule->stats_mutex' must be held together, acquire them in that
+    * order.
+    */
+    struct bcmsdk_provider_rule *new_rule OVS_GUARDED;
 };
 
 struct bcmsdk_provider_group {

@@ -375,7 +375,7 @@ ofdpa_flow_add(struct rule *rule_)
         return err;
     }
 
-    /* Get the instructions set from the LOCI flow add object */
+    /* Get the instructions set from the flow add object */
     err = ovs_ofdpa_instructions_get(rule_->actions, &flow);
     if (err) {
         VLOG_ERR("Failed to get flow instructions. (err = 0x%8x)", err);
@@ -388,6 +388,51 @@ ofdpa_flow_add(struct rule *rule_)
         VLOG_ERR("Failed to add flow. (ofdpa_rv = %d)", ofdpa_rv);
     } else {
         VLOG_DBG("Flow added successfully. (ofdpa_rv = %d)", ofdpa_rv);
+    }
+
+    if (ofdpa_rv == OFDPA_E_NONE)
+        return 0;
+    else
+        return OFPERR_OFPHFC_INCOMPATIBLE;
+}
+
+static enum
+ofperr ofdpa_flow_modify(struct rule *rule_)
+{
+    enum ofperr err;
+    struct match megamatch;
+    ofdpaFlowEntry_t flow;
+    OFDPA_ERROR_t ofdpa_rv = OFDPA_E_NONE;
+
+    memset(&flow, 0, sizeof(flow));
+
+    minimatch_expand(&rule_->cr.match, &megamatch);
+    flow.tableId   = rule_->table_id;
+    flow.hard_time = rule_->hard_timeout;
+    flow.idle_time = rule_->idle_timeout;
+    flow.priority  = rule_->cr.priority;
+    flow.cookie    = rule_->flow_cookie;
+
+    /* Get the match fields and masks from LOCI match structure */
+    err = ovs_ofdpa_match_fields_masks_get(&megamatch, &flow);
+    if (err) {
+        VLOG_ERR("Error getting match fields and masks. (err = %d)", err);
+        return err;
+    }
+
+    /* Get the instructions set from the flow add object */
+    err = ovs_ofdpa_instructions_get(rule_->actions, &flow);
+    if (err) {
+        VLOG_ERR("Failed to get flow instructions. (err = 0x%8x)", err);
+        return err;
+    }
+
+    /* Submit the changes to ofdpa */
+    ofdpa_rv = ofdpaFlowModify(&flow);
+    if (ofdpa_rv != OFDPA_E_NONE) {
+        VLOG_ERR("Failed to modify flow. (ofdpa_rv = %d)", ofdpa_rv);
+    } else {
+        VLOG_DBG("Flow modified successfully. (ofdpa_rv = %d)", ofdpa_rv);
     }
 
     if (ofdpa_rv == OFDPA_E_NONE)
@@ -571,8 +616,8 @@ ovs_ofdpa_translate_group_buckets(uint32_t group_id,
                 /* First Bucket; Delete all buckets first */
                 ofdpa_rv = ofdpaGroupBucketsDeleteAll(group_id);
                 if (ofdpa_rv != OFDPA_E_NONE) {
-                VLOG_ERR("Error in deleting Group buckets, rv = %d", ofdpa_rv);
-                break;
+                    VLOG_ERR("Error in deleting Group buckets, rv = %d", ofdpa_rv);
+                    break;
                 }
             }
         }
@@ -2523,6 +2568,20 @@ static struct bcmsdk_provider_rule
     return rule ? CONTAINER_OF(rule, struct bcmsdk_provider_rule, up) : NULL;
 }
 
+static inline void bcmsdk_provider_rule_ref(struct bcmsdk_provider_rule *rule)
+{
+    if (rule) {
+        ofproto_rule_ref(&(rule->up));
+    }
+}
+
+static inline void bcmsdk_provider_rule_unref(struct bcmsdk_provider_rule *rule)
+{
+    if (rule) {
+        ofproto_rule_unref(&(rule->up));
+    }
+}
+
 static struct rule *
 rule_alloc(void)
 {
@@ -2545,12 +2604,13 @@ rule_construct(struct rule *rule_)
 
     VLOG_DBG("==========in ofdpa %s, %d", __FUNCTION__,__LINE__);
     ovs_mutex_init(&rule->stats_mutex);
+    rule->new_rule = NULL;
 
     return 0;
 }
 
-static void rule_insert(struct rule *rule_, struct rule *old_rule,
-                    bool forward_stats)
+static void rule_insert(struct rule *rule_, struct rule *old_rule_,
+                        bool forward_stats)
 OVS_REQUIRES(ofproto_mutex)
 {
     struct bcmsdk_provider_rule *rule = bcmsdk_provider_rule_cast(rule_);
@@ -2558,12 +2618,41 @@ OVS_REQUIRES(ofproto_mutex)
 
     if (ofproto_is_ofdpa(rule->up.ofproto)) {
         VLOG_DBG("==========in ofdpa %s, %d", __FUNCTION__,__LINE__);
-        ovs_mutex_lock(&rule->stats_mutex);
-        error = ofdpa_flow_add(rule_);
-        if(error) {
-            VLOG_ERR("Error adding flow. [error = %d]", error);
+
+        if (old_rule_ == NULL) {
+            VLOG_DBG("==========in ofdpa %s, %d", __FUNCTION__,__LINE__);
+
+            ovs_mutex_lock(&rule->stats_mutex);
+
+            error = ofdpa_flow_add(rule_);
+
+            ovs_mutex_unlock(&rule->stats_mutex);
+
+            if (error) {
+                VLOG_ERR("Error adding flow. [error = %d]", error);
+            }
+        } else {
+            struct bcmsdk_provider_rule *old_rule = bcmsdk_provider_rule_cast(old_rule_);
+
+            VLOG_DBG("==========in ofdpa %s, %d", __FUNCTION__,__LINE__);
+
+           /* Take a reference to the new rule, and refer all stats updates from
+            * the old rule to the new rule. */
+            bcmsdk_provider_rule_ref(rule);
+
+            ovs_mutex_lock(&old_rule->stats_mutex);
+            ovs_mutex_lock(&rule->stats_mutex);
+
+            error = ofdpa_flow_modify(rule_);
+            old_rule->new_rule = rule;
+
+            ovs_mutex_unlock(&rule->stats_mutex);
+            ovs_mutex_unlock(&old_rule->stats_mutex);
+
+            if (error) {
+                VLOG_ERR("Error modifying flow. [error = %d]", error);
+            }
         }
-        ovs_mutex_unlock(&rule->stats_mutex);
     }
 
     return;
@@ -2578,10 +2667,21 @@ rule_delete(struct rule *rule_)
 
     if (ofproto_is_ofdpa(rule->up.ofproto)) {
         VLOG_DBG("==========in ofdpa %s, %d", __FUNCTION__,__LINE__);
+
         ovs_mutex_lock(&rule->stats_mutex);
-        error = ofdpa_flow_delete(rule_);
-        if(error) {
-            VLOG_ERR("Error deleting flow. [error = %d]", error);
+
+       /*
+        * Do not delete flows that were the "old" rule in a call to
+        * rule_insert() for a modify operation. This is because OF-DPA
+        * modifies the rule in place, rather than adding the new rule
+        * along with the old rule. When OVS invokes rule_delete() for
+        * the "old" rule, there is no "old" rule in OF-DPA to delete.
+        */
+        if (!rule->new_rule) {
+            error = ofdpa_flow_delete(rule_);
+            if (error) {
+                VLOG_ERR("Error deleting flow. [error = %d]", error);
+            }
         }
         ovs_mutex_unlock(&rule->stats_mutex);
     }
@@ -2594,6 +2694,12 @@ rule_destruct(struct rule *rule_)
     struct bcmsdk_provider_rule *rule = bcmsdk_provider_rule_cast(rule_);
 
     ovs_mutex_destroy(&rule->stats_mutex);
+
+    /* Release reference to the new rule, if any. */
+    if (rule->new_rule) {
+        bcmsdk_provider_rule_unref(rule->new_rule);
+    }
+
     return;
 }
 
