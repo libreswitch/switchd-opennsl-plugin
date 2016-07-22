@@ -520,6 +520,8 @@ ops_port_init(int hw_unit)
 
     // Enable both ingress and egress VLAN filtering mode
     // for all Ethernet interfaces defined in the system.
+    // Clear the stats for all Ethernet interfaces during initialization
+    // This improvement is necessary for AS7712
     if (OPENNSL_SUCCESS(opennsl_port_config_get(hw_unit, &pcfg))) {
         OPENNSL_PBMP_ITER(pcfg.e, hw_port) {
             rc = opennsl_port_vlan_member_set(hw_unit, hw_port,
@@ -528,6 +530,12 @@ ops_port_init(int hw_unit)
             if (OPENNSL_FAILURE(rc)) {
                 VLOG_ERR("Failed to set unit %d hw_port %d VLAN filter "
                          "mode, err=%d (%s)",
+                         hw_unit, hw_port, rc, opennsl_errmsg(rc));
+            }
+            rc = opennsl_stat_clear(hw_unit, hw_port);
+            if (OPENNSL_FAILURE(rc)) {
+                VLOG_ERR("Failed to clear stat unit %d hw_port %d "
+                         "err=%d (%s)",
                          hw_unit, hw_port, rc, opennsl_errmsg(rc));
             }
         }
