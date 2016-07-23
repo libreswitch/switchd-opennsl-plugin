@@ -1637,6 +1637,8 @@ copp_config_help:
                     ops_qos_dump_scheduling(&ds);
                 } else if (!strcmp(option, "statistics")) {
                     ops_qos_dump_statistics(&ds);
+                } else if (!strcmp(option, "port-config")) {
+                    ops_qos_port_config(&ds);
                 } else {
                     ds_put_format(&ds, "Unsupported qos command - %s.\n\n",
                                   option);

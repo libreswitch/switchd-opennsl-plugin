@@ -54,15 +54,9 @@
 ops_qos_config_t ops_qos_config;
 
 /*
- * OPS_TODO:
- *    Currently scheduling config is not supported on AS7712 platform as it
- *    has 100G ports and scheduling hierarchy is different for 100G port.
- *    Broadcom is working on providing the scrit for this and till then
- *    scheduling config is disabled on AS7712 platform only. This is the
- *    global flag to identify it.
- *
+ * QoS global index used for scheduling node retrieval callback
  */
-bool ops_qos_scheduling_config_disabled = false;
+int ops_qos_global_scheduling_index = 0;
 
 /*
  * Logging module for QoS.
@@ -86,6 +80,112 @@ ops_qos_global_init()
     VLOG_DBG("QoS global initialization done");
 
     return rc;
+}
+
+/*
+ * ops_qos_schedule_callback
+ *
+ * This function is the callback handler for retrieving SDK created cosq
+ * gports and updating the OPS scheduling data structures for each port.
+ */
+int
+ops_qos_schedule_callback(int unit, opennsl_gport_t port, int numq,
+                          uint32 flags, opennsl_gport_t gport,
+                          void *user_data)
+{
+    int hw_port;
+    int index = ops_qos_global_scheduling_index;
+    ops_qos_sched_nodes_t *port_sched_node;
+
+    hw_port = OPENNSL_GPORT_MODPORT_PORT_GET(port);
+
+    VLOG_DBG("ops_qos_schedule_callback: port %d, hw_port %d, flags 0x%x, "
+              "gport 0x%x numq %d",
+               port, hw_port, flags, gport, numq);
+
+    if (hw_port == 0) {
+        /*
+         * If local port is 0, it's a CPU port and nothing needs to
+         * be done.
+         */
+        return OPS_QOS_SUCCESS_CODE;
+    }
+
+    if (!VALID_HW_UNIT(unit) || !VALID_HW_UNIT_PORT(unit,
+        hw_port)) {
+        VLOG_ERR("ops_qos_schedule_callback: invalid hw unit %d "
+                 "or port %d",
+                  unit, hw_port);
+
+        return OPS_QOS_FAILURE_CODE;
+    }
+
+    /* Allocate memory for sched node structure if not allocated */
+    if (ops_qos_config.sched_nodes[unit][hw_port] == NULL) {
+        port_sched_node =
+           (ops_qos_sched_nodes_t *)xzalloc(sizeof(ops_qos_sched_nodes_t));
+        if (port_sched_node == NULL) {
+            VLOG_ERR("ops_qos_schedule_callback memory allocation failed for "
+                     "hw_unit %d, hw_port %d",
+                      unit, hw_port);
+
+            return OPS_QOS_FAILURE_CODE;
+        }
+
+        port_sched_node->hw_unit = unit;
+        port_sched_node->hw_port = hw_port;
+        port_sched_node->level0_sched = port;
+
+        ops_qos_config.sched_nodes[unit][hw_port] = port_sched_node;
+    }
+
+    /* Following code is ported from Broadcom script */
+    if (index < OPENNSL_COS_COUNT) {
+
+        port_sched_node = ops_qos_config.sched_nodes[unit][hw_port];
+
+        if (flags & OPENNSL_COSQ_GPORT_SCHEDULER) {
+            port_sched_node->level1_sched[index] = gport;
+        } else if (flags & OPENNSL_COSQ_GPORT_UCAST_QUEUE_GROUP) {
+            port_sched_node->uc_queue[index] = gport;
+        } else if (flags & OPENNSL_COSQ_GPORT_MCAST_QUEUE_GROUP) {
+            port_sched_node->mc_queue[index] = gport;
+        } else {
+            VLOG_ERR("ops_qos_schedule_callback: Invalid flags for "
+                     "unit %d hw_port %d, flags 0x%x",
+                      unit, hw_port, flags);
+        }
+    }
+
+    ops_qos_global_scheduling_index = (index + 1) % (OPENNSL_COS_COUNT+2);
+
+    return OPS_QOS_SUCCESS_CODE;
+
+}
+
+/*
+ * ops_qos_retrieve_scheduling_nodes
+ *
+ * This function just passes the callback handler to retrieve the SDK
+ * created cosq gports for the given hardware unit.
+ */
+static int
+ops_qos_retrieve_scheduling_nodes(int hw_unit)
+{
+    opennsl_error_t rc;
+
+    rc = opennsl_cosq_gport_traverse(hw_unit,
+                                     ops_qos_schedule_callback, NULL);
+    if (OPENNSL_FAILURE(rc)) {
+        VLOG_ERR("QoS: opennsl_cosq_gport_traverse failed for unit %d, "
+                 "rc %d - %s",
+                  hw_unit, rc, opennsl_errmsg(rc));
+
+        return OPS_QOS_FAILURE_CODE;
+    }
+
+    return OPS_QOS_SUCCESS_CODE;
+
 }
 
 /*
@@ -788,15 +888,12 @@ ops_qos_scheduler_init(int hw_unit)
     opennsl_port_t  hg_ports[MAX_HW_PORTS];
     opennsl_port_t  port;
     opennsl_port_t  xe_ports[MAX_HW_PORTS];
-    opennsl_port_t  ce_ports[MAX_HW_PORTS];
     opennsl_error_t rc;
 
     int hg_port_count = 0;
     int hg_port_idx;
     int xe_port_count = 0;
     int xe_port_idx;
-    int ce_port_count = 0;
-    int ce_port_idx;
     int priority;
 
     L0_config[0] =  OPENNSL_COS_COUNT;
@@ -828,20 +925,24 @@ ops_qos_scheduler_init(int hw_unit)
         hg_port_count++;
     }
 
-    /* Create a list of all CE ports */
+    /*
+     * Check for CE ports.
+     */
     OPENNSL_PBMP_ITER(port_config.ce, port) {
-        ce_ports[ce_port_count] = port;
-        ce_port_count++;
         /*
-         * Set scheduling disable flag and return SUCCESS as CE port
-         * scheduling config is not supported currently.
+         * Currently if the platform has CE ports, then it uses
+         * a different scheduler from LLS or HSP. In this case,
+         * retrieve the SDK created scheduling nodes instead of creating
+         * new nodes.
          * OPS_TODO:
-         *   Fix this once Broadcom provides the init script for CE ports.
+         *   Instead of checking for CE ports for this, this has to come from
+         *   platform_init.c for each platform.
          */
-        VLOG_INFO("QoS: set scheduling disable flag to TRUE");
-        ops_qos_scheduling_config_disabled = true;
+        VLOG_INFO("QoS: retieving SDK created scheduling nodes for "
+                  "this platform");
+        rc = ops_qos_retrieve_scheduling_nodes(hw_unit);
 
-        return OPS_QOS_SUCCESS_CODE;
+        return rc;
     }
 
     rc = opennsl_cosq_config_set(hw_unit, OPENNSL_COS_COUNT);
@@ -888,27 +989,6 @@ ops_qos_scheduler_init(int hw_unit)
         if (rc != OPS_QOS_SUCCESS_CODE) {
             return rc;
         }
-    }
-
-    /* Configure schedule for CE ports */
-    for (ce_port_idx = 0; ce_port_idx < ce_port_count; ce_port_idx++) {
-        opennsl_port_t  ce_port = ce_ports[ce_port_idx];
-
-        /*
-         * OPS_TODO:
-         *    Once Broadcom provides the init script for CE ports,
-         *    need to enable this code. For now, return success.
-         *    Currently only AS7712 has CE ports.
-         */
-        /*
-         * rc = ops_qos_ce_port_sched_init(hw_unit, ce_port);
-         * if (rc != OPS_QOS_SUCCESS_CODE) {
-         *     return rc;
-         * }
-         */
-        VLOG_INFO("QoS: CE port %d on hw unit %d, return SUCCESS",
-                   ce_port, hw_unit);
-        return OPS_QOS_SUCCESS_CODE;
     }
 
     /* Do configuration for CPU ports as well */
@@ -1902,19 +1982,6 @@ ops_qos_apply_schedule_profile(struct ofbundle *bundle,
     int sched_mode;
     opennsl_error_t rc = OPENNSL_E_NONE;
 
-    /*
-     * OPS_TODO:
-     *   If scheduling config is disabled, just return SUCCESS. Fix this once
-     *   Broadcom provides the init script for CE port scheduling.
-     */
-    if (ops_qos_scheduling_config_disabled == true) {
-        VLOG_DBG("ops_qos_apply_schedule_profile skipped for "
-                 "hw unit %d hw port %d",
-                  hw_unit, hw_port);
-
-        return OPS_QOS_SUCCESS_CODE;
-    }
-
     port_sched_node = ops_qos_config.sched_nodes[hw_unit][hw_port];
     if (port_sched_node == NULL) {
         VLOG_ERR("ops_qos_apply_schedule_profile: scheduling node hierarchy "
@@ -2221,25 +2288,6 @@ ops_qos_dump_scheduling(struct ds *ds)
     ds_put_format(ds, "QoS COSq scheduling config\n");
     ds_put_format(ds, "==========================\n");
 
-    /*
-     * OPS_TODO:
-     *   If scheduling config is disabled, just return SUCCESS. Fix this once
-     *   Broadcom provides the init script for CE port scheduling.
-     */
-    if (ops_qos_scheduling_config_disabled == true) {
-        VLOG_DBG("ops_qos_apply_schedule_profile skipped for "
-                 "hw unit %d hw port %d",
-                  unit, port);
-
-        /*
-         * This case is considered as SUCCESS for the component test (CT)
-         * script as well
-         */
-        ds_put_format(ds, "SUCCESS as scheduling config is disabled\n\n");
-
-        return;
-    }
-
     port_sched_node = ops_qos_config.sched_nodes[unit][port];
     if (port_sched_node == NULL) {
         VLOG_ERR("ops_qos_dump_scheduling: scheduling node hierarchy "
@@ -2301,6 +2349,91 @@ ops_qos_dump_statistics(struct ds *ds)
     ds_put_format(ds, "QoS COSq statistics\n");
     ds_put_format(ds, "-------------------\n");
     ds_put_format(ds, "SUCCESS (not implemented currently)\n\n");
+
+    return;
+
+}
+
+/*
+ * ops_qos_port_config
+ *
+ * This function sets per port QoS config (DSCP override and scheduling)
+ * in Broadcom ASIC and is intended to be used only by QoS CT script.
+ */
+void
+ops_qos_port_config(struct ds *ds)
+{
+    int hw_unit = 0;
+    int hw_port = 1;
+    struct qos_port_settings cfg;
+    int ret_val;
+    ops_qos_sched_nodes_t *port_sched_node;
+    opennsl_cos_queue_t cosq;
+    int weight;
+    int sched_mode;
+    opennsl_error_t rc = OPENNSL_E_NONE;
+
+    /*
+     * Configure DSCP override value of 7 as the CT script
+     * verifies for the same.
+     */
+    cfg.dscp_override_enable = true;
+    cfg.dscp_override_value = 7;
+
+    ret_val = ops_qos_set_dscp_override(hw_unit, hw_port, &cfg);
+
+    if (ret_val != OPS_QOS_SUCCESS_CODE) {
+        ds_put_format(ds, "Set DSCP override failed\n");
+
+        VLOG_ERR("ops_qos_port_config: set DSCP override failed, "
+                 " ret_val = %d", ret_val);
+        return;
+    }
+
+    /*
+     * Configure scheduling mode to Strict Priority as the CT script
+     * verifies for the same.
+     */
+    sched_mode = OPENNSL_COSQ_STRICT;
+    weight = 0;
+
+    port_sched_node = ops_qos_config.sched_nodes[hw_unit][hw_port];
+    if (port_sched_node == NULL) {
+        ds_put_format(ds, "Set scheduling mode failed as scheduling node "
+                          "hierarchy is not initialized\n");
+
+        VLOG_ERR("ops_qos_port_config: scheduling node hierarchy "
+                 "not initialized for hw unit %d, hw port %d",
+                  hw_unit, hw_port);
+
+        return;
+    }
+
+    for (cosq = 0; cosq < OPENNSL_COS_COUNT; cosq++) {
+
+        /* Use the cosq gport at L0 to set scheduling algorithm */
+        rc = opennsl_cosq_gport_sched_set(hw_unit,
+                                          port_sched_node->level0_sched,
+                                          cosq,
+                                          sched_mode, weight);
+
+        if (OPENNSL_FAILURE(rc)) {
+            ds_put_format(ds, "Set scheduling mode failed\n");
+
+            VLOG_ERR("ops_qos_port_config scheduling config failed - "
+                     "mode %d weight %d cosq %d "
+                     "for hw unit %d, hw port %d, rc = %d - %s",
+                      sched_mode, weight, cosq,
+                      hw_unit, hw_port, rc, opennsl_errmsg(rc));
+
+            return;
+
+        }
+
+    } /* for (cosq = 0; ... */
+
+    ds_put_format(ds, "Successfully configured per port DSCP override and "
+                      "scheduling mode\n");
 
     return;
 

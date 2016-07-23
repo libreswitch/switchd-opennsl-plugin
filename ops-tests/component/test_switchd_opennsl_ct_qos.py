@@ -96,6 +96,10 @@ def ops_qos_config_creation(ops1, step):
     ops1('apply qos queue-profile ops-qos-test schedule-profile ops-qos-test')
     ops1('exit')
 
+    appctl_command = "ovs-appctl plugin/debug qos port-config"
+    output = ops1(appctl_command, shell='bash')
+    print(output)
+
 
 @mark.platform_incompatible(['docker'])
 def test_switchd_opennsl_ct_qos(topology, step):
