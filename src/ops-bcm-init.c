@@ -81,12 +81,12 @@ opennsl_rx_t opennsl_rx_callback(int unit, opennsl_pkt_t *pkt, void *cookie)
         if (OPENNSL_RX_REASON_GET(pkt->rx_reasons,
                                   opennslRxReasonSampleDest)) {
             netdev_bcmsdk_populate_sflow_stats(false, unit,
-                                               pkt->src_port, pkt->pkt_len);
+                                               pkt->dest_port, pkt->pkt_len);
         }
 
         /* Write incoming data to Receivers buffer. When buffer is full,
          * data is sent to Collectors. */
-        ops_sflow_write_sampled_pkt(pkt);
+        ops_sflow_write_sampled_pkt(unit, pkt);
     }
 
     /* ACL logging packet */

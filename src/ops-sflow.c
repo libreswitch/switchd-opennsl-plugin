@@ -204,12 +204,15 @@ print_pkt(const opennsl_pkt_t *pkt)
 
 /* Fn to write received sample pkt to buffer. Wrapper for
  * sfl_sampler_writeFlowSample() routine. */
-void ops_sflow_write_sampled_pkt(opennsl_pkt_t *pkt)
+void ops_sflow_write_sampled_pkt(int unit, opennsl_pkt_t *pkt)
 {
     SFL_FLOW_SAMPLE_TYPE    fs;
     SFLFlow_sample_element  hdrElem;
     SFLSampled_header       *header;
     SFLSampler              *sampler;
+    struct ops_sflow_port_stats stats;
+
+    memset(&stats, 0, sizeof stats);
 
     if (pkt == NULL) {
         VLOG_ERR("NULL sFlow pkt received. Can't be buffered.");
@@ -276,6 +279,28 @@ void ops_sflow_write_sampled_pkt(opennsl_pkt_t *pkt)
 
     fs.input = pkt->src_port;
     fs.output = pkt->dest_port;
+
+    /* Calculate the sample pool data by gathering interface statistics
+     * from ASIC and aggregating unicast, multicast and broadcast packets.
+     * NOTE: Packet counters will wrap around (this is expected behavior). */
+    if (OPENNSL_RX_REASON_GET(pkt->rx_reasons,
+                              opennslRxReasonSampleSource)) {
+       /* Packets were sampled at ingress so sample pool will include
+        * all RX packets. */
+       bcmsdk_get_sflow_port_stats(unit, pkt->src_port, &stats);
+       fs.sample_pool = (uint32_t)(stats.in_ucastpkts +
+                                   stats.in_multicastpkts +
+                                   stats.in_broadcastpkts);
+    }
+    if (OPENNSL_RX_REASON_GET(pkt->rx_reasons,
+                              opennslRxReasonSampleDest)) {
+       /* Packets sampled at egress so sample pool will include
+        * all TX packets. */
+       bcmsdk_get_sflow_port_stats(unit, pkt->dest_port, &stats);
+       fs.sample_pool = (uint32_t)(stats.out_ucastpkts +
+                                   stats.out_multicastpkts +
+                                   stats.out_broadcastpkts);
+    }
 
     /* Submit the flow sample to be encoded into the next datagram. */
     SFLADD_ELEMENT(&fs, &hdrElem);
@@ -1546,6 +1571,9 @@ ops_sflow_run(struct bcmsdk_provider_node *ofproto)
     if (ops_sflow_agent) {
         now = time(NULL);
         pl = ops_sflow_agent->pollers;
+        /* Set the current time in the sFlow agent to calculate and set
+         * 'sysUpTime' field in the sFlow datagram. */
+        ops_sflow_agent->now = now;
         for(; pl != NULL; pl = pl->nxt) {
             if ((pl->countersCountdown == 0) ||
                 (pl->sFlowCpReceiver == 0) ||
