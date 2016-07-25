@@ -97,7 +97,7 @@ extern int opennsl_port_sample_rate_get(int unit, int port, int *ingress_rate,
                                         int *egress_rate);
 
 extern int ops_sflow_init(int unit);
-extern void ops_sflow_write_sampled_pkt(opennsl_pkt_t *pkt);
+extern void ops_sflow_write_sampled_pkt(int unit, opennsl_pkt_t *pkt);
 extern void print_pkt(const opennsl_pkt_t *pkt);
 
 extern void ops_sflow_agent_enable();
