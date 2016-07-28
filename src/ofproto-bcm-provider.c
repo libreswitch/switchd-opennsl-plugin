@@ -579,7 +579,6 @@ bundle_destroy(struct ofbundle *bundle)
 
         type = netdev_get_type(port->up.netdev);
 
-        port_unconfigure_ips(bundle);
         if (strcmp(type, OVSREC_INTERFACE_TYPE_SYSTEM) == 0) {
 
             if (bundle->l3_intf) {
@@ -605,6 +604,7 @@ bundle_destroy(struct ofbundle *bundle)
                             bundle->l3_intf->l3a_vid,
                             false);
                 } else {
+                    port_unconfigure_ips(bundle);
                     netdev_bcmsdk_get_hw_info(port->up.netdev, &hw_unit, &hw_port, mac);
                     VLOG_DBG("%s destroy the l3 interface hw_port = %d",
                              __FUNCTION__, hw_port);
@@ -624,6 +624,7 @@ bundle_destroy(struct ofbundle *bundle)
         } else if (strcmp(type, OVSREC_INTERFACE_TYPE_VLANSUBINT) == 0) {
             VLOG_DBG("%s destroy the subinterface %s", __FUNCTION__, bundle->name);
             if (bundle->l3_intf) {
+                port_unconfigure_ips(bundle);
                 ops_routing_disable_l3_subinterface(bundle->hw_unit,
                         bundle->hw_port,
                         bundle->l3_intf,
@@ -634,6 +635,7 @@ bundle_destroy(struct ofbundle *bundle)
         } else if (strcmp(type, OVSREC_INTERFACE_TYPE_INTERNAL) == 0) {
             VLOG_DBG("%s destroy the internal interface",__FUNCTION__);
             if (bundle->l3_intf) {
+                port_unconfigure_ips(bundle);
                 opennsl_l3_intf_delete(bundle->hw_unit, bundle->l3_intf);
                 bundle->l3_intf = NULL;
             }
@@ -1257,8 +1259,9 @@ bundle_set(struct ofproto *ofproto_, void *aux,
     }
 
     /* Check for ip changes */
-    /* if ( (bundle->l3_intf) ) */
-    port_ip_reconfigure(ofproto_, bundle, s);
+    if ( (bundle->l3_intf) ) {
+        port_ip_reconfigure(ofproto_, bundle, s);
+    }
 
     /* Look for port configuration options
      * FIXME: - fill up stubs with actual actions */
