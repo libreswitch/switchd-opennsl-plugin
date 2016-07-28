@@ -1205,10 +1205,6 @@ ops_nexthop_add(struct ops_route *route,  struct ofproto_route_nexthop *of_nh)
 
     VLOG_DBG("Add NH %s, egress_id %d, for route %s",
             nh->id, nh->l3_egress_id, route->prefix);
-    log_event("L3INTERFACE_NEXTHOP_ADD",
-            EV_KV("nexthop", "%s", nh->id),
-            EV_KV("egress_id", "%d", nh->l3_egress_id),
-            EV_KV("prefix", "%s", route->prefix));
 } /* ops_nexthop_add */
 
 /* Delete nexthop into route entry */
@@ -1220,10 +1216,6 @@ ops_nexthop_delete(struct ops_route *route, struct ops_nexthop *nh)
     }
 
     VLOG_DBG("Delete NH %s in route %s", nh->id, route->prefix);
-    log_event("L3INTERFACE_NEXTHOP_DELETE",
-            EV_KV("nexthop", "%s", nh->id),
-            EV_KV("prefix", "%s", route->prefix));
-
     hmap_remove(&route->nexthops, &nh->node);
     if (nh->id) {
         free(nh->id);
@@ -1303,8 +1295,6 @@ ops_route_add(int vrf, struct ofproto_route *of_routep)
     ops_route_hash(vrf, of_routep->prefix, hashstr, sizeof(hashstr));
     hmap_insert(&ops_rtable.routes, &routep->node, hash_string(hashstr, 0));
     VLOG_DBG("Add route %s", of_routep->prefix);
-    log_event("L3INTERFACE_ROUTE_ADD",
-            EV_KV("prefix", "%s", of_routep->prefix));
     return routep;
 } /* ops_route_add */
 
@@ -1331,10 +1321,7 @@ ops_route_update(int vrf, struct ops_route *routep,
                 /* update is currently resolved on unreoslved */
                 nh->l3_egress_id = (of_nh->state == OFPROTO_NH_RESOLVED) ?
                     of_nh->l3_egress_id : local_nhid ;
-                log_event("L3INTERFACE_ROUTE_UPDATE",
-                        EV_KV("state", "%s",
-                              (of_nh->state == OFPROTO_NH_RESOLVED) ?
-                              "Resoled with egress id" : "not resolved go to CPU"));
+                VLOG_DBG("Update for route %s", of_routep->prefix);
             }
         }
     }
@@ -1351,8 +1338,6 @@ ops_route_delete(struct ops_route *routep)
     }
 
     VLOG_DBG("delete route %s", routep->prefix);
-    log_event("L3INTERFACE_ROUTE_DELETE",
-            EV_KV("prefix", "%s", routep->prefix));
 
     hmap_remove(&ops_rtable.routes, &routep->node);
 
@@ -1818,7 +1803,7 @@ ops_add_route_entry(int hw_unit, opennsl_vrf_t vrf_id,
          */
         if (of_routep->n_nexthops == 1) {
             of_nh = &of_routep->nexthops[0];
-            VLOG_INFO("of_nh->state = %d", of_nh->state);
+            VLOG_DBG("of_nh->state = %d", of_nh->state);
             if (of_nh->state != OFPROTO_NH_RESOLVED) {
                 routep->l3a_flags |= OPENNSL_L3_RPE;
                 routep->l3a_pri = OPS_COPP_UNKNOWN_IP_COS_RESERVED;
@@ -1890,15 +1875,6 @@ ops_add_route_entry(int hw_unit, opennsl_vrf_t vrf_id,
         VLOG_DBG("Success to %s route %s: %s",
                 add_route ? "add" : "update", of_routep->prefix,
                 opennsl_errmsg(rc));
-        log_event("L3INTERFACE_ROUTE_UPDATE",
-                EV_KV("state", "%s",
-                    ((add_route == true) ?
-                     ((ops_routep->n_nexthops > 1) ?
-                                   "add route state as ECMP" :
-                                   "add route state as NON ECMP") :
-                     ((ops_routep->n_nexthops > 1) ?
-                                   "update route state as ECMP" :
-                                   "update route state as NON ECMP"))));
     }
     return rc;
 } /* ops_add_route_entry */
@@ -1953,8 +1929,6 @@ ops_delete_route_entry(int hw_unit, opennsl_vrf_t vrf_id,
     } else {
         VLOG_DBG("Success to delete route %s: %s", of_routep->prefix,
                 opennsl_errmsg(rc));
-        log_event("L3INTERFACE_ROUTE_DELETE",
-                EV_KV("prefix", "%s", of_routep->prefix));
     }
 
     if (is_delete_ecmp) {
@@ -2057,8 +2031,6 @@ ops_delete_nh_entry(int hw_unit, opennsl_vrf_t vrf_id,
     } else {
         VLOG_DBG("Success to (delete NH) update route %s: %s",
                   of_routep->prefix, opennsl_errmsg(rc));
-        log_event("L3INTERFACE_ROUTE_DELETE",
-                EV_KV("prefix", "%s", of_routep->prefix));
     }
 
     if (is_delete_ecmp) {
