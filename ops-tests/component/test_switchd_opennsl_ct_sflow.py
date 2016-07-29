@@ -20,6 +20,7 @@ Component Test to Verify sFlow Configuration in ASIC.
 """
 
 from pytest import mark
+import re
 
 
 TOPOLOGY = """
@@ -42,7 +43,17 @@ def test_opennsl_ct_sflow(topology, step):
 
     # sflow configuration values
     sampling_rate = 100
-    collector_ip = '10.10.10.1'
+    collector_ip = '10.10.10.2'
+    regex_string = '(\d+)\((\d+)\,(\d+)\)'
+    ingress_index = 2
+    egress_index = 3
+
+    # Configure one interface on the switch to act as agent IP for sFlow agent
+    # on the switch
+    step("Configuring interface 1 of switch")
+    with ops1.libs.vtysh.ConfigInterface('1') as ctx:
+        ctx.ip_address('10.10.10.1/24')
+        ctx.no_shutdown()
 
     # Configuring sflow globally
     step("### Configuring sFlow ###")
@@ -52,34 +63,49 @@ def test_opennsl_ct_sflow(topology, step):
         ctx.sflow_collector(collector_ip)
 
     collector = {}
-    collector['ip'] = '10.10.10.1'
+    collector['ip'] = '10.10.10.2'
     collector['port'] = '6343'
     collector['vrf'] = 'vrf_default'
 
     # Comparing values stored in DB with expected values
     sflow_config = ops1.libs.vtysh.show_sflow()
+    print(sflow_config)
     assert sflow_config['sflow'] == 'enabled'
     assert int(sflow_config['sampling_rate']) == sampling_rate
     assert sflow_config['collector'][0] == collector
 
-    # Verifying whether sampling rate is correctly set in ASIC for the
-    # displayed interfaces
     step("### Verifying sampling rate for displayed interfaces ###")
-    step("### Issuing ovs-appctl command to get the sflow sampling rate ###")
     ret = ops1("ovs-appctl -t ops-switchd sflow/show-rate", shell="bash")
+
+    # Sample appctl output
+    #      	Port Number(Ingress Rate, Egress Rate)
+    #  	    ======================================
+    #  1(0,0)         2(0,0)         3(0,0)         4(0,0)         5(0,0)
+    #  6(0,0)         7(0,0)         8(0,0)         9(0,0)        10(0,0)
 
     appctl_output = ret.splitlines()
     # Skipping headings from the output of ovs-appctl command
-    appctl_output = appctl_output[4:]
+    appctl_output = appctl_output[2:]
 
-    for intf in appctl_output:
-        # Each line contains sampling rate information per interface:
-        # [Interface name, Ingress sampling rate, Egress sampling rate]
-        # We expect same samping rate on ingress and egress
-        step(str(intf))
-        intf_sampling_rates = intf.split()
-        assert int(intf_sampling_rates[1]) == sampling_rate
-        assert int(intf_sampling_rates[2]) == sampling_rate
+    # Parse the appctl_output to get interface specific data as an array
+    # i.e. ['1(0,0)', '2(0,0)', '3(0,0)']
+    all_intfs = []
+    for item in appctl_output:
+        intfs = item.strip().split()
+        all_intfs.extend(intfs)
+
+    # Loop through interface array and use regex to get the ingress and egress
+    # sampling rates
+    for intf in all_intfs:
+        m = re.search(regex_string, intf)
+        assert m, "Sampling rate regex match failed"
+        # Check for programmed ingress and egress sampling rates
+        assert int(m.group(ingress_index)) == sampling_rate, \
+            "Ingress sampling rate mismatch. Expected=" + \
+            str(sampling_rate) + " Actual=" + str(m.group(ingress_index))
+        assert int(m.group(egress_index)) == sampling_rate, \
+            "Egress sampling rate mismatch. Expected=" + \
+            str(sampling_rate) + " Actual=" + str(m.group(egress_index))
 
     step("### Verifying sFlow knet filters ###")
     knet_output = ops1("ovs-appctl plugin/debug knet filter", shell="bash")
