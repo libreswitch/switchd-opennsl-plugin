@@ -192,7 +192,6 @@ enum hw_resource_type {
     HW_RESOURCE_COPP_EGRESS,
     HW_RESOURCE_ACLV4_INGRESS,
     HW_RESOURCE_L3INTF_INGRESS,
-    HW_RESOURCE_L3INTF_EGRESS
 };
 
 char *
@@ -1224,8 +1223,7 @@ hw_resource_show (int unit, opennsl_field_group_t group, struct ds *ds)
     /* Temporarily hard coding counters total to ingress group 4096, egress group 1024
      * until we have clarification of how counters are shared among slices in hardware
      */
-    if ((group == ops_copp_get_egress_group_id_for_hw_unit(unit))
-            || (group == ops_l3intf_egress_stats_group_id_for_hw_unit(unit)))
+    if ((group == ops_copp_get_egress_group_id_for_hw_unit(unit)))
     {
         (&status)->counters_total = 1024;
     } else {
@@ -1287,10 +1285,8 @@ ops_hw_resource_dump (struct ds *ds, enum hw_resource_type type, const char *opt
             group_id = ops_cls_get_ingress_group_id_for_hw_unit(unit);
             break;
         case HW_RESOURCE_L3INTF_INGRESS:
-            group_id = ops_l3intf_ingress_stats_group_id_for_hw_unit(unit);
-            break;
-        case HW_RESOURCE_L3INTF_EGRESS:
-            group_id = ops_l3intf_egress_stats_group_id_for_hw_unit(unit);
+            /* L3 interfaces are using ICAP only */
+            group_id = l3_fp_grp_info[unit].l3_fp_grpid;
             break;
         default: /* Unknown type */
             continue;
@@ -1334,7 +1330,6 @@ ops_hw_resource_dump_all (struct ds *ds)
     ds_put_format(ds, "\nEgress:\n");
     ds_put_format(ds, "%s", cmd_hw_resource_table_header);
     ops_hw_resource_dump(ds, HW_RESOURCE_COPP_EGRESS, "copp");
-    ops_hw_resource_dump(ds, HW_RESOURCE_L3INTF_EGRESS, "l3intf");
 
     ds_put_format(ds, "\n* Counters and Meters are shared resources across features\n");
 }
@@ -1676,12 +1671,10 @@ copp_config_help:
                             ds_put_format(&ds, "%s", cmd_hw_resource_table_header);
                             ops_hw_resource_dump(&ds, HW_RESOURCE_OSPF_INGRESS, option);
                         } else if (!strcmp(option, "l3intf")) {
+                            /* L3 interfaces are using ICAP only */
                             ds_put_format(&ds, "\nIngress:\n");
                             ds_put_format(&ds, "%s", cmd_hw_resource_table_header);
                             ops_hw_resource_dump(&ds, HW_RESOURCE_L3INTF_INGRESS, option);
-                            ds_put_format(&ds, "\nEgress:\n");
-                            ds_put_format(&ds, "%s", cmd_hw_resource_table_header);
-                            ops_hw_resource_dump(&ds, HW_RESOURCE_L3INTF_EGRESS, option);
                         } else {
                             ds_put_format(&ds, "Unsupported Hardware Resource command.\n\n"
                                     "Usage: ovs-appctl plugin/debug "

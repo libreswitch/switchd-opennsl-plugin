@@ -88,10 +88,6 @@ netdev_bcmsdk_l3_egress_stats_destroy(struct netdev *netdev_);
 
 extern void netdev_port_name_from_hw_id(int hw_unit, int hw_id, char *str);
 
-extern opennsl_field_group_t ops_l3intf_ingress_stats_group_id_for_hw_unit(int unit);
-
-extern opennsl_field_group_t ops_l3intf_egress_stats_group_id_for_hw_unit(int unit);
-
 extern int
 netdev_bcmsdk_get_subint_count(struct netdev *netdev_);
 
