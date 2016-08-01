@@ -2035,7 +2035,7 @@ ops_qos_apply_schedule_profile(struct ofbundle *bundle,
 void
 ops_qos_dump_trust(struct ds *ds)
 {
-    int qos_ing_map_id, qos_egr_map_id;
+    int map_id, flags;
     int unit = 0;
     int port = 1;
     opennsl_gport_t gport;
@@ -2052,23 +2052,37 @@ ops_qos_dump_trust(struct ds *ds)
         return;
     }
 
-    /* Retrieve the QoS trust config from Broadcom ASIC */
-    rc = opennsl_qos_port_map_get(unit, gport,
-                                  &qos_ing_map_id, &qos_egr_map_id);
-    if (OPENNSL_FAILURE(rc)) {
-        VLOG_ERR("opennsl_qos_port_map_get failed for "
-                 "hw unit %d, port %d, rc = %d, %s",
-                  unit, port, rc, opennsl_errmsg(rc));
+    /* Set the qos flags - L2 & Ingress flags */
+    flags = (OPENNSL_QOS_MAP_L2 | OPENNSL_QOS_MAP_INGRESS);
 
-        ds_put_format(ds, "Error in retrieving QoS trust config\n\n");
-        return;
+    /* Retrieve the QoS trust config from Broadcom ASIC */
+    rc = opennsl_qos_port_map_type_get(unit, gport,
+                                       flags, &map_id);
+    if (OPENNSL_FAILURE(rc)) {
+        if (rc == OPENNSL_E_NOT_FOUND) {
+            /*
+             * Exception: If there is no qos trust configured, then SDK will
+             * return error as OPENNSL_E_NOT_FOUND. Treat this as SUCCESS
+             * and set the map_id to 0.
+             */
+            VLOG_INFO("opennsl_qos_port_map get returned OPENNSL_E_NOT_FOUND "
+                      "for hw unit %d port %d",
+                       unit, port);
+            map_id = 0;
+        } else {
+            VLOG_ERR("opennsl_qos_port_map_get failed for "
+                     "hw unit %d, port %d, rc = %d, %s",
+                      unit, port, rc, opennsl_errmsg(rc));
+
+            ds_put_format(ds, "Error in retrieving QoS trust config\n\n");
+            return;
+        }
     }
 
     /* Print the QoS trust config in required format */
     ds_put_format(ds, "QoS trust config\n");
     ds_put_format(ds, "----------------\n");
-    ds_put_format(ds, "Ingress qos map ID: %d\n", qos_ing_map_id);
-    ds_put_format(ds, "Egress qos map ID: %d\n\n", qos_egr_map_id);
+    ds_put_format(ds, "Ingress qos map ID: %d\n", map_id);
 
     ds_put_format(ds, "SUCCESS in retrieving QoS trust config\n\n");
 
