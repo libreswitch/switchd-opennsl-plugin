@@ -93,4 +93,7 @@ netdev_bcmsdk_get_subint_count(struct netdev *netdev_);
 
 extern void
 netdev_bcmsdk_update_subint_count(struct netdev *netdev, bool increment);
+
+extern void netdev_bcmsdk_get_interface_stats(int hw_unit, int hw_port,
+                                              struct netdev_stats *stats);
 #endif /* netdev-bcmsdk.h */
