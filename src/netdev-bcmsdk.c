@@ -922,9 +922,15 @@ netdev_bcmsdk_get_carrier(const struct netdev *netdev_, bool *carrier)
     struct netdev_bcmsdk *netdev = netdev_bcmsdk_cast(netdev_);
     int status;
 
+    /* Added a lock/unlock to ensure consistent data on reading from netdev. */
     ovs_mutex_lock(&netdev->mutex);
-    bcmsdk_get_link_status(netdev->hw_unit, netdev->hw_id, &status);
+    int hw_unit = netdev->hw_unit;
+    opennsl_port_t hw_port = netdev->hw_id;
+    ovs_mutex_unlock(&netdev->mutex);
+
+    bcmsdk_get_link_status(hw_unit, hw_port, &status);
     *carrier = status;
+    ovs_mutex_lock(&netdev->mutex);
     netdev->carrier = status;
     ovs_mutex_unlock(&netdev->mutex);
 
@@ -1218,6 +1224,12 @@ netdev_bcmsdk_get_stats(const struct netdev *netdev_, struct netdev_stats *stats
         return -1;
     }
 
+    /* Store the tx_packets and rx_packets into the netdev's stats structure. */
+    ovs_mutex_lock(&netdev->mutex);
+    netdev->stats.rx_packets = stats->rx_packets;
+    netdev->stats.tx_packets = stats->tx_packets;
+    ovs_mutex_unlock(&netdev->mutex);
+
     /* L3 stats */
     rc = netdev_bcmsdk_populate_l3_stats(netdev, stats);
     if (OPENNSL_FAILURE(rc)) {
@@ -1341,15 +1353,21 @@ netdev_bcmsdk_update_flags(struct netdev *netdev_,
     int rc = 0;
     int state = 0;
 
+    /* Added a lock/unlock to ensure consistent data on reading from netdev. */
+    ovs_mutex_lock(&netdev->mutex);
+    int hw_unit = netdev->hw_unit;
+    opennsl_port_t hw_port = netdev->hw_id;
+    ovs_mutex_unlock(&netdev->mutex);
+
     if ((off | on) & ~NETDEV_UP) {
         return EOPNOTSUPP;
     }
 
-    ovs_mutex_lock(&netdev->mutex);
 
     /* Get the current state to update the old flags. */
-    rc = bcmsdk_get_enable_state(netdev->hw_unit, netdev->hw_id, &state);
+    rc = bcmsdk_get_enable_state(hw_unit, hw_port, &state);
     if (!rc) {
+        ovs_mutex_lock(&netdev->mutex);
         if (state) {
             *old_flagsp |= NETDEV_UP;
             netdev->enable_state = true;
@@ -1357,16 +1375,16 @@ netdev_bcmsdk_update_flags(struct netdev *netdev_,
             *old_flagsp &= ~NETDEV_UP;
             netdev->enable_state = false;
         }
+        ovs_mutex_unlock(&netdev->mutex);
 
         /* Set the new state to that which is desired. */
         if (on & NETDEV_UP) {
-            rc = bcmsdk_set_enable_state(netdev->hw_unit, netdev->hw_id, true);
+            rc = bcmsdk_set_enable_state(hw_unit, hw_port, true);
         } else if (off & NETDEV_UP) {
-            rc = bcmsdk_set_enable_state(netdev->hw_unit, netdev->hw_id, false);
+            rc = bcmsdk_set_enable_state(hw_unit, hw_port, false);
         }
     }
 
-    ovs_mutex_unlock(&netdev->mutex);
     return rc;
 }
 
@@ -2655,4 +2673,23 @@ netdev_bcmsdk_populate_l3_stats(struct netdev_bcmsdk *netdev, struct netdev_stat
                                  l3_fp_bytes_stats[ipv6_mc_unknown_rx];
 
     return OPENNSL_E_NONE;
+}
+
+/**
+ * This function is used to get the TX and RX packet statistics from the netdev.
+ * These values are stored into the stats structure inside the netdev
+ * in the function netdev_bcmsdk_get_stats()
+ */
+void
+netdev_bcmsdk_get_interface_stats(int hw_unit, int hw_port,
+                                  struct netdev_stats *stats)
+{
+    struct netdev_bcmsdk *netdev = netdev_from_hw_id(hw_unit, hw_port);
+    if (!netdev) {
+        return;
+    }
+    ovs_mutex_lock(&netdev->mutex);
+    stats->rx_packets = netdev->stats.rx_packets;
+    stats->tx_packets = netdev->stats.tx_packets;
+    ovs_mutex_unlock(&netdev->mutex);
 }
