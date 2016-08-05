@@ -109,15 +109,19 @@ struct ops_switch_mac_info {
     int station_id;
 };
 
-/* Added this new FP group to include all l3 related feature rules.
- * Currently subinterface and l3 stats are using this group.
+/* FP group for subinterface feature.
  */
-struct ops_l3_fp_info {
+struct ops_l3_subintf_fp_info {
     opennsl_field_group_t l3_fp_grpid;
     opennsl_field_entry_t subint_fp_entry_id;
 };
 
-extern struct ops_l3_fp_info l3_fp_grp_info[MAX_SWITCH_UNITS];
+extern struct ops_l3_subintf_fp_info subintf_fp_grp_info[MAX_SWITCH_UNITS];
+
+/* FP groups for L3 RX and TX stats.
+ */
+extern opennsl_field_group_t l3_rx_stats_fp_grps[MAX_SWITCH_UNITS];
+extern opennsl_field_group_t l3_tx_stats_fp_grps[MAX_SWITCH_UNITS];
 
 /* Hashmap of egress object ID's. Only used for mac-moves.
  * key = vlan_id + mac_addr
@@ -196,8 +200,5 @@ extern void ops_l3_mac_move_add(int unit, opennsl_l2_addr_t *l2addr, void *userd
 extern void ops_l3_mac_move_delete(int unit, opennsl_l2_addr_t *l2addr, void *userdata);
 extern bool ops_routing_is_internal_vlan(opennsl_vlan_t vlan);
 
-extern opennsl_error_t ops_create_l3_fp_group(int hw_unit);
-extern opennsl_error_t ops_destroy_l3_fp_entry(int hw_unit,
-                                                        opennsl_field_entry_t entryid);
 extern int ops_l3_fp_init(int hw_unit);
 #endif /* __OPS_ROUTING_H__ */
