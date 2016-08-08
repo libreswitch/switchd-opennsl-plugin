@@ -83,5 +83,4 @@ def test_opennsl_ct_sflow(topology, step):
 
     step("### Verifying sFlow knet filters ###")
     knet_output = ops1("ovs-appctl plugin/debug knet filter", shell="bash")
-    assert 'sFlow Source Sample' in knet_output
-    assert 'sFlow Dest Sample' in knet_output
+    assert 'sflow_knet_filter_' in knet_output
