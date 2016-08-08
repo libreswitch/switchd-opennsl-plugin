@@ -247,7 +247,7 @@ def test_switchd_opennsl_plugin_subinterface_creation(topology, step):
     assert output_subinterface in bufferout
 
     # Shut the parent interface, verify if the bitmap for subinterface changes
-    step("### Disable parent interface 1 ###")
+    step("### Disable parent interface ###")
     sw1('configure terminal')
     sw1('interface {sw1p1}'.format(**locals()))
     sw1('shutdown')
@@ -437,10 +437,10 @@ def test_switchd_opennsl_plugin_subinterface_creation(topology, step):
     assert output_subinterface in bufferout
     assert l2_port_bitmap in bufferout
 
-    # Shut the subinterface
-    step("### Shut the subinterface 1.20 ###")
+    # Shut the parent interface, verify if the bitmap for subinterface changes
+    step("### Disable subinterface ###")
     sw1('configure terminal')
-    sw1('interface 1.20')
+    sw1('interface {sw1p1}.20'.format(**locals()))
     sw1('shutdown')
     sw1('end')
 
@@ -449,14 +449,14 @@ def test_switchd_opennsl_plugin_subinterface_creation(topology, step):
     command = "ovs-appctl plugin/debug vlan 20"
     sleep(5)
     bufferout = sw1(command, shell='bash')
-    assert output_trunk in bufferout
-    assert output_subinterface in bufferout
+    assert output_trunk_zero in bufferout
+    assert output_subinterface_zero in bufferout
     assert l2_port_bitmap in bufferout
 
     # enable the subinterface
     step("### Enable subinterface 1.20 ###")
     sw1('configure terminal')
-    sw1('interface 1.20')
+    sw1('interface {sw1p1}.20'.format(**locals()))
     sw1('no shutdown')
     sw1('end')
 
