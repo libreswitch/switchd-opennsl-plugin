@@ -1383,6 +1383,14 @@ ops_cls_opennsl_apply(struct ops_cls_list            *list,
     VLOG_DBG("Apply classifier "UUID_FMT" (%s)",
               UUID_ARGS(&list->list_id), list->list_name);
 
+    if (direction != OPS_CLS_DIRECTION_IN) {
+        VLOG_ERR("Failed to apply %s in the %s direction.",
+                list->list_name,
+                (direction == OPS_CLS_DIRECTION_OUT ? "egress" : "?"));
+        rc = OPS_CLS_FAIL;
+        goto apply_fail;
+    }
+
     OPENNSL_PBMP_CLEAR(port_bmp);
     cls = ops_cls_lookup(&list->list_id);
     if (!cls) {
@@ -1450,7 +1458,7 @@ apply_fail:
  */
 int
 ops_cls_opennsl_remove(const struct uuid                *list_id,
-                       const char                       *list_name OVS_UNUSED,
+                       const char                       *list_name,
                        enum ops_cls_type                 list_type OVS_UNUSED,
                        struct ofproto                   *ofproto,
                        void                             *aux,
@@ -1467,6 +1475,14 @@ ops_cls_opennsl_remove(const struct uuid                *list_id,
     bool in_asic = false;
 
     VLOG_DBG("Remove classifier "UUID_FMT"", UUID_ARGS(list_id));
+
+    if (direction != OPS_CLS_DIRECTION_IN) {
+        VLOG_ERR("Failed to remove %s in the %s direction.",
+                list_name,
+                (direction == OPS_CLS_DIRECTION_OUT ? "egress" : "?"));
+        rc = OPS_CLS_FAIL;
+        goto remove_fail;
+    }
 
     OPENNSL_PBMP_CLEAR(port_bmp);
     cls = ops_cls_lookup(list_id);
@@ -1519,7 +1535,7 @@ remove_fail:
  */
 int
 ops_cls_opennsl_replace(const struct uuid               *list_id_orig,
-                        const char                      *list_name_orig OVS_UNUSED,
+                        const char                      *list_name_orig,
                         struct ops_cls_list             *list_new,
                         struct ofproto                  *ofproto,
                         void                            *aux,
@@ -1538,6 +1554,14 @@ ops_cls_opennsl_replace(const struct uuid               *list_id_orig,
 
     VLOG_DBG("Replace classifier "UUID_FMT" by "UUID_FMT"",
               UUID_ARGS(list_id_orig), UUID_ARGS(&list_new->list_id));
+
+    if (direction != OPS_CLS_DIRECTION_IN) {
+        VLOG_ERR("Failed to replace %s in the %s direction.",
+                list_name_orig,
+                (direction == OPS_CLS_DIRECTION_OUT ? "egress" : "?"));
+        rc = OPS_CLS_FAIL;
+        goto replace_fail;
+    }
 
     cls_orig = ops_cls_lookup(list_id_orig);
     if (!cls_orig) {
@@ -1745,6 +1769,14 @@ ops_cls_opennsl_statistics_get(const struct uuid              *list_id,
 
     VLOG_DBG("Get stats classifier "UUID_FMT"", UUID_ARGS(list_id));
 
+    if (direction != OPS_CLS_DIRECTION_IN) {
+        VLOG_ERR("Failed to get stats for %s in the %s direction.",
+                list_name,
+                (direction == OPS_CLS_DIRECTION_OUT ? "egress" : "?"));
+        rc = OPS_CLS_FAIL;
+        goto stats_get_fail;
+    }
+
     cls = ops_cls_lookup(list_id);
     if (!cls) {
         VLOG_ERR("Classifier "UUID_FMT" not in hash map",  UUID_ARGS(list_id));
@@ -1813,6 +1845,14 @@ ops_cls_opennsl_statistics_clear(const struct uuid               *list_id,
     struct ovs_list *stats_index_listp;
 
     VLOG_DBG("Clear stats classifier "UUID_FMT" ", UUID_ARGS(list_id));
+
+    if (direction != OPS_CLS_DIRECTION_IN) {
+        VLOG_ERR("Failed to clear stats for %s in the %s direction.",
+                list_name,
+                (direction == OPS_CLS_DIRECTION_OUT ? "egress" : "?"));
+        rc = OPS_CLS_FAIL;
+        goto stats_clear_fail;
+    }
 
     cls = ops_cls_lookup(list_id);
     if (!cls) {
