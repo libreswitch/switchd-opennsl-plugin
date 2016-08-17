@@ -395,6 +395,24 @@ int
 ops_add_default_routes(int unit)
 {
     opennsl_error_t rc = OPENNSL_E_NONE;
+    opennsl_l3_egress_t egress_object;
+    opennsl_if_t default_egress_id;
+
+    /* Create a egress object for default route's */
+    opennsl_l3_egress_t_init(&egress_object);
+    egress_object.intf = -1;
+    egress_object.port = 0;
+    egress_object.flags = OPENNSL_L3_DST_DISCARD;
+    memcpy(egress_object.mac_addr, LOCAL_MAC, ETH_ALEN);
+    rc = opennsl_l3_egress_create(unit, 0,
+                                  &egress_object, &default_egress_id);
+
+    if (OPENNSL_FAILURE(rc)) {
+        VLOG_ERR("Default egress create failed, rc=%s", opennsl_errmsg(rc));
+        log_event("L3INTERFACE_ERR",
+                  EV_KV("err", "%s", opennsl_errmsg(rc)));
+        return rc;
+    }
 
     /* Configure ipv4 default route, with vrf, addr and mask = 0 */
     /* Setting subnet/mask to zero even after doing init, just to
@@ -404,7 +422,8 @@ ops_add_default_routes(int unit)
     ipv4_default_route.l3a_vrf = 0;
     ipv4_default_route.l3a_subnet = 0;
     ipv4_default_route.l3a_ip_mask = 0;
-    ipv4_default_route.l3a_intf = local_nhid;
+    /* ipv4_default_route.l3a_intf = 0; Doesn't work  */
+    ipv4_default_route.l3a_intf = default_egress_id;
     rc = opennsl_l3_route_add (unit, &ipv4_default_route);
     if (OPENNSL_FAILURE(rc)) {
         VLOG_ERR("Default route for IPv4 failed rc = %s",
@@ -420,7 +439,7 @@ ops_add_default_routes(int unit)
                                sizeof(ipv6_default_route.l3a_ip6_net));
     memset(&ipv6_default_route.l3a_ip6_mask, 0,
                                sizeof(ipv6_default_route.l3a_ip6_mask));
-    ipv6_default_route.l3a_intf = local_nhid;
+    ipv6_default_route.l3a_intf = default_egress_id;
     rc = opennsl_l3_route_add (unit, &ipv6_default_route);
     if (OPENNSL_FAILURE(rc)) {
         VLOG_ERR("Default route for IPv6 failed rc = %s",
@@ -1068,6 +1087,7 @@ ops_routing_disable_l3_interface(int hw_unit, opennsl_port_t hw_port,
                  " rc=%s",
                  hw_unit, vlan_id, opennsl_errmsg(rc));
     }
+    free(l3_intf);
 
     rc = bcmsdk_destroy_vlan(vlan_id, true);
     if (rc < 0) {
@@ -1105,6 +1125,7 @@ ops_routing_disable_l3_subinterface(int hw_unit, opennsl_port_t hw_port,
                  " vrf=%d rc=%s",
                  hw_unit, hw_port, vlan_id, vrf_id, opennsl_errmsg(rc));
     }
+    free(l3_intf);
 
     /* Reset VLAN on port back to default and destroy the VLAN */
     OPENNSL_PBMP_CLEAR(pbmp);
