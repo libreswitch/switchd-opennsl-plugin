@@ -1258,10 +1258,8 @@ bundle_set(struct ofproto *ofproto_, void *aux,
         }
     }
 
-    /* Check for ip changes */
-    if ( (bundle->l3_intf) ) {
-        port_ip_reconfigure(ofproto_, bundle, s);
-    }
+    /* Check for ip changes. IP config can come in any order, no l3_int check */
+    port_ip_reconfigure(ofproto_, bundle, s);
 
     /* Look for port configuration options
      * FIXME: - fill up stubs with actual actions */
