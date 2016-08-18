@@ -1088,12 +1088,12 @@ int ops_copp_egress_fp_stp (uint32 unit,
 }
 
 /*
- * ops_copp_ingress_fp_bgp
+ * ops_copp_ingress_fp_bgp_L4_dst_port
  *
  * This function programs the qualifiers for identifying a BGP packet
- * in ingress pipeline.
+ * in ingress pipeline for destination port.
  */
-int ops_copp_ingress_fp_bgp (uint32 unit,
+int ops_copp_ingress_fp_bgp_L4_dst_port (uint32 unit,
                              opennsl_field_entry_t* ingress_fp_entry)
 {
     opennsl_l4_port_t      L4_dst_port = OPS_COPP_L4_PORT_BGP;
@@ -1143,6 +1143,61 @@ int ops_copp_ingress_fp_bgp (uint32 unit,
 }
 
 /*
+ * ops_copp_ingress_fp_bgp_L4_src_port
+ *
+ * This function programs the qualifiers for identifying a BGP packet
+ * in ingress pipeline for source port.
+ */
+int ops_copp_ingress_fp_bgp_L4_src_port (uint32 unit,
+                                      opennsl_field_entry_t* ingress_fp_entry)
+{
+    opennsl_l4_port_t      L4_src_port = OPS_COPP_L4_PORT_BGP;
+    opennsl_l4_port_t      L4_src_port_mask = OPS_COPP_L4_PORT_MASK;
+    uint8                  address_data = OPS_COPP_DST_IP_LOCAL_DATA;
+    uint8                  address_mask = OPS_COPP_DST_IP_LOCAL_MASK;
+    uint8                  prot_type = OPS_COPP_IP_PROTOCOL_IP_NUMBER_TCP;
+    uint8                  prot_mask = OPS_COPP_IP_PROTOCOL_IP_NUMBER_MASK;
+    int32                  retval = -1;
+
+    if (!ingress_fp_entry) {
+        return(OPS_COPP_FAILURE_CODE);
+    }
+
+    /*
+     * Add the FP qualifier rules for BGP. Qualify the BGP packets
+     * on the following rules:-
+     * 1. L4 source port is 179
+     * 2. The destination IP address is local to the box
+     * 3. The protocol in IP packet is TCP.
+     */
+    retval = opennsl_field_qualify_L4SrcPort(unit, *ingress_fp_entry,
+                                             L4_src_port, L4_src_port_mask);
+    if (OPENNSL_FAILURE(retval)) {
+        VLOG_ERR("     Ingress: Failed to qualify on L4 destination "
+                 "port %s \n", opennsl_errmsg(retval));
+        return(OPS_COPP_FAILURE_CODE);
+    }
+
+    retval = opennsl_field_qualify_IpProtocol(unit, *ingress_fp_entry,
+                                              prot_type, prot_mask);
+    if (OPENNSL_FAILURE(retval)) {
+        VLOG_ERR("     Ingress: Failed to qualify on IP protocol "
+                 "number %s \n", opennsl_errmsg(retval));
+        return(OPS_COPP_FAILURE_CODE);
+    }
+
+    retval = opennsl_field_qualify_DstIpLocal(unit, *ingress_fp_entry,
+                                              address_data, address_mask);
+    if (OPENNSL_FAILURE(retval)) {
+        VLOG_ERR("     Ingress: Failed to qualify on destination "
+                 "IP being Local %s \n", opennsl_errmsg(retval));
+        return(OPS_COPP_FAILURE_CODE);
+    }
+
+    return(OPS_COPP_SUCCESS_CODE);
+}
+
+/*
  * ops_copp_egress_fp_bgp
  *
  * This function programs the qualifiers for identifying a BGP packet
@@ -1153,8 +1208,6 @@ int ops_copp_egress_fp_bgp (uint32 unit,
                             uint8 ingress_cpu_queue_number)
 {
     int32                  retval = -1;
-    opennsl_l4_port_t      L4_dst_port = OPS_COPP_L4_PORT_BGP;
-    opennsl_l4_port_t      L4_dst_port_mask = OPS_COPP_L4_PORT_MASK;
     uint8                  prot_type = OPS_COPP_IP_PROTOCOL_IP_NUMBER_TCP;
     uint8                  prot_mask = OPS_COPP_IP_PROTOCOL_IP_NUMBER_MASK;
     opennsl_port_t         port = OPS_COPP_OUT_PORT;
@@ -1167,19 +1220,11 @@ int ops_copp_egress_fp_bgp (uint32 unit,
     /*
      * Add the FP qualifier rules for BGP. Qualify the BGP packets
      * on the following rules:-
-     * 1. L4 destination port is 179
-     * 2. The destination IP address is local to the box
-     * 3. The out port should be zero as the packet is destined to CPU.
-     * 4  The packet's meta data should contain the CPU queue set in ingress
+     * 1. The destination IP address is local to the box
+     * 2. The out port should be zero as the packet is destined to CPU.
+     * 3  The packet's meta data should contain the CPU queue set in ingress
      *    pipeline.
      */
-    retval = opennsl_field_qualify_L4DstPort(unit, *egress_fp_entry,
-                                             L4_dst_port, L4_dst_port_mask);
-    if (OPENNSL_FAILURE(retval)) {
-        VLOG_ERR("     Egress: Failed to qualify on L4 destination "
-                 "port %s \n", opennsl_errmsg(retval));
-        return(OPS_COPP_FAILURE_CODE);
-    }
 
     retval = opennsl_field_qualify_IpProtocol(unit, *egress_fp_entry,
                                               prot_type, prot_mask);
@@ -3645,6 +3690,8 @@ static int ops_copp_ingress_fp_group_create ()
                                     opennslFieldQualifyPacketRes);
     OPENNSL_FIELD_QSET_ADD(OpennslFPQualSetIngress,
                                     opennslFieldQualifyL4DstPort);
+    OPENNSL_FIELD_QSET_ADD(OpennslFPQualSetIngress,
+                                    opennslFieldQualifyL4SrcPort);
     OPENNSL_FIELD_QSET_ADD(OpennslFPQualSetIngress,
                                     opennslFieldQualifyIpProtocol);
     OPENNSL_FIELD_QSET_ADD(OpennslFPQualSetIngress,
