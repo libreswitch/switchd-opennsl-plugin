@@ -87,6 +87,10 @@ struct ops_sflow_port_stats {
 extern SFLAgent *ops_sflow_agent;
 extern struct ofproto_sflow_options *sflow_options;
 
+/* sFlow knet filter id's */
+extern int knet_sflow_source_filter_id;
+extern int knet_sflow_dest_filter_id;
+
 extern int opennsl_port_sample_rate_set(int unit, int port, int ingress_rate,
                                         int egress_rate);
 extern int opennsl_port_sample_rate_get(int unit, int port, int *ingress_rate,
