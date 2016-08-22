@@ -100,13 +100,13 @@ char cmd_ops_usage[] =
 "   l3ecmp [<entry>] - display an ecmp egress object info.\n"
 "   lag [<lagid>] - displays OpenSwitch LAG info.\n"
 "   stg [hw] <stgid> - displays Spanning Tree Group Info. \n"
-"   fp [<copp-ingress-group> | <copp-egress-group> | <ospf-group> | <acl-ingress-group> | <l3-group> | <l3-subinterface>]- displays programmed fp rules.\n"
+"   fp [<copp-ingress-group> | <copp-egress-group> | <cpu-rx-group> | <acl-ingress-group> | <l3-group> | <l3-subinterface>]- displays programmed fp rules.\n"
 "   copp-stats - displays all the CoPP configuration and statistics.\n"
 "   copp-config <packet class name> <CPU queue class> <Rate> <Burst> - Modifies the CoPP rule for a control packet class \n"
 "   cpu-queue-stats - displays the per cpu queue statistics.\n"
 "   qos [cos-map | dscp-map | trust | dscp-override | queuing | scheduling | "
         "statistics] - displays QoS information programmed in hardware.\n"
-"   hw-resource [aclv4 | copp | ospf | l3intf] - displays hardware resource utilization.\n"
+"   hw-resource [aclv4 | copp | cpu-rx | l3intf] - displays hardware resource utilization.\n"
 "   help - displays this help text.\n"
 ;
 /* Format of hw-resource command */
@@ -185,7 +185,7 @@ void PacketRes_toString(int packetRes, char *packet_res_string )
 
 enum hw_resource_type {
     HW_RESOURCE_INVALID = 0,
-    HW_RESOURCE_OSPF_INGRESS,
+    HW_RESOURCE_CPU_RX_INGRESS,
     HW_RESOURCE_COPP_INGRESS,
     HW_RESOURCE_COPP_EGRESS,
     HW_RESOURCE_ACLV4_INGRESS,
@@ -788,13 +788,13 @@ ops_fp_show_dump(struct ds *ds)
 } /* ops_fp_show_dump */
 
 /*
- * ops_fp_dump_ospf_rules
+ * ops_fp_dump_cpu_rx_rules
  *
- * This function dumps the "fp show" output for OSPF ingress rules
- * for all hardware units.
+ * This function dumps the "fp show" output for OSPF and BFD
+ * ingress rules for all hardware units.
  */
 static void
-ops_fp_dump_ospf_rules (struct ds *ds)
+ops_fp_dump_cpu_rx_rules (struct ds *ds)
 {
     int                   unit = 0;
     opennsl_field_group_t group_id;
@@ -813,9 +813,9 @@ ops_fp_dump_ospf_rules (struct ds *ds)
     for(unit =0; unit < MAX_SWITCH_UNITS; unit++) {
 
         /*
-         * Get the group-id for OSPF FP ingress rules.
+         * Get the group-id for CPU Rx FP ingress rules.
          */
-        group_id = ops_routing_get_ospf_group_id_by_hw_unit(unit);
+        group_id = ops_routing_get_cpu_rx_group_id_by_hw_unit(unit);
 
         /*
          * If the group-id is invalid, then do not dump the
@@ -1270,8 +1270,8 @@ ops_hw_resource_dump (struct ds *ds, enum hw_resource_type type, const char *opt
 
         /* Get the group id for type of rules */
         switch(type) {
-        case HW_RESOURCE_OSPF_INGRESS:
-            group_id = ops_routing_get_ospf_group_id_by_hw_unit(unit);
+        case HW_RESOURCE_CPU_RX_INGRESS:
+            group_id = ops_routing_get_cpu_rx_group_id_by_hw_unit(unit);
             break;
         case HW_RESOURCE_COPP_INGRESS:
             group_id = ops_copp_get_ingress_group_id_for_hw_unit(unit);
@@ -1319,7 +1319,7 @@ ops_hw_resource_dump_all (struct ds *ds)
     /* Ingress part */
     ds_put_format(ds, "\nIngress:\n");
     ds_put_format(ds, "%s", cmd_hw_resource_table_header);
-    ops_hw_resource_dump(ds, HW_RESOURCE_OSPF_INGRESS, "ospf");
+    ops_hw_resource_dump(ds, HW_RESOURCE_CPU_RX_INGRESS, "cpu-rx");
     ops_hw_resource_dump(ds, HW_RESOURCE_COPP_INGRESS, "copp");
     ops_hw_resource_dump(ds, HW_RESOURCE_ACLV4_INGRESS, "aclv4");
     ops_hw_resource_dump(ds, HW_RESOURCE_L3INTF_INGRESS, "l3intf");
@@ -1361,8 +1361,8 @@ bcm_plugin_debug(struct unixctl_conn *conn, int argc,
 
             ds_put_format(&ds, "Programmed FP rules are \n");
             if (option) {
-                if (!strcmp(option, "ospf-group")) {
-                    ops_fp_dump_ospf_rules(&ds);
+                if (!strcmp(option, "cpu-rx-group")) {
+                    ops_fp_dump_cpu_rx_rules(&ds);
                 } else if (!strcmp(option, "copp-ingress-group")) {
                     ops_fp_dump_copp_ingress_rules(&ds);
                 } else if (!strcmp(option, "copp-egress-group")) {
@@ -1661,11 +1661,11 @@ copp_config_help:
                             ds_put_format(&ds, "\nEgress:\n");
                             ds_put_format(&ds, "%s", cmd_hw_resource_table_header);
                             ops_hw_resource_dump(&ds, HW_RESOURCE_COPP_EGRESS, option);
-                        } else if (!strcmp(option, "ospf")) {
-                            /* ospf only has ingress group for now */
+                        } else if (!strcmp(option, "cpu-rx")) {
+                            /* cpu-rx has ospf and bfd ingress group for now */
                             ds_put_format(&ds, "\nIngress:\n");
                             ds_put_format(&ds, "%s", cmd_hw_resource_table_header);
-                            ops_hw_resource_dump(&ds, HW_RESOURCE_OSPF_INGRESS, option);
+                            ops_hw_resource_dump(&ds, HW_RESOURCE_CPU_RX_INGRESS, option);
                         } else if (!strcmp(option, "l3intf")) {
                             /* L3 interfaces are using ICAP only */
                             ds_put_format(&ds, "\nIngress:\n");
@@ -1674,7 +1674,7 @@ copp_config_help:
                         } else {
                             ds_put_format(&ds, "Unsupported Hardware Resource command.\n\n"
                                     "Usage: ovs-appctl plugin/debug "
-                                    "hw-resource [aclv4 | copp | ospf | l3intf]\n"
+                                    "hw-resource [aclv4 | copp | cpu-rx | l3intf]\n"
                                     "If no argument is specified,\n"
                                     "the hardware resource utilization for all features will be displayed.\n\n");
                         }

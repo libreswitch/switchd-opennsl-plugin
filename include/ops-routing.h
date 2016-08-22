@@ -90,8 +90,6 @@ struct ops_mac_move_egress_id {
 /* Structure to store OSPF related data */
 typedef struct ops_ospf_data {
 
-    /* OSPF group id */
-    opennsl_field_group_t ospf_group_id;
     /* All OSPF Routers field processor entry */
     opennsl_field_entry_t ospf_all_routers_fp_id;
     /* All OSPF Routers stat entry */
@@ -102,6 +100,16 @@ typedef struct ops_ospf_data {
     int ospf_desginated_routers_stat_id;
 
 } ops_ospf_data_t;
+
+/* structure to store BFD related data  */
+typedef struct ops_bfd_data {
+
+    /* BFD single hop field processor entry */
+    opennsl_field_entry_t bfd_single_hop_fp_id;
+    /* BFD multi hop field processor entry */
+    opennsl_field_entry_t bfd_multi_hop_fp_id;
+
+} ops_bfd_data_t;
 
 struct ops_switch_mac_info {
     struct hmap_node node;
@@ -190,7 +198,7 @@ extern void ops_l3route_dump(struct ds *ds, int ipv6_enabled);
 extern void ops_l3egress_dump(struct ds *ds, int egressid);
 extern void ops_l3ecmp_egress_dump(struct ds *ds, int ecmpid);
 
-extern opennsl_field_group_t ops_routing_get_ospf_group_id_by_hw_unit (
+extern opennsl_field_group_t ops_routing_get_cpu_rx_group_id_by_hw_unit (
                                                                 int unit);
 extern void ops_l3_mac_move_add(int unit, opennsl_l2_addr_t *l2addr, void *userdata);
 extern void ops_l3_mac_move_delete(int unit, opennsl_l2_addr_t *l2addr, void *userdata);
