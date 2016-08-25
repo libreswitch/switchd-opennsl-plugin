@@ -80,9 +80,12 @@ struct netdev_bcmsdk {
     /* Protects all members below. */
     struct ovs_mutex mutex OVS_ACQ_AFTER(bcmsdk_list_mutex);
 
+    /* Mutex for updating stats structure inside the netdev */
+    struct ovs_mutex stats_mutex;
+
     uint8_t hwaddr[ETH_ADDR_LEN] OVS_GUARDED;
     int mtu OVS_GUARDED;
-    struct netdev_stats stats OVS_GUARDED;
+    struct netdev_stats stats OVS_GUARDED_BY(stats_mutex);
     enum netdev_flags flags OVS_GUARDED;
     long long int link_resets OVS_GUARDED;
 
@@ -341,6 +344,7 @@ netdev_bcmsdk_construct(struct netdev *netdev_)
     netdev->port_info = NULL;
     netdev->intf_initialized = false;
     memset(&netdev->stats, 0, sizeof(struct netdev_stats));
+    ovs_mutex_init(&netdev->stats_mutex);
 
     netdev->is_split_parent = false;
     netdev->is_split_subport = false;
@@ -1175,7 +1179,7 @@ netdev_bcmsdk_populate_sflow_stats(bool ingress, int hw_unit, int hw_port,
 
     netdev_bcm = netdev_from_hw_id(hw_unit, hw_port);
     if (netdev_bcm != NULL) {
-         ovs_mutex_lock(&netdev_bcm->mutex);
+         ovs_mutex_lock(&netdev_bcm->stats_mutex);
          if (ingress) {
              netdev_bcm->stats.sflow_ingress_packets++;
              netdev_bcm->stats.sflow_ingress_bytes += bytes;
@@ -1183,7 +1187,7 @@ netdev_bcmsdk_populate_sflow_stats(bool ingress, int hw_unit, int hw_port,
              netdev_bcm->stats.sflow_egress_packets++;
              netdev_bcm->stats.sflow_egress_bytes += bytes;
          }
-         ovs_mutex_unlock(&netdev_bcm->mutex);
+         ovs_mutex_unlock(&netdev_bcm->stats_mutex);
     } else {
         VLOG_ERR("Unable to get netdev for hw unit : %d hw_port : %d",
                  hw_unit, hw_port);
@@ -1200,12 +1204,12 @@ static void
 netdev_bcmsdk_get_sflow_stats(const struct netdev_bcmsdk *netdev_bcm,
                               struct netdev_stats *stats)
 {
-    ovs_mutex_lock(&netdev_bcm->mutex);
+    ovs_mutex_lock(&netdev_bcm->stats_mutex);
     stats->sflow_ingress_packets = netdev_bcm->stats.sflow_ingress_packets;
     stats->sflow_ingress_bytes = netdev_bcm->stats.sflow_ingress_bytes;
     stats->sflow_egress_packets = netdev_bcm->stats.sflow_egress_packets;
     stats->sflow_egress_bytes = netdev_bcm->stats.sflow_egress_bytes;
-    ovs_mutex_unlock(&netdev_bcm->mutex);
+    ovs_mutex_unlock(&netdev_bcm->stats_mutex);
 }
 
 static int
@@ -1225,10 +1229,10 @@ netdev_bcmsdk_get_stats(const struct netdev *netdev_, struct netdev_stats *stats
     }
 
     /* Store the tx_packets and rx_packets into the netdev's stats structure. */
-    ovs_mutex_lock(&netdev->mutex);
+    ovs_mutex_lock(&netdev->stats_mutex);
     netdev->stats.rx_packets = stats->rx_packets;
     netdev->stats.tx_packets = stats->tx_packets;
-    ovs_mutex_unlock(&netdev->mutex);
+    ovs_mutex_unlock(&netdev->stats_mutex);
 
     /* L3 stats */
     rc = netdev_bcmsdk_populate_l3_stats(netdev, stats);
@@ -2688,8 +2692,8 @@ netdev_bcmsdk_get_interface_stats(int hw_unit, int hw_port,
     if (!netdev) {
         return;
     }
-    ovs_mutex_lock(&netdev->mutex);
+    ovs_mutex_lock(&netdev->stats_mutex);
     stats->rx_packets = netdev->stats.rx_packets;
     stats->tx_packets = netdev->stats.tx_packets;
-    ovs_mutex_unlock(&netdev->mutex);
+    ovs_mutex_unlock(&netdev->stats_mutex);
 }
