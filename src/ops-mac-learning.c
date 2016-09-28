@@ -25,9 +25,10 @@
 #include "netdev-bcmsdk.h"
 #include "platform-defines.h"
 #include <netinet/ether.h>
+#include "ops-lag.h"
 
 VLOG_DEFINE_THIS_MODULE(ops_mac_learning);
-
+static struct vlog_rate_limit mac_learning_rl = VLOG_RATE_LIMIT_INIT(5, 20);
 /*
  * The buffers are defined as 2 because:
  *    To allow simultaneous read access to bridge.c and ops-mac-learning.c code
@@ -102,6 +103,29 @@ static bool ops_mac_table_is_full(const struct mlearn_hmap *mlearn_hmap)
 }
 
 /*
+ * Function: ops_mac_learning_get_port_name
+ *
+ * This function is to get the port name based on opennsl_l2_addr_t params
+ */
+void ops_mac_learning_get_port_name(int hw_unit, uint32_t flags,
+                                    const int port_id, opennsl_trunk_t tgid,
+                                    char *port_name)
+{
+    if (!port_name) {
+        return;
+    }
+
+    /*
+     * To change to OPENNSL_L2_TRUNK_MEMBER later.
+     */
+    if (flags & 128) {
+        ops_lag_get_port_name(hw_unit, tgid, port_name);
+    } else {
+        netdev_port_name_from_hw_id(hw_unit, port_id, port_name);
+    }
+}
+
+/*
  * Function: ops_mac_entry_add
  *
  * This function is used to add the entries in the all_macs_learnt hmap.
@@ -113,23 +137,25 @@ static void ops_mac_entry_add(
         const uint8_t mac[ETH_ADDR_LEN],
         const int16_t vlan,
         const int port_id,
+        opennsl_trunk_t tgid,
         int hw_unit,
         const mac_event event,
-        bool move_event)
+        bool move_event,
+        uint32_t flags)
 {
     struct mlearn_hmap_node *entry = NULL;
     struct eth_addr mac_eth;
     uint32_t hash = 0;
     int actual_size = 0;
     char port_name[PORT_NAME_SIZE];
-    bool found = false;
+    bool update = false;
 
     memcpy(mac_eth.ea, mac, sizeof(mac_eth.ea));
     hash = mlearn_table_hash_calc(mac_eth, vlan, hw_unit);
     actual_size = (hmap_entry->buffer).actual_size;
     memset((void*)port_name, 0, sizeof(port_name));
 
-    netdev_port_name_from_hw_id(hw_unit, port_id, port_name);
+    ops_mac_learning_get_port_name(hw_unit, flags, port_id, tgid, port_name);
 
     if (!strlen(port_name)) {
         VLOG_ERR("%s: not able to find port name for port_id: %d "
@@ -137,61 +163,86 @@ static void ops_mac_entry_add(
         return;
     }
 
-    if (move_event) {
-        VLOG_DBG("%s: move_event, port: %d, oper: %d, hw_unit: %d, vlan: %d, MAC: %s",
-                 __FUNCTION__, port_id, event, hw_unit, vlan,
-                 ether_ntoa((struct ether_addr *)mac));
-        HMAP_FOR_EACH_WITH_HASH (entry, hmap_node, hash,
-                                 &(hmap_entry->table)) {
-            if ((entry->vlan == vlan) && eth_addr_equals(entry->mac, mac_eth) &&
-                (entry->hw_unit == hw_unit)) {
-                if ((event == MLEARN_ADD) && (entry->oper == MLEARN_DEL)) {
-                    if (port_id == entry->port) {
-                        /*
-                         * remove this entry from hmap
-                         */
-                        entry->oper = MLEARN_UNDEFINED;
-                        VLOG_DBG("%s: move event, entry found removing", __FUNCTION__);
-                        found = true;
-                    }
-                } else if ((event == MLEARN_DEL) && (entry->oper == MLEARN_ADD)) {
-                    /*
-                     * remove this entry from hmap
-                     */
-                    if (port_id == entry->port) {
-                        /*
-                         * remove this entry from hmap
-                         */
-                        entry->oper = MLEARN_UNDEFINED;
-                        VLOG_DBG("%s: move event, entry found removing", __FUNCTION__);
-                        found = true;
-                    }
+    VLOG_DBG("%s: port: %d, oper: %d, hw_unit: %d, vlan: %d, MAC: %s",
+             __FUNCTION__, port_id, event, hw_unit, vlan,
+             ether_ntoa((struct ether_addr *)mac));
+
+    /* NOTE: hmap_insert always inserts node at beggining for the same hash value.
+     * So same MAC and VLAN node has different operation, then HMAP_FOR_EACH_WITH_HASH
+     * will return the nodes  last in first out. This will impact the MAC events order
+     * to avoid that loop through the HMAP and make sure always only one MAC element
+     * with latest event in the HAMP(MAC & VLAN as hash key).
+     * Example event1: MAC1, VLAN1, Port1, DELETE(ageout)
+     *         event2: MAC1, VLAN1, Port1, ADD
+     * In the above example both nodes in the hmap, then events can go in out of order.
+     * So to avoid this behaviour always check same node is already in the hmap and
+     * update node with latest values.
+     */
+
+    /* Step1: MAC ADD events, If node is already in the hash map and entry->operation
+     *        will be set based on the move flags.
+     *
+     * Step2: MAC DEL events, if the node is already in the hash map check "port id"
+     *        of the current event and old node, if both belong to the same port then
+     *        remove this node from the hmap to suppress the events.
+     *
+     * Step3: MAC MOVE Events, SDK set the move flags and genetaes two events.
+     *        MAC DELETE event with old port and MAC ADD event with the new port
+     *        for MOVE case.In this case If the node is already found in the hmap MAC
+     *        ADD event with move flags will overwrite the old MAC DELETE event node
+     *        in the hmap with operation as MOVE and sets the new port.
+     */
+    HMAP_FOR_EACH_WITH_HASH (entry, hmap_node, hash,
+                             &(hmap_entry->table)) {
+
+        if ((entry->vlan == vlan) && eth_addr_equals(entry->mac, mac_eth) &&
+            (entry->hw_unit == hw_unit)) {
+            if (event == MLEARN_DEL) {
+                /* remove this entry from hmap */
+                update = true;
+                if (port_id == entry->port &&
+                    (hmap_entry->buffer).actual_size > 0) {
+                    /* Remove the node from the hmap table */
+                    hmap_remove(&hmap_entry->table, &(entry->hmap_node));
+                    VLOG_DBG("%s: MAC: %s vlan: %d found removing ",
+                             __FUNCTION__, ether_ntoa((struct ether_addr *)mac),
+                             vlan);
                 }
+            } else {
+                /* Operation is MOVE or ADD? */
+                entry->port = port_id;
+                entry->oper = move_event ? MLEARN_MOVE : event;
+                strncpy(entry->port_name, port_name, PORT_NAME_SIZE);
+                update = true;
+                VLOG_DBG("%s: MAC: %s vlan: %d update ",
+                         __FUNCTION__, ether_ntoa((struct ether_addr *)mac),
+                         vlan);
             }
         }
     }
 
-    if (!found) {
+    if (!update) {
         if (actual_size < (hmap_entry->buffer).size) {
             struct mlearn_hmap_node *mlearn_node =
                                     &((hmap_entry->buffer).nodes[actual_size]);
-            VLOG_DBG("%s: move_event, port: %d, oper: %d, hw_unit: %d, vlan: %d, MAC: %s",
-                     __FUNCTION__, port_id, event, hw_unit, vlan,
+            VLOG_DBG("%s: new event, port: %d, oper: %d, hw_unit: %d,"
+                     " vlan: %d, MAC: %s", __FUNCTION__, port_id,
+                     event, hw_unit, vlan,
                      ether_ntoa((struct ether_addr *)mac));
-
             memcpy(&mlearn_node->mac, &mac_eth, sizeof(mac_eth));
             mlearn_node->port = port_id;
             mlearn_node->vlan = vlan;
             mlearn_node->hw_unit = hw_unit;
-            mlearn_node->oper = event;
+            /* Check is it MOVE event? */
+            mlearn_node->oper = move_event && event == MLEARN_ADD ? MLEARN_MOVE : event;
             strncpy(mlearn_node->port_name, port_name, PORT_NAME_SIZE);
             hmap_insert(&hmap_entry->table,
                         &(mlearn_node->hmap_node),
                         hash);
             (hmap_entry->buffer).actual_size++;
         } else {
-            VLOG_ERR("Error, not able to insert elements in hmap, size is: %u\n",
-                     hmap_entry->buffer.actual_size);
+            VLOG_ERR_RL(&mac_learning_rl,"Error: MAC event miss, hmap size is: %u\n",
+                        hmap_entry->buffer.actual_size);
         }
     }
 }
@@ -267,9 +318,11 @@ ops_mac_learn_cb(int   unit,
                               l2addr->mac,
                               l2addr->vid,
                               l2addr->port,
+                              l2addr->tgid,
                               unit,
                               MLEARN_ADD,
-                              (l2addr->flags & OPENNSL_L2_MOVE_PORT));
+                              (l2addr->flags & OPENNSL_L2_MOVE_PORT),
+                              l2addr->flags);
             ovs_mutex_unlock(&mlearn_mutex);
             ops_l3_mac_move_add(unit, l2addr, userdata);
             break;
@@ -279,9 +332,11 @@ ops_mac_learn_cb(int   unit,
                                l2addr->mac,
                                l2addr->vid,
                                l2addr->port,
+                               l2addr->tgid,
                                unit,
                                MLEARN_DEL,
-                               (l2addr->flags & OPENNSL_L2_MOVE_PORT));
+                               (l2addr->flags & OPENNSL_L2_MOVE_PORT),
+                               l2addr->flags);
              ovs_mutex_unlock(&mlearn_mutex);
              ops_l3_mac_move_delete(unit, l2addr, userdata);
             break;
@@ -320,9 +375,11 @@ ops_l2_traverse_cb (int unit,
                        l2addr->mac,
                        l2addr->vid,
                        l2addr->port,
+                       l2addr->tgid,
                        unit,
                        MLEARN_ADD,
-                       false);
+                       false,
+                       l2addr->flags);
      ovs_mutex_unlock(&mlearn_mutex);
      return (0);
 }
@@ -392,4 +449,94 @@ ops_mac_learning_init()
     }
 
     return (0);
+}
+
+/*
+ * Function: ops_l2_addr_flush_handler
+ *
+ * This function is invoked to flush MAC table entries on VLAN/PORT
+ *
+ */
+int
+ops_l2_addr_flush_handler(mac_flush_params_t *settings)
+{
+    int rc = 0;
+    uint32 flags = 0;
+    int unit = 0;
+    opennsl_port_t port = 0;
+    opennsl_module_t mod = -1;
+
+    /* Get Harware Port */
+    if (settings->options == L2MAC_FLUSH_BY_PORT
+        || settings->options == L2MAC_FLUSH_BY_PORT_VLAN) {
+        rc = netdev_hw_id_from_name(settings->port_name, &unit, &port);
+        if (rc == false) {
+            VLOG_ERR_RL(&mac_learning_rl, "%s: %s name not found flags %u mode %d",
+                        __FUNCTION__, settings->port_name,
+                        settings->flags,
+                        settings->options);
+
+            return -1; /* Return error */
+        }
+    }
+
+    switch (settings->options) {
+    case L2MAC_FLUSH_BY_VLAN:
+        for (unit = 0; unit <= MAX_SWITCH_UNIT_ID; unit++) {
+            rc =  opennsl_l2_addr_delete_by_vlan(unit, settings->vlan, flags);
+            if (OPENNSL_FAILURE(rc)) {
+                VLOG_ERR_RL(&mac_learning_rl, "%s: vlan %d flags %u rc %d opt %d",
+                            __FUNCTION__, settings->vlan,
+                            settings->flags, rc, settings->options);
+
+                return -1; /* Return error */
+            }
+        }
+        break;
+    case L2MAC_FLUSH_BY_PORT:
+        rc = opennsl_l2_addr_delete_by_port(unit, mod, port, flags);
+        if (OPENNSL_FAILURE(rc)) {
+            VLOG_ERR_RL(&mac_learning_rl, "%s: port: %d name %s flags %u rc %d opt %d",
+                        __FUNCTION__, port, settings->port_name,
+                        settings->flags, rc, settings->options);
+
+            return -1; /* Return error */
+        }
+        break;
+    case L2MAC_FLUSH_BY_PORT_VLAN:
+        rc = opennsl_l2_addr_delete_by_vlan_port(unit, settings->vlan,
+                                                 mod, port, flags);
+        if (OPENNSL_FAILURE(rc)) {
+            VLOG_ERR_RL(&mac_learning_rl, "%s: port: %d name %s vlan %d flags %u opt %d",
+                        __FUNCTION__, port, settings->port_name, settings->vlan,
+                        settings->flags, settings->options);
+
+            return -1; /* Return error */
+        }
+        break;
+    case L2MAC_FLUSH_BY_TRUNK:
+        rc = opennsl_l2_addr_delete_by_trunk(unit, settings->tgid, flags);
+        if (OPENNSL_FAILURE(rc)) {
+            VLOG_ERR_RL(&mac_learning_rl, "%s: name %s tgid %d flags %u opt %d",
+                        __FUNCTION__, settings->port_name,
+                        settings->tgid, settings->flags, settings->options);
+            return -1; /* Return error */
+        }
+        break;
+    case L2MAC_FLUSH_BY_TRUNK_VLAN:
+        rc = opennsl_l2_addr_delete_by_vlan_trunk(unit, settings->vlan,
+                                                  settings->tgid, flags);
+        if (OPENNSL_FAILURE(rc)) {
+            VLOG_ERR_RL(&mac_learning_rl, "%s: name %s vlan %d tgid %d flags %u opt %d",
+                        __FUNCTION__, settings->port_name, settings->vlan,
+                        settings->tgid, settings->flags, settings->options);
+            return -1; /* Return error */
+        }
+        break;
+     default:
+        VLOG_ERR("%s: Unknown flush mode %d", __FUNCTION__, settings->options);
+        return -1;
+    }
+
+    return rc;
 }

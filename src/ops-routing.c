@@ -52,16 +52,20 @@ VLOG_DEFINE_THIS_MODULE(ops_routing);
 bool ecmp_resilient_flag = false;
 
 #define VLAN_ID_MAX_LENGTH   5
+#define ECMP_ID_MAX_LENGTH 128
 static opennsl_error_t
 ops_subinterface_fp_entry_create(opennsl_port_t hw_port, int hw_unit);
 
-struct ops_l3_fp_info l3_fp_grp_info[MAX_SWITCH_UNITS];
+struct ops_l3_subintf_fp_info subintf_fp_grp_info[MAX_SWITCH_UNITS];
 static int
 ops_update_l3ecmp_egress_resilient(int unit, opennsl_l3_egress_ecmp_t *ecmp,
                  int intf_count, opennsl_if_t *egress_obj, void *user_data);
 
 static opennsl_error_t
 ops_update_subint_fp_entry(int hw_unit, opennsl_port_t hw_port, bool add);
+
+static opennsl_error_t
+ops_destroy_l3_subintf_fp_entry(int hw_unit, opennsl_field_entry_t entryid);
 
 opennsl_if_t local_nhid;
 /* fake MAC to create a local_nhid */
@@ -76,8 +80,10 @@ struct hmap ops_hmap_switch_macs;
 struct ops_route_table {
    struct hmap routes;
 };
-
 struct ops_route_table ops_rtable;
+
+/* ecmp egress hashmap*/
+struct hmap ecmp_egress_nexthops_map;
 
 /* Profile id for ip-options */
 int default_ip4_options_profile_id = 1;
@@ -88,12 +94,25 @@ opennsl_field_group_t cpu_rx_group_id[MAX_SWITCH_UNITS];
 /* Global Structure that stores OSPF related data */
 static ops_ospf_data_t ospf_data;
 
+/* Global structure that stores BFD related data */
+static ops_bfd_data_t bfd_data;
+
 /* Internal default route needed for ALPM mode */
 static opennsl_l3_route_t ipv4_default_route;
 static opennsl_l3_route_t ipv6_default_route;
 
 /* List of internal VLANs */
 struct shash internal_vlans;
+static int
+ops_delete_ecmp_object(int hw_unit, opennsl_if_t ecmp_intf);
+
+
+struct ecmp_egress_info {
+    struct hmap_node node;   /* ecmp egress value */
+    int ref_count;           /* reference count */
+    int hw_unit;             /* hw_unit */
+    opennsl_if_t ecmp_grpid; /* ecmp egress ID */
+};
 
 /* ops_routing_is_internal_vlan
  *
@@ -111,13 +130,10 @@ ops_routing_is_internal_vlan (opennsl_vlan_t vlan)
     return false;
 }
 
-/* Global structure that stores BFD related data */
-static ops_bfd_data_t bfd_data;
-
 /*
  * ops_routing_get_cpu_rx_group_id_by_hw_unit
  *
- * This function returns the group-id for the CPU ingress FP rules for
+ * This function returns the group-id for the OSPF ingress FP rules for
  * the given hardware unit.
  */
 opennsl_field_group_t
@@ -130,23 +146,6 @@ ops_routing_get_cpu_rx_group_id_by_hw_unit (int unit)
     return(cpu_rx_group_id[unit]);
 }
 
-static void
-ops_update_ecmp_resilient(opennsl_l3_egress_ecmp_t *ecmp){
-
-    if (ecmp == NULL){
-        VLOG_ERR("ECMP group is NULL");
-        return;
-    }
-
-    if (ecmp_resilient_flag) {
-        ecmp->dynamic_mode |= OPENNSL_L3_ECMP_DYNAMIC_MODE_RESILIENT;
-    } else {
-        ecmp->dynamic_mode &=  ~OPENNSL_L3_ECMP_DYNAMIC_MODE_RESILIENT;
-    }
-
-    ecmp->dynamic_size = ecmp_resilient_flag ? ECMP_DYN_SIZE_64 :
-                                               ECMP_DYN_SIZE_ZERO;
-}
 
 /*
  * This function programs the qualifiers for identifying a BFD packet
@@ -558,6 +557,24 @@ int
 ops_add_default_routes(int unit)
 {
     opennsl_error_t rc = OPENNSL_E_NONE;
+    opennsl_l3_egress_t egress_object;
+    opennsl_if_t default_egress_id;
+
+    /* Create a egress object for default route's */
+    opennsl_l3_egress_t_init(&egress_object);
+    egress_object.intf = -1;
+    egress_object.port = 0;
+    egress_object.flags = OPENNSL_L3_DST_DISCARD;
+    memcpy(egress_object.mac_addr, LOCAL_MAC, ETH_ALEN);
+    rc = opennsl_l3_egress_create(unit, 0,
+                                  &egress_object, &default_egress_id);
+
+    if (OPENNSL_FAILURE(rc)) {
+        VLOG_ERR("Default egress create failed, rc=%s", opennsl_errmsg(rc));
+        log_event("L3INTERFACE_ERR",
+                  EV_KV("err", "%s", opennsl_errmsg(rc)));
+        return rc;
+    }
 
     /* Configure ipv4 default route, with vrf, addr and mask = 0 */
     /* Setting subnet/mask to zero even after doing init, just to
@@ -567,7 +584,8 @@ ops_add_default_routes(int unit)
     ipv4_default_route.l3a_vrf = 0;
     ipv4_default_route.l3a_subnet = 0;
     ipv4_default_route.l3a_ip_mask = 0;
-    ipv4_default_route.l3a_intf = local_nhid;
+    /* ipv4_default_route.l3a_intf = 0; Doesn't work  */
+    ipv4_default_route.l3a_intf = default_egress_id;
     rc = opennsl_l3_route_add (unit, &ipv4_default_route);
     if (OPENNSL_FAILURE(rc)) {
         VLOG_ERR("Default route for IPv4 failed rc = %s",
@@ -583,7 +601,7 @@ ops_add_default_routes(int unit)
                                sizeof(ipv6_default_route.l3a_ip6_net));
     memset(&ipv6_default_route.l3a_ip6_mask, 0,
                                sizeof(ipv6_default_route.l3a_ip6_mask));
-    ipv6_default_route.l3a_intf = local_nhid;
+    ipv6_default_route.l3a_intf = default_egress_id;
     rc = opennsl_l3_route_add (unit, &ipv6_default_route);
     if (OPENNSL_FAILURE(rc)) {
         VLOG_ERR("Default route for IPv6 failed rc = %s",
@@ -898,6 +916,7 @@ ops_l3_init(int unit)
 
     /* initialize route table hash map */
     hmap_init(&ops_rtable.routes);
+    hmap_init(&ecmp_egress_nexthops_map);
 
     /* Initialize egress-id hash map. Used only during mac-move. */
     hmap_init(&ops_mac_move_egress_id_map);
@@ -907,7 +926,7 @@ ops_l3_init(int unit)
     if (rc) {
         VLOG_ERR("FP init failed");
         log_event("L3INTERFACE_ERR",
-                  EV_KV("err", "%s", opennsl_errmsg(rc)));
+                  EV_KV("err", "%s", "OSPF FP init failed"));
         return 1; /* Return error */
     }
 
@@ -1090,7 +1109,6 @@ ops_routing_enable_l3_interface(int hw_unit, opennsl_port_t hw_port,
 
     SW_L3_DBG("Enabled L3 on unit=%d port=%d vlan=%d vrf=%d",
             hw_unit, hw_port, vlan_id, vrf_id);
-
     snprintf(vlan_str, VLAN_ID_MAX_LENGTH, "%d", vlan_id);
     shash_add_once(&internal_vlans, vlan_str, &vlan_id);
     handle_bcmsdk_knet_l3_port_filters(netdev, vlan_id, true);
@@ -1207,8 +1225,8 @@ failed_vlan_creation:
     if (OPENNSL_FAILURE(rc)) {
         VLOG_ERR("Failed to delete port to entry = %d for group = %d,\
                 Unit=%d port=%d rc=%s",
-                l3_fp_grp_info[hw_unit].subint_fp_entry_id,
-                l3_fp_grp_info[hw_unit].l3_fp_grpid,
+                subintf_fp_grp_info[hw_unit].subint_fp_entry_id,
+                subintf_fp_grp_info[hw_unit].l3_fp_grpid,
                 hw_unit, hw_port, opennsl_errmsg(rc));
     }
     return NULL;
@@ -1232,6 +1250,7 @@ ops_routing_disable_l3_interface(int hw_unit, opennsl_port_t hw_port,
                  " rc=%s",
                  hw_unit, vlan_id, opennsl_errmsg(rc));
     }
+    free(l3_intf);
 
     rc = bcmsdk_destroy_vlan(vlan_id, true);
     if (rc < 0) {
@@ -1269,6 +1288,7 @@ ops_routing_disable_l3_subinterface(int hw_unit, opennsl_port_t hw_port,
                  " vrf=%d rc=%s",
                  hw_unit, hw_port, vlan_id, vrf_id, opennsl_errmsg(rc));
     }
+    free(l3_intf);
 
     /* Reset VLAN on port back to default and destroy the VLAN */
     OPENNSL_PBMP_CLEAR(pbmp);
@@ -1303,8 +1323,8 @@ ops_routing_disable_l3_subinterface(int hw_unit, opennsl_port_t hw_port,
         if (OPENNSL_FAILURE(rc)) {
             VLOG_ERR("Failed to delete port to entry = %d for group = %d,\
                     Unit=%d port=%d rc=%s",
-                    l3_fp_grp_info[hw_unit].subint_fp_entry_id,
-                    l3_fp_grp_info[hw_unit].l3_fp_grpid,
+                    subintf_fp_grp_info[hw_unit].subint_fp_entry_id,
+                    subintf_fp_grp_info[hw_unit].l3_fp_grpid,
                     hw_unit, hw_port, opennsl_errmsg(rc));
         }
     }
@@ -1387,7 +1407,6 @@ ops_nexthop_delete(struct ops_route *route, struct ops_nexthop *nh)
     log_event("L3INTERFACE_NEXTHOP_DELETE",
             EV_KV("nexthop", "%s", nh->id),
             EV_KV("prefix", "%s", route->prefix));
-
     hmap_remove(&route->nexthops, &nh->node);
     if (nh->id) {
         free(nh->id);
@@ -1835,10 +1854,124 @@ ops_string_to_prefix(int family, char *ip_address, void *prefix,
     return 0;
 } /* ops_string_to_prefix */
 
+static void
+ops_update_ecmp_resilient(opennsl_l3_egress_ecmp_t *ecmp){
+
+    if (ecmp == NULL){
+        VLOG_ERR("ECMP group is NULL");
+        return;
+    }
+
+    if (ecmp_resilient_flag) {
+        ecmp->dynamic_mode |= OPENNSL_L3_ECMP_DYNAMIC_MODE_RESILIENT;
+    } else {
+        ecmp->dynamic_mode &=  ~OPENNSL_L3_ECMP_DYNAMIC_MODE_RESILIENT;
+    }
+
+    ecmp->dynamic_size = ecmp_resilient_flag ? ECMP_DYN_SIZE_64 :
+                                               ECMP_DYN_SIZE_ZERO;
+}
+
+/* This function is to lookup the ecmp egress node from the hashmap */
+static struct ecmp_egress_info *
+ecmp_egress_node_lookup( char* ecmp_nexthop_str, opennsl_if_t *ecmp_intfp,
+                         int hw_unit)
+{
+   struct ecmp_egress_info    *ecmp_egress_node;
+
+   HMAP_FOR_EACH_WITH_HASH(ecmp_egress_node, node,
+                  hash_string(ecmp_nexthop_str, 0), &ecmp_egress_nexthops_map) {
+       if (ecmp_egress_node->hw_unit == hw_unit &&
+           ecmp_egress_node->ecmp_grpid == *ecmp_intfp) {
+           return ecmp_egress_node;
+       }
+   }
+
+   return NULL;
+} /* ecmp_egress_node_lookup */
+
+static void
+ecmp_egress_add_to_hash(int hw_unit, opennsl_if_t ecmp_grpid)
+{
+    struct ecmp_egress_info *ecmp_egress_node = NULL;
+    char ecmp_grpid_str[ECMP_ID_MAX_LENGTH];
+
+    /* Look up if hash entry exists, if not create new */
+    snprintf(ecmp_grpid_str, ECMP_ID_MAX_LENGTH, "%d", ecmp_grpid);
+    ecmp_egress_node = ecmp_egress_node_lookup(ecmp_grpid_str,
+                                                   &ecmp_grpid, hw_unit);
+
+    if (ecmp_egress_node) {
+        ecmp_egress_node->ref_count++;
+        VLOG_DBG("Incremented reference count %d ECMP group ID: %d hw_unit %d",
+                 ecmp_egress_node->ref_count, ecmp_egress_node->ecmp_grpid,
+                 hw_unit);
+    } else {
+        snprintf(ecmp_grpid_str, ECMP_ID_MAX_LENGTH, "%d",ecmp_grpid);
+        ecmp_egress_node = (struct ecmp_egress_info *)
+                               xmalloc (sizeof(struct ecmp_egress_info));
+        ecmp_egress_node->ref_count = 1;
+        ecmp_egress_node->ecmp_grpid = ecmp_grpid;
+        ecmp_egress_node->hw_unit   = hw_unit;
+        hmap_insert(&ecmp_egress_nexthops_map, &ecmp_egress_node->node,
+                    hash_string(ecmp_grpid_str, 0));
+        VLOG_DBG("New ecmp egress object %d hw_unit %d",
+                     ecmp_egress_node->ecmp_grpid, hw_unit);
+    }
+}
+
+static int
+ecmp_egress_remove_from_hash(int hw_unit, opennsl_if_t ecmp_grpid)
+{
+    struct ecmp_egress_info *ecmp_egress_node = NULL;
+    opennsl_error_t rc = OPENNSL_E_NONE;
+    opennsl_l3_egress_ecmp_t ecmp_grp;
+    char ecmp_grpid_str[ECMP_ID_MAX_LENGTH];
+
+    /* Look up hash entry */
+    snprintf(ecmp_grpid_str, ECMP_ID_MAX_LENGTH, "%d", ecmp_grpid);
+    ecmp_egress_node = ecmp_egress_node_lookup(ecmp_grpid_str,
+                                                   &ecmp_grpid, hw_unit);
+
+    if (ecmp_egress_node) {
+
+        ecmp_egress_node->ref_count--;
+        VLOG_DBG("Decremented reference count %d ECMP group ID: %d hw_unit %d",
+                 ecmp_egress_node->ref_count, ecmp_egress_node->ecmp_grpid,
+                 hw_unit);
+
+        if (ecmp_egress_node->ref_count == 0) {
+            opennsl_l3_egress_ecmp_t_init(&ecmp_grp);
+            ecmp_grp.ecmp_intf = ecmp_grpid;
+
+            rc = opennsl_l3_egress_ecmp_destroy(hw_unit, &ecmp_grp);
+            if( OPENNSL_FAILURE(rc)) {
+                VLOG_ERR("Failed to delete ecmp egress object %d: %s",
+                         ecmp_grp.ecmp_intf, opennsl_errmsg(rc));
+                log_event("ECMP_DELETE_ERR",
+                          EV_KV("egressid", "%d", ecmp_grp.ecmp_intf),
+                          EV_KV("err", "%s", opennsl_errmsg(rc)));
+                return rc;
+            }
+
+            log_event("ECMP_DELETE",
+                      EV_KV("egressid", "%d", ecmp_grp.ecmp_intf));
+            hmap_remove(&ecmp_egress_nexthops_map,
+                        &ecmp_egress_node->node);
+            free(ecmp_egress_node);
+        }
+    } else {
+        VLOG_DBG("ECMP group %d not found in hashmap and could not be removed",
+                  ecmp_egress_node->ecmp_grpid);
+    }
+    return rc;
+}
+
 /* Find or create and ecmp egress object */
 static int
-ops_create_or_update_ecmp_object(int hw_unit, struct ops_route *routep,
-                                 opennsl_if_t *ecmp_intfp, bool update)
+ops_create_or_update_ecmp_object(int hw_unit, struct ops_route *ops_routep,
+                                 opennsl_if_t *old_ecmp_grpid, bool update,
+                                 opennsl_l3_route_t *routep)
 {
     int nh_count = 0;
     struct ops_nexthop *nh;
@@ -1846,11 +1979,11 @@ ops_create_or_update_ecmp_object(int hw_unit, struct ops_route *routep,
     opennsl_error_t rc = OPENNSL_E_NONE;
     opennsl_l3_egress_ecmp_t ecmp_grp;
 
-    if(!routep) {
+    if(!ops_routep) {
         return EINVAL;
     }
 
-    HMAP_FOR_EACH(nh, node, &routep->nexthops) {
+    HMAP_FOR_EACH(nh, node, &ops_routep->nexthops) {
         egress_obj[nh_count++] = nh->l3_egress_id;
         /* break once max ecmp is reached */
         if (nh_count == MAX_NEXTHOPS_PER_ROUTE) {
@@ -1858,46 +1991,93 @@ ops_create_or_update_ecmp_object(int hw_unit, struct ops_route *routep,
         }
     }
 
-    if (update){
-        opennsl_l3_egress_ecmp_t_init(&ecmp_grp);
-        if (ecmp_resilient_flag) {
-            ecmp_grp.flags = (OPENNSL_L3_ECMP_RH_REPLACE | OPENNSL_L3_WITH_ID);
+
+    opennsl_l3_egress_ecmp_t_init(&ecmp_grp);
+
+    /* Checking the availability of an ecmp group */
+    /* If ecmp group object exists, then point this route to that,
+     * If ecmp hash entry exists then update ref count, else create new.
+     * If any failure in route api, leave route as it was earlier */
+    rc = opennsl_l3_egress_ecmp_find(hw_unit, nh_count, egress_obj, &ecmp_grp);
+    if (rc == OPENNSL_E_NONE) {
+
+        /* If already exists, use that for this route also */
+        ops_routep->rstate = (ops_routep->n_nexthops > 1) ?
+                             OPS_ROUTE_STATE_ECMP : OPS_ROUTE_STATE_NON_ECMP;
+        routep->l3a_intf = ecmp_grp.ecmp_intf;
+
+        rc = opennsl_l3_route_add(hw_unit, routep);
+        if (OPENNSL_FAILURE(rc)) {
+            routep->l3a_intf = *old_ecmp_grpid;
+            VLOG_ERR("Failed to add/update ECMP route %s: %s",
+                    ops_routep->prefix,
+                    opennsl_errmsg(rc));
+            log_event("L3INTERFACE_ROUTE_ADD_ERR",
+                      EV_KV("prefix", "%s", ops_routep->prefix),
+                      EV_KV("err", "%s", opennsl_errmsg(rc)));
+            return rc;
         } else {
-            ecmp_grp.flags = (OPENNSL_L3_REPLACE | OPENNSL_L3_WITH_ID);
+            VLOG_DBG("Success to add/update ECMP route %s",
+                                                         ops_routep->prefix);
+            ecmp_egress_add_to_hash(hw_unit, ecmp_grp.ecmp_intf);
+            if (update)
+                ecmp_egress_remove_from_hash(hw_unit, *old_ecmp_grpid);
         }
-        ecmp_grp.ecmp_intf = *ecmp_intfp;
+    } else {
         ops_update_ecmp_resilient(&ecmp_grp);
+
+        /* creating ecmp egress object for new combination of egress nexthops */
         rc = opennsl_l3_egress_ecmp_create(hw_unit, &ecmp_grp, nh_count,
                                            egress_obj);
         if (OPENNSL_FAILURE(rc)) {
             VLOG_ERR("Failed to update ecmp object for route %s: rc=%s",
-                     routep->prefix, opennsl_errmsg(rc));
+                     ops_routep->prefix, opennsl_errmsg(rc));
             log_event("ECMP_CREATE_ERR",
-                      EV_KV("route", "%s", routep->prefix),
+                      EV_KV("route", "%s", ops_routep->prefix),
                       EV_KV("err", "%s", opennsl_errmsg(rc)));
             return rc;
         } else {
+            VLOG_DBG("Succes in create/update ecmp object for route %s: rc=%s",
+                     ops_routep->prefix, opennsl_errmsg(rc));
             log_event("ECMP_CREATE",
-                      EV_KV("route", "%s", routep->prefix));
-        }
-    } else {
-        opennsl_l3_egress_ecmp_t_init(&ecmp_grp);
-        ops_update_ecmp_resilient(&ecmp_grp);
-        rc = opennsl_l3_egress_ecmp_create(hw_unit, &ecmp_grp, nh_count,
-                                           egress_obj);
-        if (OPENNSL_FAILURE(rc)) {
-            VLOG_ERR("Failed to create ecmp object for route %s: rc=%s",
-                     routep->prefix, opennsl_errmsg(rc));
-            log_event("ECMP_CREATE_ERR",
-                      EV_KV("route", "%s", routep->prefix),
+                      EV_KV("route", "%s", ops_routep->prefix));
+
+    ops_routep->rstate = (ops_routep->n_nexthops > 1) ?
+                         OPS_ROUTE_STATE_ECMP : OPS_ROUTE_STATE_NON_ECMP;
+    routep->l3a_intf = ecmp_grp.ecmp_intf;
+    rc = opennsl_l3_route_add(hw_unit, routep);
+    if (OPENNSL_FAILURE(rc)) {
+                routep->l3a_intf = *old_ecmp_grpid;
+        VLOG_ERR("Failed to add/update ECMP route %s: %s",
+                ops_routep->prefix,
+                opennsl_errmsg(rc));
+        log_event("L3INTERFACE_ROUTE_ADD_ERR",
+                  EV_KV("prefix", "%s", ops_routep->prefix),
+                  EV_KV("err", "%s", opennsl_errmsg(rc)));
+
+                /* Delete the newly created ecmp grp */
+        rc = opennsl_l3_egress_ecmp_destroy(hw_unit, &ecmp_grp);
+        if( OPENNSL_FAILURE(rc)) {
+            VLOG_ERR("Failed to delete ecmp egress object %d: %s",
+                     ecmp_grp.ecmp_intf, opennsl_errmsg(rc));
+            log_event("ECMP_DELETE_ERR",
+                      EV_KV("egressid", "%d", ecmp_grp.ecmp_intf),
                       EV_KV("err", "%s", opennsl_errmsg(rc)));
+                }
             return rc;
-        } else {
-            log_event("ECMP_CREATE",
-                      EV_KV("route", "%s", routep->prefix));
+            } else {
+                /* On success add new ecmp object to hash and
+                 * decrement ref count to old ecmp object if route had any */
+                VLOG_DBG("Success to add/update ECMP route %s",
+                         ops_routep->prefix);
+
+                ecmp_egress_add_to_hash(hw_unit, ecmp_grp.ecmp_intf);
+                if (update)
+                    ecmp_egress_remove_from_hash(hw_unit, *old_ecmp_grpid);
+            }
         }
-        *ecmp_intfp = ecmp_grp.ecmp_intf;
     }
+
     return rc;
 } /* ops_create_or_update_ecmp_object */
 
@@ -1907,21 +2087,32 @@ ops_delete_ecmp_object(int hw_unit, opennsl_if_t ecmp_intf)
 {
     opennsl_error_t rc = OPENNSL_E_NONE;
     opennsl_l3_egress_ecmp_t ecmp_grp;
+    char ecmp_grpid_str[ECMP_ID_MAX_LENGTH];
+    struct ecmp_egress_info  *ecmp_egress_node;
 
     opennsl_l3_egress_ecmp_t_init(&ecmp_grp);
     ecmp_grp.ecmp_intf = ecmp_intf;
 
-    rc = opennsl_l3_egress_ecmp_destroy(hw_unit, &ecmp_grp);
-    if (OPENNSL_FAILURE(rc)) {
-        VLOG_ERR("Failed to delete ecmp egress object %d: %s",
-                ecmp_intf, opennsl_errmsg(rc));
-        log_event("ECMP_DELETE_ERR",
-                EV_KV("egressid", "%d", ecmp_intf),
-                EV_KV("err", "%s", opennsl_errmsg(rc)));
-        return rc;
+    snprintf(ecmp_grpid_str, ECMP_ID_MAX_LENGTH, "%d", ecmp_grp.ecmp_intf);
+    ecmp_egress_node = ecmp_egress_node_lookup(ecmp_grpid_str, &ecmp_grp.ecmp_intf, hw_unit);
+    assert(ecmp_egress_node);
+    ecmp_egress_node->ref_count--;
+    if (ecmp_egress_node->ref_count == 0) {
+        rc = opennsl_l3_egress_ecmp_destroy(hw_unit, &ecmp_grp);
+        if (OPENNSL_FAILURE(rc)) {
+            VLOG_ERR("Failed to delete ecmp egress object %d: %s",
+                     ecmp_intf, opennsl_errmsg(rc));
+            log_event("ECMP_DELETE_ERR",
+                      EV_KV("egressid", "%d", ecmp_intf),
+                      EV_KV("err", "%s", opennsl_errmsg(rc)));
+            return rc;
+        }
+        VLOG_DBG("ECMP egress object deleted  %d", ecmp_grp.ecmp_intf);
+        log_event("ECMP_DELETE",
+                  EV_KV("egressid", "%d", ecmp_intf));
+        hmap_remove(&ecmp_egress_nexthops_map, &ecmp_egress_node->node);
+        free(ecmp_egress_node);
     }
-    log_event("ECMP_DELETE",
-            EV_KV("egressid", "%d", ecmp_intf));
 
     return rc;
 } /* ops_delete_ecmp_object */
@@ -1958,13 +2149,14 @@ ops_add_route_entry(int hw_unit, opennsl_vrf_t vrf_id,
         ops_routep = ops_route_add(vrf_id, of_routep);
         /* create or get ecmp object */
         if (ops_routep->n_nexthops > 1){
+            routep->l3a_flags |= OPENNSL_L3_MULTIPATH;
             rc = ops_create_or_update_ecmp_object(hw_unit, ops_routep,
-                                                 &l3_intf, false);
+                                               &l3_intf, false,
+                                               routep);
             if (OPS_FAILURE(rc)) {
                 return rc;
             }
-            routep->l3a_intf = l3_intf;
-            routep->l3a_flags |= OPENNSL_L3_MULTIPATH;
+            return rc;
         } else {
             HMAP_FOR_EACH(ops_nh, node, &ops_routep->nexthops) {
                 routep->l3a_intf = ops_nh->l3_egress_id;
@@ -1982,7 +2174,7 @@ ops_add_route_entry(int hw_unit, opennsl_vrf_t vrf_id,
          */
         if (of_routep->n_nexthops == 1) {
             of_nh = &of_routep->nexthops[0];
-            VLOG_INFO("of_nh->state = %d", of_nh->state);
+            VLOG_DBG("of_nh->state = %d", of_nh->state);
             if (of_nh->state != OFPROTO_NH_RESOLVED) {
                 routep->l3a_flags |= OPENNSL_L3_RPE;
                 routep->l3a_pri = OPS_COPP_UNKNOWN_IP_COS_RESERVED;
@@ -2003,16 +2195,17 @@ ops_add_route_entry(int hw_unit, opennsl_vrf_t vrf_id,
         case OPS_ROUTE_STATE_NON_ECMP:
             /* if nexthops becomes more than 1 */
             if (ops_routep->n_nexthops > 1) {
+                routep->l3a_flags |= (OPENNSL_L3_MULTIPATH |
+                                      OPENNSL_L3_REPLACE);
                 rc = ops_create_or_update_ecmp_object(hw_unit, ops_routep,
-                                                     &l3_intf, false);
+                                                     &l3_intf, false,
+                                                     routep);
                 if (OPS_FAILURE(rc)) {
                     VLOG_ERR("Failed to create ecmp object for route %s: %s",
                               ops_routep->prefix, opennsl_errmsg(rc));
                     return rc;
                 }
-                routep->l3a_intf = l3_intf;
-                routep->l3a_flags |= (OPENNSL_L3_MULTIPATH |
-                                      OPENNSL_L3_REPLACE);
+                return rc;
             } else {
                 HMAP_FOR_EACH(ops_nh, node, &ops_routep->nexthops) {
                     routep->l3a_intf = ops_nh->l3_egress_id;
@@ -2024,15 +2217,16 @@ ops_add_route_entry(int hw_unit, opennsl_vrf_t vrf_id,
         case OPS_ROUTE_STATE_ECMP:
             /* update the ecmp table */
             l3_intf = routep->l3a_intf;
+            routep->l3a_flags |= (OPENNSL_L3_MULTIPATH |
+                                  OPENNSL_L3_REPLACE);
             rc = ops_create_or_update_ecmp_object(hw_unit, ops_routep,
-                                                 &l3_intf, true);
+                                                 &l3_intf, true,
+                                                 routep);
             if (OPS_FAILURE(rc)) {
                 VLOG_ERR("Failed to update ecmp object for route %s: %s",
                          ops_routep->prefix, opennsl_errmsg(rc));
-                return rc;
             }
-            routep->l3a_flags |= (OPENNSL_L3_MULTIPATH |
-                                  OPENNSL_L3_REPLACE);
+            return rc;
             break;
         default:
             break;
@@ -2064,6 +2258,7 @@ ops_add_route_entry(int hw_unit, opennsl_vrf_t vrf_id,
                                    "update route state as ECMP" :
                                    "update route state as NON ECMP"))));
     }
+
     return rc;
 } /* ops_add_route_entry */
 
@@ -2132,6 +2327,11 @@ ops_delete_route_entry(int hw_unit, opennsl_vrf_t vrf_id,
         ops_add_default_routes(hw_unit);
     }
 
+    /* Reprogram default route for ALPM mode */
+    if (reprogram_def_route) {
+        ops_add_default_routes(hw_unit);
+    }
+
     return rc;
 } /* ops_delete_route_entry */
 
@@ -2193,15 +2393,16 @@ ops_delete_nh_entry(int hw_unit, opennsl_vrf_t vrf_id,
         } else {
             /* update the ecmp table */
             l3_intf = routep->l3a_intf;
+            routep->l3a_flags |= (OPENNSL_L3_MULTIPATH |
+                                  OPENNSL_L3_REPLACE);
             rc = ops_create_or_update_ecmp_object(hw_unit, ops_routep,
-                                                 &l3_intf, true);
+                                                 &l3_intf, true,
+                                                 routep);
             if (OPS_FAILURE(rc)) {
                 VLOG_ERR("Failed to update ecmp object for route %s: %s",
                               ops_routep->prefix, opennsl_errmsg(rc));
-                    return rc;
-                }
-                routep->l3a_flags |= (OPENNSL_L3_MULTIPATH |
-                                      OPENNSL_L3_REPLACE);
+            }
+            return rc;
             }
             break;
         default:
@@ -2228,6 +2429,7 @@ ops_delete_nh_entry(int hw_unit, opennsl_vrf_t vrf_id,
     if (is_delete_ecmp) {
         rc = ops_delete_ecmp_object(hw_unit, l3_intf);
     }
+
     return rc;
 } /* ops_delete_nh_entry */
 
@@ -3161,22 +3363,20 @@ ops_l3ecmp_egress_dump(struct ds *ds, int ecmpid)
     }
 } /* ops_l3ecmp_egress_dump */
 
-/* Create group for l3 feature. A common group is maintained for
- * l3 related feature and stats with the highest priority.
+/* Create group for l3 subinterface feature.
  * This group is used to create feature specific rules.
  */
-opennsl_error_t
-ops_create_l3_fp_group(int hw_unit)
+static opennsl_error_t
+ops_create_l3_subintf_fp_group(int hw_unit)
 {
     /* FP groups for subinterface and L3 stats*/
     opennsl_error_t rc = OPENNSL_E_NONE;
     /* Qset for l3 feature */
     opennsl_field_qset_t l3_qset;
 
-
-    VLOG_DBG("Create group, Check group = %d", l3_fp_grp_info[hw_unit].l3_fp_grpid);
+    VLOG_DBG("Create group, Check group = %d", subintf_fp_grp_info[hw_unit].l3_fp_grpid);
     /* If group is already created then don't create again */
-    if (l3_fp_grp_info[hw_unit].l3_fp_grpid == -1) {
+    if (subintf_fp_grp_info[hw_unit].l3_fp_grpid == -1) {
 
         OPENNSL_FIELD_QSET_INIT(l3_qset);
         /* for subinterface */
@@ -3184,27 +3384,17 @@ ops_create_l3_fp_group(int hw_unit)
                                 opennslFieldQualifyMyStationHit);
         OPENNSL_FIELD_QSET_ADD (l3_qset, opennslFieldQualifyInPorts);
 
-        /* RX counter stats */
-        OPENNSL_FIELD_QSET_ADD (l3_qset, opennslFieldQualifyIpType);
-        OPENNSL_FIELD_QSET_ADD (l3_qset, opennslFieldQualifyL3Ingress);
-        OPENNSL_FIELD_QSET_ADD (l3_qset, opennslFieldQualifyPacketRes);
-
-        /* TX counter stats */
-        OPENNSL_FIELD_QSET_ADD (l3_qset, opennslFieldQualifyIpType);
-        OPENNSL_FIELD_QSET_ADD (l3_qset, opennslFieldQualifyDstPort);
-        OPENNSL_FIELD_QSET_ADD (l3_qset, opennslFieldQualifyPacketRes);
-
         VLOG_DBG("%s, Create FP for unit = %d", __FUNCTION__, hw_unit);
         rc = opennsl_field_group_create(hw_unit, l3_qset,
                                         FP_GROUP_PRIORITY_0,
-                                        &l3_fp_grp_info[hw_unit].l3_fp_grpid);
+                                        &subintf_fp_grp_info[hw_unit].l3_fp_grpid);
         if (OPENNSL_FAILURE(rc)) {
             VLOG_ERR("Failed to create FP group Unit=%d, rc=%s",
                     hw_unit, opennsl_errmsg(rc));
             return rc;
         }
         VLOG_DBG("%s, Created FP Group = %d for unit = %d",
-                 __FUNCTION__, l3_fp_grp_info[hw_unit].l3_fp_grpid, hw_unit);
+                 __FUNCTION__, subintf_fp_grp_info[hw_unit].l3_fp_grpid, hw_unit);
     }
 
     return rc;
@@ -3221,7 +3411,7 @@ ops_subinterface_fp_entry_create(opennsl_port_t hw_port, int hw_unit)
     opennsl_pbmp_t pbm;
     opennsl_pbmp_t pbm_mask;
 
-    rc = ops_create_l3_fp_group(hw_unit);
+    rc = ops_create_l3_subintf_fp_group(hw_unit);
     if (OPENNSL_FAILURE(rc)) {
         VLOG_ERR("Failed to create FP group for L3 features \
                 Unit=%d port=%d rc=%s",
@@ -3231,7 +3421,7 @@ ops_subinterface_fp_entry_create(opennsl_port_t hw_port, int hw_unit)
 
     /* If the entry was not created then create the entry,
        else update the port bit map and reinstall the entry */
-    if (l3_fp_grp_info[hw_unit].subint_fp_entry_id == -1) {
+    if (subintf_fp_grp_info[hw_unit].subint_fp_entry_id == -1) {
 
         /* add hw_port to the rule */
         OPENNSL_PBMP_CLEAR(pbm);
@@ -3242,8 +3432,8 @@ ops_subinterface_fp_entry_create(opennsl_port_t hw_port, int hw_unit)
         VLOG_DBG("%s, Create entry unit = %d, port %d",
                 __FUNCTION__, hw_unit, hw_port);
         rc =  opennsl_field_entry_create(hw_unit,
-                l3_fp_grp_info[hw_unit].l3_fp_grpid,
-                &l3_fp_grp_info[hw_unit].subint_fp_entry_id);
+                subintf_fp_grp_info[hw_unit].l3_fp_grpid,
+                &subintf_fp_grp_info[hw_unit].subint_fp_entry_id);
         if (OPENNSL_FAILURE(rc)) {
             VLOG_ERR("Failed to create FP entry for subinterface \
                     Unit=%d port=%d rc=%s",
@@ -3254,54 +3444,54 @@ ops_subinterface_fp_entry_create(opennsl_port_t hw_port, int hw_unit)
         VLOG_DBG("%s, Create qualify my station hit unit = %d, port %d",
                 __FUNCTION__, hw_unit, hw_port);
         rc = opennsl_field_qualify_MyStationHit(hw_unit,
-                l3_fp_grp_info[hw_unit].subint_fp_entry_id,
+                subintf_fp_grp_info[hw_unit].subint_fp_entry_id,
                 0x0, 0x1); /* NOT hit */
         if (OPENNSL_FAILURE(rc)) {
             VLOG_ERR("Failed to set qualify for my station hit \
                     Unit=%d port=%d rc=%s",
                     hw_unit, hw_port, opennsl_errmsg(rc));
-            ops_destroy_l3_fp_entry(hw_unit,
-            l3_fp_grp_info[hw_unit].subint_fp_entry_id);
+            ops_destroy_l3_subintf_fp_entry(hw_unit,
+            subintf_fp_grp_info[hw_unit].subint_fp_entry_id);
             return rc;
         }
 
         VLOG_DBG("%s, Create qualify Inport unit = %d, port %d",
                 __FUNCTION__, hw_unit, hw_port);
         rc = opennsl_field_qualify_InPorts(hw_unit,
-                l3_fp_grp_info[hw_unit].subint_fp_entry_id,
+                subintf_fp_grp_info[hw_unit].subint_fp_entry_id,
                 pbm, pbm_mask);
         if (OPENNSL_FAILURE(rc)) {
             VLOG_ERR("Failed to set qualify for InPort \
                     Unit=%d port=%d rc=%s",
                     hw_unit, hw_port, opennsl_errmsg(rc));
-            ops_destroy_l3_fp_entry(hw_unit,
-                                             l3_fp_grp_info[hw_unit].subint_fp_entry_id);
+            ops_destroy_l3_subintf_fp_entry(hw_unit,
+                                             subintf_fp_grp_info[hw_unit].subint_fp_entry_id);
             return rc;
         }
 
         VLOG_DBG("%s, Set action unit = %d, port %d",
                 __FUNCTION__, hw_unit, hw_port);
         rc = opennsl_field_action_add(hw_unit,
-                l3_fp_grp_info[hw_unit].subint_fp_entry_id,
+                subintf_fp_grp_info[hw_unit].subint_fp_entry_id,
                 opennslFieldActionDrop, 0, 0);
         if (OPENNSL_FAILURE(rc)) {
             VLOG_ERR("Failed to set action to drop all packets \
                     Unit=%d port=%d rc=%s",
                     hw_unit, hw_port, opennsl_errmsg(rc));
-            ops_destroy_l3_fp_entry(hw_unit,
-                                             l3_fp_grp_info[hw_unit].subint_fp_entry_id);
+            ops_destroy_l3_subintf_fp_entry(hw_unit,
+                                             subintf_fp_grp_info[hw_unit].subint_fp_entry_id);
             return rc;
         }
 
-        rc = opennsl_field_entry_install(hw_unit, l3_fp_grp_info[hw_unit].subint_fp_entry_id);
+        rc = opennsl_field_entry_install(hw_unit, subintf_fp_grp_info[hw_unit].subint_fp_entry_id);
         if (OPENNSL_FAILURE(rc)) {
             VLOG_ERR("Failed to install group = %d entry = %d\
                     Unit=%d port=%d rc=%s",
-                    l3_fp_grp_info[hw_unit].l3_fp_grpid,
-                    l3_fp_grp_info[hw_unit].subint_fp_entry_id,
+                    subintf_fp_grp_info[hw_unit].l3_fp_grpid,
+                    subintf_fp_grp_info[hw_unit].subint_fp_entry_id,
                     hw_unit, hw_port, opennsl_errmsg(rc));
-            ops_destroy_l3_fp_entry(hw_unit,
-                                    l3_fp_grp_info[hw_unit].subint_fp_entry_id);
+            ops_destroy_l3_subintf_fp_entry(hw_unit,
+                                    subintf_fp_grp_info[hw_unit].subint_fp_entry_id);
             return rc;
         }
         VLOG_DBG("%s ADD hw_port = %d, added",
@@ -3309,14 +3499,14 @@ ops_subinterface_fp_entry_create(opennsl_port_t hw_port, int hw_unit)
     } else {
 
         VLOG_DBG("Entry already created now update the entry = %d, with port = %d",
-                  l3_fp_grp_info[hw_unit].subint_fp_entry_id, hw_port);
+                  subintf_fp_grp_info[hw_unit].subint_fp_entry_id, hw_port);
         /* Add multiple subinterfaces to the entry*/
         rc = ops_update_subint_fp_entry(hw_unit, hw_port, true);
         if (OPENNSL_FAILURE(rc)) {
             VLOG_ERR("Failed to add port to entry = %d for group = %d,\
                     Unit=%d port=%d rc=%s",
-                    l3_fp_grp_info[hw_unit].subint_fp_entry_id,
-                    l3_fp_grp_info[hw_unit].l3_fp_grpid,
+                    subintf_fp_grp_info[hw_unit].subint_fp_entry_id,
+                    subintf_fp_grp_info[hw_unit].l3_fp_grpid,
                     hw_unit, hw_port, opennsl_errmsg(rc));
             return rc;
         }
@@ -3324,7 +3514,7 @@ ops_subinterface_fp_entry_create(opennsl_port_t hw_port, int hw_unit)
 
     VLOG_DBG("%s, Group entry  = %d install success unit = %d, port %d",
                __FUNCTION__,
-               l3_fp_grp_info[hw_unit].subint_fp_entry_id,
+               subintf_fp_grp_info[hw_unit].subint_fp_entry_id,
                hw_unit, hw_port);
 
     return rc;
@@ -3341,7 +3531,7 @@ ops_update_subint_fp_entry(int hw_unit, opennsl_port_t hw_port, bool add)
     VLOG_DBG("%s, Get Inport bitmask unit = %d",
             __FUNCTION__, hw_unit);
     rc = opennsl_field_qualify_InPorts_get(hw_unit,
-            l3_fp_grp_info[hw_unit].subint_fp_entry_id,
+            subintf_fp_grp_info[hw_unit].subint_fp_entry_id,
             &pbm, &pbm_mask);
     if (OPENNSL_FAILURE(rc)) {
         VLOG_ERR("Failed to set qualify for InPort \
@@ -3365,39 +3555,39 @@ ops_update_subint_fp_entry(int hw_unit, opennsl_port_t hw_port, bool add)
                 __FUNCTION__, hw_port, _SHR_PBMP_FMT(pbm, pfmt));
         if (OPENNSL_PBMP_IS_NULL(pbm)) {
             VLOG_DBG("pbm is empty so delete the entry = %d",
-                    l3_fp_grp_info[hw_unit].subint_fp_entry_id);
-            rc = ops_destroy_l3_fp_entry(hw_unit,
-                    l3_fp_grp_info[hw_unit].subint_fp_entry_id);
+                    subintf_fp_grp_info[hw_unit].subint_fp_entry_id);
+            rc = ops_destroy_l3_subintf_fp_entry(hw_unit,
+                    subintf_fp_grp_info[hw_unit].subint_fp_entry_id);
             if (OPENNSL_FAILURE(rc)) {
                 VLOG_ERR("Failed to delete FP entry for subinterface \
                         Unit=%d rc=%s",
                         hw_unit, opennsl_errmsg(rc));
             }
-            l3_fp_grp_info[hw_unit].subint_fp_entry_id = -1;
+            subintf_fp_grp_info[hw_unit].subint_fp_entry_id = -1;
             return rc;
         }
     }
     VLOG_DBG("%s, Create qualify Inport unit = %d, port %d",
             __FUNCTION__, hw_unit, hw_port);
     rc = opennsl_field_qualify_InPorts(hw_unit,
-            l3_fp_grp_info[hw_unit].subint_fp_entry_id,
+            subintf_fp_grp_info[hw_unit].subint_fp_entry_id,
             pbm, pbm_mask);
     if (OPENNSL_FAILURE(rc)) {
         VLOG_ERR("Failed to set qualify for InPort \
                 Unit=%d port=%d rc=%s",
                 hw_unit, hw_port, opennsl_errmsg(rc));
-        ops_destroy_l3_fp_entry(hw_unit, l3_fp_grp_info[hw_unit].subint_fp_entry_id);
+        ops_destroy_l3_subintf_fp_entry(hw_unit, subintf_fp_grp_info[hw_unit].subint_fp_entry_id);
         return rc;
     }
-    VLOG_DBG("reinstall entry = %d", l3_fp_grp_info[hw_unit].subint_fp_entry_id);
-    rc = opennsl_field_entry_reinstall(hw_unit, l3_fp_grp_info[hw_unit].subint_fp_entry_id);
+    VLOG_DBG("reinstall entry = %d", subintf_fp_grp_info[hw_unit].subint_fp_entry_id);
+    rc = opennsl_field_entry_reinstall(hw_unit, subintf_fp_grp_info[hw_unit].subint_fp_entry_id);
     if (OPENNSL_FAILURE(rc)) {
         VLOG_ERR("Failed to install group = %d entry = %d\
                 Unit=%d port=%d rc=%s",
-                l3_fp_grp_info[hw_unit].l3_fp_grpid,
-                l3_fp_grp_info[hw_unit].subint_fp_entry_id,
+                subintf_fp_grp_info[hw_unit].l3_fp_grpid,
+                subintf_fp_grp_info[hw_unit].subint_fp_entry_id,
                 hw_unit, hw_port, opennsl_errmsg(rc));
-        ops_destroy_l3_fp_entry(hw_unit, l3_fp_grp_info[hw_unit].subint_fp_entry_id);
+        ops_destroy_l3_subintf_fp_entry(hw_unit, subintf_fp_grp_info[hw_unit].subint_fp_entry_id);
         return rc;
     }
     return rc;
@@ -3406,15 +3596,15 @@ ops_update_subint_fp_entry(int hw_unit, opennsl_port_t hw_port, bool add)
  * Function deletes the l3 group entries.
  * If no entry exists then the group is deleted.
  */
-opennsl_error_t
-ops_destroy_l3_fp_entry(int hw_unit, opennsl_field_entry_t entryid)
+static opennsl_error_t
+ops_destroy_l3_subintf_fp_entry(int hw_unit, opennsl_field_entry_t entryid)
 {
     opennsl_error_t rc = OPENNSL_E_NONE;
     int entry_count = 0;
 
     VLOG_DBG("%s, Delete entry %d, unit = %d",
               __FUNCTION__,
-              l3_fp_grp_info[hw_unit].subint_fp_entry_id,
+              subintf_fp_grp_info[hw_unit].subint_fp_entry_id,
               hw_unit);
     rc = opennsl_field_entry_destroy(hw_unit, entryid);
     if (OPENNSL_FAILURE(rc)) {
@@ -3427,33 +3617,33 @@ ops_destroy_l3_fp_entry(int hw_unit, opennsl_field_entry_t entryid)
     /* check if the group has more entries,
        if not, then destroy the group */
     rc = opennsl_field_entry_multi_get(hw_unit,
-                                       l3_fp_grp_info[hw_unit].l3_fp_grpid,
+                                       subintf_fp_grp_info[hw_unit].l3_fp_grpid,
                                        0, /* get all entries in the grp */
                                        NULL, /* Array for entries */
                                        &entry_count);
     if (OPENNSL_FAILURE(rc)) {
         VLOG_ERR("Failed to get FP entries for l3 feature group = %d \
                 Unit=%d entry_count = %d rc=%s",
-                l3_fp_grp_info[hw_unit].l3_fp_grpid,
+                subintf_fp_grp_info[hw_unit].l3_fp_grpid,
                 hw_unit, entry_count, opennsl_errmsg(rc));
         return rc;
     }
     VLOG_DBG("%s group = %d entry_count = %d\n",
-              __FUNCTION__, l3_fp_grp_info[hw_unit].l3_fp_grpid, entry_count);
+              __FUNCTION__, subintf_fp_grp_info[hw_unit].l3_fp_grpid, entry_count);
 
     if (entry_count == 0) {
 
         VLOG_DBG("%s, Delete group = %d, unit = %d",
-                __FUNCTION__, l3_fp_grp_info[hw_unit].l3_fp_grpid, hw_unit);
+                __FUNCTION__, subintf_fp_grp_info[hw_unit].l3_fp_grpid, hw_unit);
         rc = opennsl_field_group_destroy(hw_unit,
-                                         l3_fp_grp_info[hw_unit].l3_fp_grpid);
+                                         subintf_fp_grp_info[hw_unit].l3_fp_grpid);
         if (OPENNSL_FAILURE(rc)) {
             VLOG_ERR("Failed to delete FP group for subinterface \
                     Unit=%d rc=%s",
                     hw_unit, opennsl_errmsg(rc));
             return rc;
         }
-        l3_fp_grp_info[hw_unit].l3_fp_grpid = -1;
+        subintf_fp_grp_info[hw_unit].l3_fp_grpid = -1;
     }
     return rc;
 }
@@ -3466,8 +3656,12 @@ ops_l3_fp_init(int hw_unit)
 {
     VLOG_DBG("%s Hw_unit = %d", __FUNCTION__, hw_unit);
     /* Group ID for l3 feature */
-    l3_fp_grp_info[hw_unit].l3_fp_grpid = -1;
+    subintf_fp_grp_info[hw_unit].l3_fp_grpid = -1;
     /* Entry id for all subinterface */
-    l3_fp_grp_info[hw_unit].subint_fp_entry_id = -1;
+    subintf_fp_grp_info[hw_unit].subint_fp_entry_id = -1;
+
+    /* Group IDs for l3 stats feature */
+    l3_rx_stats_fp_grps[hw_unit] = -1;
+    l3_tx_stats_fp_grps[hw_unit] = -1;
     return 0;
 }

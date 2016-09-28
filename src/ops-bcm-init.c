@@ -43,6 +43,7 @@
 #include "ops-mac-learning.h"
 #include "netdev-bcmsdk.h"
 #include "eventlog.h"
+#include "ops-mirrors.h"
 
 VLOG_DEFINE_THIS_MODULE(ops_bcm_init);
 
@@ -258,6 +259,12 @@ ops_bcm_appl_init(void)
         if (rc) {
             VLOG_ERR("QoS hw unit %d init failed, rc %d",
                       unit, rc);
+            return 1;
+        }
+
+        rc = bcmsdk_mirrors_init(unit);
+        if (rc) {
+            VLOG_ERR("MIRRORING/SPAN subsystem init failed");
             return 1;
         }
 

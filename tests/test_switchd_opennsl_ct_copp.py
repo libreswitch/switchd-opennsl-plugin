@@ -504,9 +504,9 @@ def fp_egress_test_stp_rule(**kwargs):
     LogOutput('info',  "Egress FP rule check passed for STP")
 
 
-def fp_ingress_test_bgp_rule(**kwargs):
+def fp_ingress_test_bgp_l4_dst_port_rule(**kwargs):
 
-    LogOutput('info', 'Verify BGP FPs in ingress pipeline')
+    LogOutput('info', 'Verify BGP L4 dst port FPs in ingress pipeline')
 
     buf = kwargs.get('show_buffer', None)
 
@@ -532,9 +532,42 @@ def fp_ingress_test_bgp_rule(**kwargs):
 
     ret = if_fp_rule_exists_with_values_in_fp_dump(buf, bgp_dict)
 
-    assert ret is True, "Ingress FP rule check failed for BGP"
+    assert ret is True, "Ingress FP rule check failed for BGP L4 dst port"
 
-    LogOutput('info',  "Ingress FP rule check passed for BGP")
+    LogOutput('info',  "Ingress FP rule check passed for BGP L4 dst port")
+
+
+def fp_ingress_test_bgp_l4_src_port_rule(**kwargs):
+
+    LogOutput('info', 'Verify BGP L4 src port FPs in ingress pipeline')
+
+    buf = kwargs.get('show_buffer', None)
+
+    bgp_dict = dict()
+    bgp_dict['Ingress'] = dict()
+    bgp_dict['Ingress']['data'] = ''
+    bgp_dict['Ingress']['mask'] = ''
+    bgp_dict['L4SrcPort'] = dict()
+    bgp_dict['L4SrcPort']['data'] = BGPL4Port
+    bgp_dict['L4SrcPort']['mask'] = '0xffff'
+    bgp_dict['DstIpLocal'] = dict()
+    bgp_dict['DstIpLocal']['data'] = '0x01'
+    bgp_dict['DstIpLocal']['mask'] = '0x01'
+    bgp_dict['IpProtocol'] = dict()
+    bgp_dict['IpProtocol']['data'] = IPProtocolTCP
+    bgp_dict['IpProtocol']['mask'] = '0xff'
+    bgp_dict['Action'] = dict()
+    bgp_dict['Action']['data'] = CPUQueueNewAction
+    bgp_dict['Action']['mask'] = ''
+    bgp_dict['CPUQueueNumber'] = dict()
+    bgp_dict['CPUQueueNumber']['data'] = '9'
+    bgp_dict['CPUQueueNumber']['mask'] = '0'
+
+    ret = if_fp_rule_exists_with_values_in_fp_dump(buf, bgp_dict)
+
+    assert ret is True, "Ingress FP rule check failed for BGP L4 src port"
+
+    LogOutput('info',  "Ingress FP rule check passed for BGP L4 src port")
 
 
 def fp_egress_test_bgp_rule(**kwargs):
@@ -547,9 +580,6 @@ def fp_egress_test_bgp_rule(**kwargs):
     bgp_dict['Egress'] = dict()
     bgp_dict['Egress']['data'] = ''
     bgp_dict['Egress']['mask'] = ''
-    bgp_dict['L4DstPort'] = dict()
-    bgp_dict['L4DstPort']['data'] = BGPL4Port
-    bgp_dict['L4DstPort']['mask'] = '0xffff'
     bgp_dict['IpProtocol'] = dict()
     bgp_dict['IpProtocol']['data'] = IPProtocolTCP
     bgp_dict['IpProtocol']['mask'] = '0xff'
@@ -1550,8 +1580,11 @@ class Test_copp_ct:
     def test_fp_egress_test_stp_rule(self):
         fp_egress_test_stp_rule(show_buffer=Test_copp_ct.FpEgressBuffer)
 
-    def test_fp_ingress_test_bgp_rule(self):
-        fp_ingress_test_bgp_rule(show_buffer=Test_copp_ct.FpIngressBuffer)
+    def test_fp_ingress_test_bgp_l4_dst_port_rule(self):
+        fp_ingress_test_bgp_l4_dst_port_rule(show_buffer=Test_copp_ct.FpIngressBuffer)
+
+    def test_fp_ingress_test_bgp_l4_src_port_rule(self):
+        fp_ingress_test_bgp_l4_src_port_rule(show_buffer=Test_copp_ct.FpIngressBuffer)
 
     def test_fp_egress_test_bgp_rule(self):
         fp_egress_test_bgp_rule(show_buffer=Test_copp_ct.FpEgressBuffer)

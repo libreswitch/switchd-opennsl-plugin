@@ -274,8 +274,10 @@ extern int ops_copp_ingress_fp_stp (uint32 unit,
 extern int ops_copp_egress_fp_stp (uint32 unit,
                                    opennsl_field_entry_t* egress_fp_entry,
                                    uint8 ingress_cpu_queue_number);
-extern int ops_copp_ingress_fp_bgp (uint32 unit,
-                                    opennsl_field_entry_t* ingress_fp_entry);
+extern int ops_copp_ingress_fp_bgp_L4_dst_port (uint32 unit,
+                                                opennsl_field_entry_t* ingress_fp_entry);
+extern int ops_copp_ingress_fp_bgp_L4_src_port (uint32 unit,
+                                                opennsl_field_entry_t* ingress_fp_entry);
 extern int ops_copp_egress_fp_bgp (uint32 unit,
                                    opennsl_field_entry_t* egress_fp_entry,
                                    uint8 ingress_cpu_queue_number);

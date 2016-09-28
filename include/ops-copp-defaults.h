@@ -150,7 +150,7 @@ OPS_DEF_COPP_CLASS(LLDP_PACKET, "LLDP packets", OPS_COPP_QOS_QUEUE_BPDU, 500, 50
 OPS_DEF_COPP_CLASS(STP_PACKET, "STP packets", OPS_COPP_QOS_QUEUE_CRITICAL, 1000, 1000, NULL, ops_copp_egress_fp_stp, OPS_COPP_INGRESS_FUNC_POINTERS(ops_copp_ingress_fp_stp))
 OPS_DEF_COPP_CLASS(IPV4_OPTIONS_PACKET, "IPv4 options packets", OPS_COPP_QOS_QUEUE_SWPATH, 250, 250, NULL, ops_copp_egress_fp_ipv4_options, OPS_COPP_INGRESS_FUNC_POINTERS(ops_copp_ingress_fp_ipv4_options))
 OPS_DEF_COPP_CLASS(IPV6_OPTIONS_PACKET, "IPv6 options packets", OPS_COPP_QOS_QUEUE_SWPATH, 250, 250, NULL, ops_copp_egress_fp_ipv6_options, OPS_COPP_INGRESS_FUNC_POINTERS(ops_copp_ingress_fp_ipv6_options))
-OPS_DEF_COPP_CLASS(BGP_PACKET, "BGP packets", OPS_COPP_QOS_QUEUE_IMPORTANT, 5000, 5000, NULL, ops_copp_egress_fp_bgp, OPS_COPP_INGRESS_FUNC_POINTERS(ops_copp_ingress_fp_bgp))
+OPS_DEF_COPP_CLASS(BGP_PACKET, "BGP packets", OPS_COPP_QOS_QUEUE_IMPORTANT, 5000, 5000, NULL, ops_copp_egress_fp_bgp, OPS_COPP_INGRESS_FUNC_POINTERS(ops_copp_ingress_fp_bgp_L4_dst_port, ops_copp_ingress_fp_bgp_L4_src_port))
 OPS_DEF_COPP_CLASS(DHCPV4_PACKET, "DHCPv4 packets", OPS_COPP_QOS_QUEUE_NORMAL, 500, 500, NULL, ops_copp_egress_fp_dhcpv4, OPS_COPP_INGRESS_FUNC_POINTERS(ops_copp_ingress_fp_dhcpv4))
 OPS_DEF_COPP_CLASS(DHCPV6_PACKET, "DHCPv6 packets", OPS_COPP_QOS_QUEUE_NORMAL, 500, 500, NULL, ops_copp_egress_fp_dhcpv6, OPS_COPP_INGRESS_FUNC_POINTERS(ops_copp_ingress_fp_dhcpv6))
 OPS_DEF_COPP_CLASS(ICMPV4_UCAST_PACKET, "ICMPV4 unicast packets", OPS_COPP_QOS_QUEUE_SWPATH, 1000, 1000, NULL, ops_copp_egress_fp_icmpv4_ucast, OPS_COPP_INGRESS_FUNC_POINTERS(ops_copp_ingress_fp_icmpv4_ucast))

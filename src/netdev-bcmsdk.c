@@ -71,6 +71,11 @@ struct kernel_l3_tx_stats {
     uint64_t ipv6_mc_tx_bytes;
 };
 
+/* FP groups for L3 RX and TX stats.
+ */
+opennsl_field_group_t l3_rx_stats_fp_grps[MAX_SWITCH_UNITS];
+opennsl_field_group_t l3_tx_stats_fp_grps[MAX_SWITCH_UNITS];
+
 struct netdev_bcmsdk {
     struct netdev up;
 
@@ -195,6 +200,26 @@ netdev_bcmsdk_populate_l3_stats(struct netdev_bcmsdk *netdev,
 
 static int netdev_bcmsdk_construct(struct netdev *);
 
+opennsl_field_group_t
+ops_l3intf_ingress_stats_group_id_for_hw_unit(int unit)
+{
+    if(unit < 0) {
+       return -1;
+    }
+
+    return l3_rx_stats_fp_grps[unit];
+}
+
+opennsl_field_group_t
+ops_l3intf_egress_stats_group_id_for_hw_unit(int unit)
+{
+    if(unit < 0) {
+       return -1;
+    }
+
+    return l3_tx_stats_fp_grps[unit];
+}
+
 /* Global struct to keep track of L3 ingress stats mode */
 struct l3_stats_mode_t {
     uint32_t mode_id;
@@ -278,6 +303,17 @@ netdev_from_hw_id(int hw_unit, int hw_id)
                 netdev->port_info->lanes_split_status == true) {
                 continue;
             }
+
+            /*
+             * If the port is a subport and the parent is not split,
+             * then skip it.
+             */
+            if (netdev->is_split_subport &&
+                netdev->split_parent_portp &&
+                netdev->split_parent_portp->lanes_split_status == false) {
+                continue;
+            }
+
             found = true;
             break;
         }
@@ -298,8 +334,8 @@ void netdev_port_name_from_hw_id(int hw_unit,
 
     netdev = netdev_from_hw_id(hw_unit, hw_id);
 
-    if (netdev && netdev->port_info) {
-        strncpy(str, netdev->port_info->name, PORT_NAME_SIZE);
+    if (netdev) {
+        strncpy(str, netdev->up.name, PORT_NAME_SIZE);
     }
 }
 
@@ -2043,6 +2079,49 @@ netdev_bcmsdk_l3intf_fp_stats_create(const struct netdev *netdev_, opennsl_vlan_
         return OPENNSL_E_NONE;
     }
 
+    opennsl_field_qset_t l3_fp_rx_stats_qset;
+    opennsl_field_qset_t l3_fp_tx_stats_qset;
+    OPENNSL_FIELD_QSET_INIT(l3_fp_rx_stats_qset);
+    OPENNSL_FIELD_QSET_INIT(l3_fp_tx_stats_qset);
+
+    /* RX counter stats */
+    OPENNSL_FIELD_QSET_ADD (l3_fp_rx_stats_qset, opennslFieldQualifyIpType);
+    OPENNSL_FIELD_QSET_ADD (l3_fp_rx_stats_qset, opennslFieldQualifyL3Ingress);
+    OPENNSL_FIELD_QSET_ADD (l3_fp_rx_stats_qset, opennslFieldQualifyPacketRes);
+
+    /* TX counter stats */
+    OPENNSL_FIELD_QSET_ADD (l3_fp_tx_stats_qset, opennslFieldQualifyIpType);
+    OPENNSL_FIELD_QSET_ADD (l3_fp_tx_stats_qset, opennslFieldQualifyDstPort);
+    OPENNSL_FIELD_QSET_ADD (l3_fp_tx_stats_qset, opennslFieldQualifyPacketRes);
+
+    /* Initialize fp groups if this is the first time */
+    if(l3_rx_stats_fp_grps[hw_unit] == -1)
+    {
+        rc = opennsl_field_group_create(hw_unit, l3_fp_rx_stats_qset,
+                                        FP_GROUP_PRIORITY_0,
+                                        &l3_rx_stats_fp_grps[hw_unit]);
+        if (OPENNSL_FAILURE(rc)) {
+            VLOG_ERR("Failed to create FP group Unit=%d, rc=%s",
+                    hw_unit, opennsl_errmsg(rc));
+            return rc;
+        }
+        VLOG_DBG("%s, Created FP Group = %d for unit = %d",
+                 __FUNCTION__, l3_rx_stats_fp_grps[hw_unit], hw_unit);
+    }
+    if(l3_tx_stats_fp_grps[hw_unit] == -1)
+    {
+        rc = opennsl_field_group_create(hw_unit, l3_fp_tx_stats_qset,
+                                        FP_GROUP_PRIORITY_0,
+                                        &l3_tx_stats_fp_grps[hw_unit]);
+    if (OPENNSL_FAILURE(rc)) {
+            VLOG_ERR("Failed to create FP group Unit=%d, rc=%s",
+                    hw_unit, opennsl_errmsg(rc));
+        return rc;
+    }
+        VLOG_DBG("%s, Created FP Group = %d for unit = %d",
+                 __FUNCTION__, l3_tx_stats_fp_grps[hw_unit], hw_unit);
+    }
+
     opennsl_field_stat_t stat_ifp[2]= {opennslFieldStatPackets, opennslFieldStatBytes};
 
     netdev->l3_stat_fp_entries = (opennsl_field_entry_t *) xzalloc(sizeof(opennsl_field_entry_t) \
@@ -2051,14 +2130,6 @@ netdev_bcmsdk_l3intf_fp_stats_create(const struct netdev *netdev_, opennsl_vlan_
 
     opennsl_field_entry_t *fp_entries = netdev->l3_stat_fp_entries;
     int *stat_ids = netdev->l3_stat_fp_ids;
-
-    rc = ops_create_l3_fp_group(hw_unit);
-    if (OPENNSL_FAILURE(rc)) {
-        VLOG_ERR("Failed to create FP group for L3 features \
-                Unit=%d port=%d rc=%s",
-                hw_unit, hw_port, opennsl_errmsg(rc));
-        return rc;
-    }
 
     rc = netdev_bcmsdk_qualify_ingress_unicast_entries(hw_unit, fp_entries,
                                                        stat_ids, &(stat_ifp[0]),
@@ -2288,7 +2359,7 @@ netdev_bcmsdk_l3intf_fp_stats_destroy(opennsl_port_t hw_port, int hw_unit)
         if(fp_entries && fp_entries[i] > 0)
         {
             VLOG_DBG("%s Destroy Field entry for port %d", __FUNCTION__, hw_port);
-            rc = ops_destroy_l3_fp_entry(hw_unit, fp_entries[i]);
+            rc = opennsl_field_entry_destroy(hw_unit, fp_entries[i]);
             if (OPENNSL_FAILURE(rc)) {
                 VLOG_ERR("Error while destroying FP stats \
                         Unit=%d portid=%d. rc=%s",
@@ -2319,9 +2390,9 @@ netdev_bcmsdk_qualify_ingress_entry(int unit, opennsl_field_entry_t *entry_id, i
 {
     opennsl_error_t rc = OPENNSL_E_NONE;
     VLOG_DBG("%s Add entry to group = %d, vlan_id = %d", __FUNCTION__,
-                                  l3_fp_grp_info[unit].l3_fp_grpid, vlan_id);
+             l3_rx_stats_fp_grps[unit], vlan_id);
     rc = opennsl_field_entry_create(unit,
-                                    l3_fp_grp_info[unit].l3_fp_grpid,
+                                    l3_rx_stats_fp_grps[unit],
                                     entry_id);
     if (OPENNSL_FAILURE(rc)) {
         VLOG_ERR("Failed to create FP ingress stat entry \
@@ -2351,7 +2422,7 @@ netdev_bcmsdk_qualify_ingress_entry(int unit, opennsl_field_entry_t *entry_id, i
         return rc;
     }
     rc = opennsl_field_stat_create(unit,
-                                   l3_fp_grp_info[unit].l3_fp_grpid,
+                                   l3_rx_stats_fp_grps[unit],
                                    2, stat_ifp, stat_id);
     if (OPENNSL_FAILURE(rc)) {
         VLOG_ERR("Failed to create stat id for FP ingress stat entry \
@@ -2384,10 +2455,10 @@ netdev_bcmsdk_qualify_egress_entry(int unit, opennsl_field_entry_t *entry_id, in
 {
     opennsl_error_t rc = OPENNSL_E_NONE;
     VLOG_DBG("%s Add entry to group = %d, port = %d",
-              __FUNCTION__, l3_fp_grp_info[unit].l3_fp_grpid,
+              __FUNCTION__, l3_tx_stats_fp_grps[unit],
               portid);
     rc = opennsl_field_entry_create(unit,
-                                    l3_fp_grp_info[unit].l3_fp_grpid,
+                                    l3_tx_stats_fp_grps[unit],
                                     entry_id);
     if (OPENNSL_FAILURE(rc)) {
         VLOG_ERR("Failed to create FP egress stat entry \
@@ -2417,7 +2488,7 @@ netdev_bcmsdk_qualify_egress_entry(int unit, opennsl_field_entry_t *entry_id, in
         return rc;
     }
     rc = opennsl_field_stat_create(unit,
-                                   l3_fp_grp_info[unit].l3_fp_grpid,
+                                   l3_tx_stats_fp_grps[unit],
                                    2, stat_ifp, stat_id);
     if (OPENNSL_FAILURE(rc)) {
         VLOG_ERR("Failed to create stat id for FP egress stat entry \

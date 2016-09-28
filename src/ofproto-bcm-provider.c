@@ -46,9 +46,8 @@
 #include "ops-qos.h"
 #include "qos-asic-provider.h"
 #include "ops-mac-learning.h"
-#include "eventlog.h"
-#include "ops-stats.h"
 #include "ops-mirrors.h"
+#include "eventlog.h"
 #include "ops-classifier.h"
 #include "ofproto-ofdpa.h"
 
@@ -1165,6 +1164,9 @@ bundle_destroy(struct ofbundle *bundle)
     ofproto = bundle->ofproto;
     VLOG_DBG("%s, destroying bundle = %s", __FUNCTION__, bundle->name);
 
+    /* Unconfigure all IP's for this port */
+    port_unconfigure_ips(bundle);
+
     LIST_FOR_EACH_SAFE (port, next_port, bundle_node, &bundle->ports) {
 
         type = netdev_get_type(port->up.netdev);
@@ -1685,7 +1687,7 @@ bundle_set(struct ofproto *ofproto_, void *aux,
         (s->hw_bond_should_exist || (s->bond_handle_alloc_only))) {
         /* Create a h/w LAG if there is more than one member present
            in the bundle or if requested by upper layer. */
-        bcmsdk_create_lag(&bundle->bond_hw_handle);
+        bcmsdk_create_lag(&bundle->bond_hw_handle, s->name);
         log_event("LAG_CREATE",
                    EV_KV("lag_id", "%s", bundle->name));
         VLOG_DBG("%s: Allocated bond_hw_handle# %d for port %s",
@@ -1848,10 +1850,8 @@ bundle_set(struct ofproto *ofproto_, void *aux,
         }
     }
 
-    /* Check for ip changes */
-    if ( (bundle->l3_intf) ) {
-        port_ip_reconfigure(ofproto_, bundle, s);
-    }
+    /* Check for ip changes. IP config can come in any order, no l3_int check */
+    port_ip_reconfigure(ofproto_, bundle, s);
 
     /* Look for port configuration options
      * FIXME: - fill up stubs with actual actions */
@@ -2046,8 +2046,12 @@ bundle_set(struct ofproto *ofproto_, void *aux,
         }
     }
 
-    /* Update set of ports. */
-    if ((!ofproto->vrf) || (ofproto->vrf && bundle->l3_intf)) {
+    /* Update set of ports only for L2 and L3 interfaces and L2 LAG,
+       but in case of L3 LAG, we need to update ports to bundle only
+       if bundle->l3_intf is created. This is required because L3 LAG
+       needs to update the VLAN bitmap before updating bundle->ports */
+    if ((!ofproto->vrf) || (ofproto->vrf && !s->hw_bond_should_exist) ||
+        (ofproto->vrf && s->hw_bond_should_exist && bundle->l3_intf)) {
         ok = true;
         for (i = 0; i < s->n_slaves; i++) {
             if (!bundle_add_port(bundle, s->slaves[i], NULL)) {
@@ -2203,7 +2207,7 @@ bundle_set(struct ofproto *ofproto_, void *aux,
                         bcmsdk_del_access_ports(bundle->vlan, temp_pbm);
                      }
 
-                     /* Add all new trunk VLANs. */
+                    /* Add all new trunk VLANs. */
                      config_all_vlans(s->vlan_mode, s->vlan,
                                  new_trunks, temp_pbm);
                     break;
@@ -2221,7 +2225,7 @@ bundle_set(struct ofproto *ofproto_, void *aux,
                     }
                     break;
                 case PORT_VLAN_NATIVE_UNTAGGED:
-                    if (bundle->vlan == DEFAULT_VID) {
+                    if (bundle->vlan == 1) {
                         bcmsdk_del_native_untagged_ports(DEFAULT_VID, temp_pbm, false);
                     }
 
@@ -3425,6 +3429,7 @@ const struct ofproto_class ofproto_bcm_provider_class = {
     .mirror_get_stats = mirror_get_stats__,
 
     NULL,                       /* may implement set_flood_vlans */
+
     .is_mirror_output_bundle = is_mirror_output_bundle,
     forward_bpdu_changed,
     NULL,                       /* may implement set_mac_table_config */

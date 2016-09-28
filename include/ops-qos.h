@@ -230,6 +230,9 @@ extern void
 ops_qos_dump_statistics(struct ds *ds);
 
 extern void
+ops_qos_port_config(struct ds *ds);
+
+extern void
 ops_qos_dump_all(struct ds *ds);
 
 #endif /* __OPS_QOS_H__ */

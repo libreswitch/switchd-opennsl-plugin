@@ -32,6 +32,10 @@
 #include "ops-debug.h"
 #include "ops-lag.h"
 #include "eventlog.h"
+#include "string.h"
+#include "hmap.h"
+#include "hash.h"
+#include "mac-learning-plugin.h"
 
 VLOG_DEFINE_THIS_MODULE(ops_lag);
 
@@ -47,12 +51,21 @@ typedef struct ops_lag_data {
 
 } ops_lag_data_t;
 
+struct lag_port {
+    struct hmap_node hmap_node;
+    int hw_unit;
+    opennsl_trunk_t lag_id;
+    char port_name[PORT_NAME_SIZE];
+};
+
 static int lags_data_initialized = 0;
 TAILQ_HEAD(ops_lag_data_head, ops_lag_data) ops_lags;
 
 /* Broadcom switch chip module ID.
    OPS_TODO: Support multiple switch chips. */
 #define MODID_0         0
+
+static struct hmap all_lag_ports = HMAP_INITIALIZER(&all_lag_ports);
 
 static ops_lag_data_t *find_lag_data(opennsl_trunk_t lag_id);
 static void hw_lag_detach_port(int unit, opennsl_trunk_t lag_id, opennsl_port_t hw_port);
@@ -435,6 +448,11 @@ hw_set_lag_balance_mode(int unit, opennsl_trunk_t lag_id, int lag_mode)
 
 ////////////////////////////// INTERNAL API ///////////////////////////////
 
+static uint32_t ops_lag_port_calc_hash(int hw_unit, opennsl_trunk_t lag_id)
+{
+    return (hash_2words(hw_unit, lag_id));
+}
+
 static ops_lag_data_t *
 find_lag_data(opennsl_trunk_t lag_id)
 {
@@ -487,13 +505,69 @@ get_lag_data(opennsl_trunk_t lag_id)
 
 } // get_lag_data
 
+static struct lag_port *
+ops_lag_port_hmap_find (int hw_unit, opennsl_trunk_t lag_id)
+{
+    struct lag_port *lag_port = NULL;
+    uint32_t hash = ops_lag_port_calc_hash(hw_unit, lag_id);
+
+    VLOG_DBG("%s: hw_unit: %d, lag_id: %d", __FUNCTION__, hw_unit, lag_id);
+    HMAP_FOR_EACH_WITH_HASH (lag_port, hmap_node, hash, &all_lag_ports) {
+        if ((lag_port->lag_id == lag_id) && (lag_port->hw_unit == hw_unit)) {
+            break;
+        }
+    }
+
+    return (lag_port);
+}
+
+static void ops_lag_port_hmap_remove (int hw_unit, opennsl_trunk_t lag_id)
+{
+    struct lag_port *lag_port;
+
+    VLOG_DBG("%s: hw_unit: %d, lag_id: %d", __FUNCTION__, hw_unit, lag_id);
+    lag_port = ops_lag_port_hmap_find(hw_unit, lag_id);
+
+    if (lag_port) {
+        hmap_remove(&all_lag_ports, &lag_port->hmap_node);
+        free(lag_port);
+    } else {
+        VLOG_DBG("%s: hw_unit: %d, lag_id: %d entry not found in hmap",
+                 __FUNCTION__, hw_unit, lag_id);
+    }
+}
+
+static void
+ops_lag_port_hmap_insert (int hw_unit, opennsl_trunk_t lag_id, char *port_name)
+{
+    struct lag_port *lag_port;
+
+    if (!port_name) {
+        VLOG_ERR("%s cannot insert in hmap, port_name is NULL, hw_unit: %d, lag_id: %d",
+                 __FUNCTION__, hw_unit, lag_id);
+        return;
+    }
+
+    VLOG_DBG("%s: hw_unit: %d, lag_id: %d, port_name:%s", __FUNCTION__, hw_unit, lag_id, port_name);
+    lag_port = xmalloc(sizeof(struct lag_port));
+    lag_port->hw_unit = hw_unit;
+    lag_port->lag_id = lag_id;
+    strncpy(lag_port->port_name, port_name, PORT_NAME_SIZE);
+    hmap_insert(&all_lag_ports, &lag_port->hmap_node, ops_lag_port_calc_hash(hw_unit, lag_id));
+}
+
 //////////////////////////////// Public API //////////////////////////////
 
 void
-bcmsdk_create_lag(opennsl_trunk_t *lag_idp)
+bcmsdk_create_lag(opennsl_trunk_t *lag_idp, char *port_name)
 {
     int unit = 0;
     ops_lag_data_t *lagp;
+
+    if (!lag_idp) {
+        VLOG_ERR("%s: lag_idp is NULL", __FUNCTION__);
+        return;
+    }
 
     SW_LAG_DBG("entry: lag_id=%d", *lag_idp);
 
@@ -513,6 +587,9 @@ bcmsdk_create_lag(opennsl_trunk_t *lag_idp)
     lagp->lag_id = *lag_idp;
     lagp->hw_created = 1;
 
+    if (port_name) {
+        ops_lag_port_hmap_insert(unit, *lag_idp, port_name);
+    }
     SW_LAG_DBG("done");
 
 } // bcmsdk_create_lag
@@ -535,6 +612,7 @@ bcmsdk_destroy_lag(opennsl_trunk_t lag_id)
         VLOG_WARN("Deleting non-existing LAG, LAG_ID=%d", lag_id);
     }
 
+    ops_lag_port_hmap_remove(unit, lag_id);
     SW_LAG_DBG("done");
 
 } // bcmsdk_destroy_lag
@@ -683,3 +761,23 @@ bcmsdk_set_lag_balance_mode(opennsl_trunk_t lag_id, int lag_mode)
     SW_LAG_DBG("done");
 
 } // bcmsdk_set_lag_balance_mode
+
+void ops_lag_get_port_name(opennsl_trunk_t lag_id, int hw_unit, char *port_name)
+{
+    struct lag_port *lag_port;
+
+    if (!port_name || lag_id < 0) {
+        return;
+    }
+
+    lag_port = ops_lag_port_hmap_find(hw_unit, lag_id);
+
+    if (lag_port) {
+        VLOG_DBG("%s: hw_unit: %d, lag_id: %d, port_name:%s", __FUNCTION__,
+                 hw_unit, lag_id, lag_port->port_name);
+        strncpy(port_name, lag_port->port_name, PORT_NAME_SIZE);
+    } else {
+        VLOG_ERR("%s: hw_unit: %d, lag_id: %d, port_name not found",
+                 __FUNCTION__, hw_unit, lag_id);
+    }
+}
